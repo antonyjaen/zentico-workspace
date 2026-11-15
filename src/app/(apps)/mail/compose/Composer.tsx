@@ -10,7 +10,7 @@ import { composeHref, parseCompose } from "../hrefs";
 import { discardDraftAction, loadCompose, saveDraftAction, sendAction } from "./actions";
 import { parseRecipients, RecipientField, toRecipient, type Recipient } from "./RecipientField";
 import { RichEditor } from "./RichEditor";
-import { escapeHtml, sanitizeHtml, SIGNATURE_ATTR, textToHtml } from "./sanitize";
+import { escapeHtml, htmlToText, sanitizeHtml, SIGNATURE_ATTR, textToHtml } from "./sanitize";
 
 // Mirrors MAX_ATTACHMENT_BYTES in src/lib/mail-compose.ts (enforced again server-side).
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
@@ -200,7 +200,14 @@ function ComposerPanel({
 
   function quoteHeader(q: QuotedOriginal) {
     const date = q.sentAt
-      ? new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(q.sentAt))
+      ? new Intl.DateTimeFormat(locale, {
+          weekday: "short",
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        }).format(new Date(q.sentAt))
       : "";
     return { date, from: q.from.map(formatAddress).join(", ") };
   }
@@ -209,23 +216,26 @@ function ComposerPanel({
     if (p.draftId || (!p.quote && (p.html || p.text))) {
       return p.html ? sanitizeHtml(p.html) : textToHtml(p.text ?? "");
     }
+    // Reply text, then the signature, then the quoted original (Gmail-style "signature above quote").
     const sig = signatureHtml(identity);
     const sigBlock = `<div ${SIGNATURE_ATTR}="">${sig ? `<br>-- <br>${sig}` : ""}</div>`;
     let out = `<div><br></div>${sigBlock}`;
     const q = p.quote;
     if (!q) return out;
+    // The original keeps its formatting (sanitized); plain-text originals keep their line breaks.
     const original = q.html ? sanitizeHtml(q.html) : textToHtml(q.text ?? "");
     const { date, from } = quoteHeader(q);
     if (value.startsWith("forward")) {
+      const field = (label: string, v: string) => `<b>${escapeHtml(label)}:</b> ${escapeHtml(v)}`;
       const lines = [
-        t("forward.header"),
-        `${t("forward.from")}: ${from}`,
-        date && `${t("forward.date")}: ${date}`,
-        `${t("forward.subject")}: ${q.subject}`,
-        q.to.length && `${t("forward.to")}: ${q.to.map(formatAddress).join(", ")}`,
-        q.cc.length && `${t("forward.cc")}: ${q.cc.map(formatAddress).join(", ")}`,
+        escapeHtml(t("forward.header")),
+        field(t("forward.from"), from),
+        date && field(t("forward.date"), date),
+        field(t("forward.subject"), q.subject),
+        q.to.length && field(t("forward.to"), q.to.map(formatAddress).join(", ")),
+        q.cc.length && field(t("forward.cc"), q.cc.map(formatAddress).join(", ")),
       ].filter(Boolean) as string[];
-      out += `<br><div>${lines.map(escapeHtml).join("<br>")}</div><br><div>${original}</div>`;
+      out += `<br><div>${lines.join("<br>")}</div><br><div>${original}</div>`;
     } else {
       const header = date ? t("replyHeader", { date, name: from }) : t("replyHeaderNoDate", { name: from });
       out += `<br><div>${escapeHtml(header)}</div><blockquote>${original}</blockquote>`;
@@ -238,7 +248,8 @@ function ComposerPanel({
   function payload(forSend: boolean) {
     const s = state.current;
     const html = editorRef.current?.innerHTML ?? "";
-    const text = editorRef.current?.innerText ?? "";
+    // Structured plain-text alternative ("> " quoting) rather than the editor's rendered text.
+    const text = editorRef.current ? htmlToText(editorRef.current) : "";
     const emails = (list: Recipient[]) => list.filter((r) => forSend || r.valid).map((r) => r.email);
     const attachments: ComposeAttachment[] = s.uploads
       .filter((u) => u.blobId && !u.error)

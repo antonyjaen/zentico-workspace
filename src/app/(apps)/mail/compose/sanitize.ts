@@ -72,3 +72,64 @@ export function escapeHtml(s: string): string {
 export function textToHtml(text: string): string {
   return escapeHtml(text).replace(/\r?\n/g, "<br>");
 }
+
+const TEXT_BLOCKS = new Set([
+  "P", "DIV", "PRE", "H1", "H2", "H3", "H4", "H5", "H6", "UL", "OL", "TABLE", "TR", "SECTION", "ARTICLE",
+]);
+
+/**
+ * Plain-text alternative of the composed HTML: line breaks from blocks and <br>, "- " bullets,
+ * link targets in <…>, and quoted history prefixed with "> " like every mail client expects.
+ */
+export function htmlToText(root: Node): string {
+  let text = "";
+  const newline = () => {
+    if (text && !text.endsWith("\n")) text += "\n";
+  };
+  const walk = (node: Node, pre: boolean) => {
+    for (const child of Array.from(node.childNodes)) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        const s = child.textContent ?? "";
+        text += pre ? s : s.replace(/\s+/g, " ");
+        continue;
+      }
+      if (child.nodeType !== Node.ELEMENT_NODE) continue;
+      const el = child as Element;
+      const tag = el.tagName.toUpperCase();
+      if (tag === "BR") {
+        text += "\n";
+      } else if (tag === "BLOCKQUOTE") {
+        newline();
+        const inner = htmlToText(el).replace(/\n+$/, "");
+        if (inner) text += inner.split("\n").map((l) => (l ? `> ${l}` : ">")).join("\n") + "\n";
+      } else if (tag === "LI") {
+        newline();
+        text += "- ";
+        walk(el, pre);
+        newline();
+      } else if (tag === "HR") {
+        newline();
+        text += "----------\n";
+      } else if (tag === "A") {
+        walk(el, pre);
+        const href = el.getAttribute("href");
+        if (href && /^https?:/i.test(href) && href !== el.textContent?.trim()) text += ` <${href}>`;
+      } else if (tag === "TD" || tag === "TH") {
+        walk(el, pre);
+        text += " ";
+      } else if (TEXT_BLOCKS.has(tag)) {
+        newline();
+        walk(el, pre || tag === "PRE");
+        newline();
+      } else {
+        walk(el, pre);
+      }
+    }
+  };
+  walk(root, false);
+  return text
+    .replace(/([^\n-])[ \t]+\n/g, "$1\n") // keeps the "-- " signature delimiter
+    .replace(/\n[ ]+(?=\S)/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}

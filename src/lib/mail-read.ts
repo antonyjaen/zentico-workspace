@@ -65,12 +65,22 @@ export function cleanFileName(name: string | null | undefined): string {
   return cleaned && cleaned !== "." && cleaned !== ".." ? cleaned : "attachment";
 }
 
-/** Same-origin URL of the blob proxy route. */
-export function blobHref(blobId: string, name: string | null, type: string | null, inline = false): string {
+/** Same-origin URL of the blob proxy route. `mode` "text" serves the start of the blob as plain text. */
+export function blobHref(
+  blobId: string,
+  name: string | null,
+  type: string | null,
+  mode: boolean | "inline" | "text" = false,
+): string {
   const q = new URLSearchParams({ name: cleanFileName(name), type: type && MIME.test(type) ? type : "application/octet-stream" });
-  if (inline) q.set("inline", "1");
+  if (mode === true || mode === "inline") q.set("inline", "1");
+  if (mode === "text") q.set("text", "1");
   return `${BLOB_ROUTE}${encodeURIComponent(blobId)}?${q}`;
 }
+
+/** Types the blob route serves inline for previews (raster images; PDF framed same-origin only). */
+export const isPreviewable = (type: string) =>
+  INLINE_IMAGE_TYPES.has(type.toLowerCase()) || type.toLowerCase() === "application/pdf";
 
 /** Origin of the current request (used to scope the frame's CSP to our blob route). */
 export async function requestOrigin(): Promise<string> {
@@ -105,6 +115,8 @@ type BodyPart = {
 
 type RawEmail = {
   id: string;
+  blobId?: string | null;
+  size?: number;
   threadId: string;
   mailboxIds: Record<string, boolean>;
   keywords: Record<string, boolean>;
@@ -121,6 +133,9 @@ type RawEmail = {
   textBody: BodyPart[];
   attachments: BodyPart[];
   bodyValues: Record<string, { value: string; isTruncated?: boolean }>;
+  "header:Return-Path:asText"?: string | null;
+  "header:Authentication-Results:asText:all"?: string[] | null;
+  "header:Received:asText:all"?: string[] | null;
 };
 
 export type Attachment = {
@@ -128,7 +143,20 @@ export type Attachment = {
   name: string;
   type: string;
   size: number;
+  /** Download URL (Content-Disposition: attachment). */
   href: string;
+  /** Inline URL for thumbnails / preview (raster images and PDF), else null. */
+  inlineHref: string | null;
+};
+
+/** What the receiving server recorded about delivery; every field is best effort. */
+export type Delivery = {
+  /** Envelope sender domain (Return-Path). */
+  mailedBy: string | null;
+  /** Domain of a passing DKIM signature, from our server's Authentication-Results. */
+  signedBy: string | null;
+  /** Whether the last hop used TLS; null when unknown. */
+  tls: boolean | null;
 };
 
 export type ReadMessage = {
@@ -147,13 +175,24 @@ export type ReadMessage = {
   preview: string;
   /** Complete, sanitized document for an `<iframe srcdoc>`; null for plain-text messages. */
   html: string | null;
+  /**
+   * True when the HTML is a designed email (own backgrounds, colors, layout tables): it keeps a
+   * white "paper" look. Simple HTML is restyled with the app's theme instead.
+   */
+  rich: boolean;
   text: string | null;
   hasRemoteImages: boolean;
   truncated: boolean;
   attachments: Attachment[];
+  /** Raw message download (.eml) and plain-text source view; null if the server sent no blobId. */
+  emlHref: string | null;
+  sourceHref: string | null;
+  delivery: Delivery;
 };
 
 const EMAIL_PROPERTIES = [
+  "blobId",
+  "size",
   "threadId",
   "mailboxIds",
   "keywords",
@@ -171,6 +210,12 @@ const EMAIL_PROPERTIES = [
   "attachments",
   "bodyValues",
 ];
+/** Optional delivery headers; dropped (and the request retried) if the server rejects them. */
+const HEADER_PROPERTIES = [
+  "header:Return-Path:asText",
+  "header:Authentication-Results:asText:all",
+  "header:Received:asText:all",
+];
 const BODY_PROPERTIES = ["partId", "blobId", "size", "name", "type", "charset", "disposition", "cid"];
 
 /** Loads every message of a thread (oldest first), with sanitized bodies. Null if not found. */
@@ -180,22 +225,30 @@ export async function getThread(
 ): Promise<ReadMessage[] | null> {
   if (!ID.test(threadId)) return null;
   const accountId = await primaryAccount(CAP.mail);
-  const r = await jmap([
-    ["Thread/get", { accountId, ids: [threadId] }, "t"],
-    [
-      "Email/get",
-      {
-        accountId,
-        "#ids": { resultOf: "t", name: "Thread/get", path: "/list/*/emailIds" },
-        properties: EMAIL_PROPERTIES,
-        bodyProperties: BODY_PROPERTIES,
-        fetchHTMLBodyValues: true,
-        fetchTextBodyValues: true,
-        maxBodyValueBytes: 2_000_000,
-      },
-      "e",
-    ],
-  ]);
+  const load = (properties: string[]) =>
+    jmap([
+      ["Thread/get", { accountId, ids: [threadId] }, "t"],
+      [
+        "Email/get",
+        {
+          accountId,
+          "#ids": { resultOf: "t", name: "Thread/get", path: "/list/*/emailIds" },
+          properties,
+          bodyProperties: BODY_PROPERTIES,
+          fetchHTMLBodyValues: true,
+          fetchTextBodyValues: true,
+          maxBodyValueBytes: 2_000_000,
+        },
+        "e",
+      ],
+    ]);
+  let r: Awaited<ReturnType<typeof jmap>>;
+  try {
+    r = await load([...EMAIL_PROPERTIES, ...HEADER_PROPERTIES]);
+  } catch (e) {
+    if (!(e instanceof JmapError)) throw e;
+    r = await load(EMAIL_PROPERTIES); // header properties unsupported: show the thread without them
+  }
   const thread = (r.t.list as { id: string; emailIds: string[] }[] | undefined)?.[0];
   if (!thread) return null;
   const byId = new Map(((r.e.list as RawEmail[]) ?? []).map((e) => [e.id, e]));
@@ -222,6 +275,7 @@ function toReadMessage(e: RawEmail, opts: { allowRemoteImages: boolean; origin: 
   let html: string | null = null;
   let text: string | null = null;
   let hasRemoteImages = false;
+  let rich = false;
   const usedCids = new Set<string>();
   const inlinedBlobs = new Set<string>();
 
@@ -241,7 +295,9 @@ function toReadMessage(e: RawEmail, opts: { allowRemoteImages: boolean; origin: 
         chunks.push(`<img src="${escapeHtml(blobHref(p.blobId, p.name, p.type, true))}" alt="">`);
       }
     }
-    html = frameDocument(chunks.join("\n"), { allowRemoteImages: opts.allowRemoteImages, origin: opts.origin });
+    const body = chunks.join("\n");
+    rich = looksDesigned(body);
+    html = frameDocument(body, { allowRemoteImages: opts.allowRemoteImages, origin: opts.origin });
   } else {
     const chunks: string[] = [];
     for (const p of e.textBody ?? []) {
@@ -258,8 +314,18 @@ function toReadMessage(e: RawEmail, opts: { allowRemoteImages: boolean; origin: 
     if (p.cid && usedCids.has(normalizeCid(p.cid))) continue; // already shown inline
     if (inlinedBlobs.has(p.blobId)) continue;
     const name = cleanFileName(p.name);
-    attachments.push({ blobId: p.blobId, name, type: p.type, size: p.size, href: blobHref(p.blobId, name, p.type) });
+    attachments.push({
+      blobId: p.blobId,
+      name,
+      type: p.type,
+      size: p.size,
+      href: blobHref(p.blobId, name, p.type),
+      inlineHref: isPreviewable(p.type) ? blobHref(p.blobId, name, p.type, "inline") : null,
+    });
   }
+
+  const emlName = `${(e.subject ?? "").trim().slice(0, 120) || "message"}.eml`;
+  const emailBlob = e.blobId && BLOB_ID.test(e.blobId) ? e.blobId : null;
 
   return {
     id: e.id,
@@ -276,11 +342,93 @@ function toReadMessage(e: RawEmail, opts: { allowRemoteImages: boolean; origin: 
     receivedAt: e.receivedAt,
     preview: e.preview ?? "",
     html,
+    rich,
     text,
     hasRemoteImages,
     truncated,
     attachments,
+    emlHref: emailBlob ? blobHref(emailBlob, emlName, "message/rfc822") : null,
+    sourceHref: emailBlob ? blobHref(emailBlob, emlName, "text/plain", "text") : null,
+    delivery: deliveryOf(e),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Delivery details (mailed-by / signed-by / TLS)
+
+const DOMAIN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i;
+
+function deliveryOf(e: RawEmail): Delivery {
+  const returnPath = e["header:Return-Path:asText"] ?? "";
+  const rpDomain = returnPath.match(/@([^\s>]+)/)?.[1]?.toLowerCase() ?? null;
+  // Only the topmost Authentication-Results is trusted: our own server added it.
+  const auth = e["header:Authentication-Results:asText:all"]?.[0] ?? "";
+  const dkim = auth.match(/\bdkim=pass\b[^;]*?\bheader\.d=([^\s;]+)/i)?.[1]?.toLowerCase() ?? null;
+  const received = e["header:Received:asText:all"]?.[0];
+  return {
+    mailedBy: rpDomain && DOMAIN.test(rpDomain) ? rpDomain : null,
+    signedBy: dkim && DOMAIN.test(dkim) ? dkim : null,
+    tls: received ? /\bwith\s+E?SMTPSA?\b|\bTLS/i.test(received) : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Designed vs. simple HTML
+
+type Rgb = [number, number, number];
+
+const NAMED: Record<string, Rgb> = {
+  white: [255, 255, 255],
+  black: [0, 0, 0],
+  snow: [255, 250, 250],
+  whitesmoke: [245, 245, 245],
+  windowtext: [0, 0, 0],
+};
+const NEUTRAL_KEYWORDS = new Set(["transparent", "inherit", "initial", "unset", "none", "currentcolor", "window", "auto"]);
+
+function parseColor(v: string): Rgb | "neutral" | null {
+  // First token only: shorthands like `background: #fff none repeat`.
+  const s = (v.trim().toLowerCase().match(/^(?:rgba?\([^)]*\)|\S+)/)?.[0] ?? "").replace(/!important$/, "");
+  if (NEUTRAL_KEYWORDS.has(s)) return "neutral";
+  if (NAMED[s]) return NAMED[s];
+  let m = s.match(/^#([0-9a-f]{3,8})$/);
+  if (m) {
+    const h = m[1].length < 6 ? m[1].slice(0, 3).replace(/./g, "$&$&") : m[1].slice(0, 6);
+    return [0, 2, 4].map((i) => Number.parseInt(h.slice(i, i + 2), 16)) as Rgb;
+  }
+  m = s.match(/^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)(?:[\s,/]+([\d.]+)%?)?/);
+  if (m) {
+    if (m[4] !== undefined && Number.parseFloat(m[4]) === 0) return "neutral";
+    return [Number(m[1]), Number(m[2]), Number(m[3])];
+  }
+  return null;
+}
+
+const isGray = ([r, g, b]: Rgb) => Math.max(r, g, b) - Math.min(r, g, b) < 24;
+const isLight = ([r, g, b]: Rgb) => r > 235 && g > 235 && b > 235;
+const COLOR_VALUE = "([#\\w(),.%\\s]+?)(?=[\"';>}]|\\s!|$)";
+const BG_RE = new RegExp(`(?:bgcolor\\s*=\\s*["']?|background(?:-color)?\\s*:\\s*)${COLOR_VALUE}`, "gi");
+const FG_RE = new RegExp(`(?:[^-\\w]color\\s*:\\s*|<font[^>]*\\scolor\\s*=\\s*["']?)${COLOR_VALUE}`, "gi");
+
+/**
+ * Heuristic: designed emails (newsletters, receipts) set their own backgrounds, colors and layout
+ * tables, and restyling them would break their design. Personal mail rarely goes beyond gray text.
+ */
+function looksDesigned(html: string): boolean {
+  if (/background-image\s*:|background\s*:[^;"']*url\(|\sbackground\s*=/i.test(html)) return true;
+  for (const m of html.matchAll(BG_RE)) {
+    const c = parseColor(m[1]);
+    if (c === "neutral") continue;
+    if (!c || !(isGray(c) && isLight(c))) return true;
+  }
+  let colored = 0;
+  for (const m of html.matchAll(FG_RE)) {
+    const c = parseColor(m[1]);
+    if (c && c !== "neutral" && !isGray(c) && ++colored > 4) return true;
+  }
+  if ((html.match(/<table\b/gi)?.length ?? 0) >= 3) return true;
+  if ((html.match(/<img\b/gi)?.length ?? 0) >= 4) return true;
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -418,7 +566,14 @@ function safeDecode(s: string): string {
   }
 }
 
-/** Wraps sanitized markup in a locked-down document for the sandboxed frame. */
+/**
+ * Wraps sanitized markup in a locked-down document for the sandboxed frame. The client sets
+ * `data-theme` (light|dark) and `data-mode` on <html>:
+ * - themed:   simple mail restyled with the app's tokens (transparent, ink text, accent links)
+ * - paper:    the email's own design on white
+ * - inverted: designed mail shown dark (inverted, with images re-inverted)
+ * Elements marked `data-zw-q` (quoted history) are hidden unless <html> has `zw-showq`.
+ */
 function frameDocument(body: string, { allowRemoteImages, origin }: { allowRemoteImages: boolean; origin: string }) {
   const csp = [
     "default-src 'none'",
@@ -430,13 +585,34 @@ function frameDocument(body: string, { allowRemoteImages, origin }: { allowRemot
 <meta http-equiv="Content-Security-Policy" content="${escapeHtml(csp)}">
 <meta name="referrer" content="no-referrer">
 <base target="_blank">
-<style>
-html,body{margin:0;padding:0;background:#fff;color:#0a0a0a}
-body{font:14px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;word-wrap:break-word;overflow-wrap:break-word;padding:2px 1px}
+<style>${FRAME_CSS}</style></head><body>${body}</body></html>`;
+}
+
+const FRAME_CSS = `
+:root{color-scheme:light;--ink:#0a0a0a;--soft:#525252;--line:#e5e5e5;--link:#3b6cf6}
+html[data-mode=themed][data-theme=dark]{color-scheme:dark;--ink:#ededed;--soft:#a1a1a1;--line:#2e2e2e;--link:#5b8cff}
+html,body{margin:0;padding:0}
+body{font:14px/1.6 Geist,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);word-wrap:break-word;overflow-wrap:break-word;-webkit-font-smoothing:antialiased}
 img{max-width:100%;height:auto}
 table{max-width:100%}
 pre{white-space:pre-wrap}
-a{color:#2f5fe0}
-blockquote{margin:0 0 0 .6em;padding-left:.8em;border-left:2px solid #e5e5e5;color:#525252}
-</style></head><body>${body}</body></html>`;
-}
+blockquote{margin:.6em 0 .6em .2em;padding-left:.9em;border-left:2px solid var(--line);color:var(--soft)}
+html[data-mode=paper],html[data-mode=paper] body{background:#fff}
+html[data-mode=paper] body{color:#0a0a0a;padding:20px 22px}
+html[data-mode=paper] a{color:#2f5fe0}
+html[data-mode=themed],html[data-mode=themed] body{background:transparent}
+html[data-mode=themed] body{padding:2px 1px}
+html[data-mode=themed] a{color:var(--link)}
+html[data-mode=themed][data-theme=dark] body *:not(a){color:inherit!important;background-color:transparent!important;border-color:var(--line)!important}
+html[data-mode=themed][data-theme=dark] body blockquote{color:var(--soft)!important}
+html[data-mode=themed][data-theme=dark] body a{color:var(--link)!important}
+html[data-mode=inverted]{background:#f5f5f5;filter:invert(1) hue-rotate(180deg)}
+html[data-mode=inverted] body{padding:20px 22px;background:#f5f5f5;color:#0a0a0a}
+html[data-mode=inverted] img,html[data-mode=inverted] video,html[data-mode=inverted] [style*="background-image"]{filter:invert(1) hue-rotate(180deg)}
+html:not(.zw-showq) [data-zw-q]{display:none!important}
+@media print{
+html[data-mode]{filter:none!important;background:#fff!important}
+html[data-mode] body{background:#fff!important}
+html[data-mode=themed] body,html[data-mode=themed] body *:not(a){color:#000!important}
+html[data-mode=inverted] img,html[data-mode=inverted] video,html[data-mode=inverted] [style*="background-image"]{filter:none!important}
+}`.replace(/\n/g, "");
