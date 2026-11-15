@@ -41,6 +41,7 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Everything except sign-in, auth endpoints, WOPI (Collabora, token-authenticated), Next internals and static files.
-  matcher: ["/((?!signin|api/auth|api/wopi|_next/|favicon|icon|.*\\.(?:svg|png|jpg|ico|webp|woff2?)$).*)"],
+  // Everything except sign-in, auth endpoints, WOPI (Collabora, token-authenticated), MCP (personal
+  // access tokens), Next internals and static files.
+  matcher: ["/((?!signin|api/auth|api/wopi|api/mcp|_next/|favicon|icon|.*\\.(?:svg|png|jpg|ico|webp|woff2?)$).*)"],
 };

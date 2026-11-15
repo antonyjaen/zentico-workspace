@@ -1,13 +1,14 @@
 "use client";
 
-import { ArrowRight, Clock, Keyboard, Video } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { ArrowRight, Clock, FileAudio, Keyboard, Video } from "lucide-react";
+import { useFormatter, useTranslations } from "next-intl";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { clock, recordingHref, type MeetingSummary } from "./recording";
 import { generateRoomCode, meetHref, parseRoomInput } from "./shared";
 
-export function MeetLanding({ recent }: { recent: string[] }) {
+export function MeetLanding({ recent, recordings }: { recent: string[]; recordings: MeetingSummary[] }) {
   const t = useTranslations("meet");
   const router = useRouter();
   const [code, setCode] = useState("");
@@ -102,7 +103,63 @@ export function MeetLanding({ recent }: { recent: string[] }) {
             </ul>
           </section>
         )}
+
+        {recordings.length > 0 && <RecordingsList recordings={recordings} />}
       </div>
     </div>
+  );
+}
+
+export function StatusPill({ status, error }: { status: MeetingSummary["status"]; error: string | null }) {
+  const t = useTranslations("meet");
+  const tone =
+    status === "failed"
+      ? "text-danger"
+      : status === "recording"
+        ? "text-danger"
+        : status === "processing"
+          ? "text-ink-soft"
+          : "text-ink-mute";
+  const label =
+    status === "failed" && error === "not_configured"
+      ? t("recStatusNotConfigured")
+      : t(`recStatus_${status}`);
+  return (
+    <span className={`inline-flex shrink-0 items-center gap-1.5 text-[12px] ${tone}`}>
+      {status === "recording" && <span className="h-1.5 w-1.5 rounded-full bg-danger" aria-hidden />}
+      {label}
+    </span>
+  );
+}
+
+function RecordingsList({ recordings }: { recordings: MeetingSummary[] }) {
+  const t = useTranslations("meet");
+  const format = useFormatter();
+  return (
+    <section className="mt-12">
+      <h2 className="text-[12px] font-medium tracking-wide text-ink-mute uppercase">{t("recordings")}</h2>
+      <ul className="mt-3 divide-y divide-line overflow-hidden rounded-lg border border-line">
+        {recordings.map((r) => (
+          <li key={r.id}>
+            <Link
+              href={recordingHref(r.id)}
+              className="flex items-center gap-3 px-3 py-2.5 text-[14px] text-ink-soft transition-colors hover:bg-hover hover:text-ink"
+            >
+              <FileAudio size={15} aria-hidden className="shrink-0 text-ink-mute" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-ink">{r.title}</span>
+                <span className="block truncate text-[12px] text-ink-mute">
+                  {format.dateTime(new Date(r.startedAt), { dateStyle: "medium", timeStyle: "short" })}
+                  {r.durationSeconds != null && ` · ${clock(r.durationSeconds)}`}
+                  {" · "}
+                  {r.participants.map((p) => p.name || p.email).join(", ")}
+                </span>
+              </span>
+              <StatusPill status={r.status} error={r.error} />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

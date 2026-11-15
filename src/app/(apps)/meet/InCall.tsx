@@ -10,6 +10,7 @@ import {
   type RemoteParticipant,
 } from "livekit-client";
 import {
+  CircleDot,
   LayoutGrid,
   LayoutPanelLeft,
   Link2,
@@ -32,7 +33,9 @@ import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { AudioView, Avatar, displayName, Tile, type TileSource } from "./media";
 import { SELECT, useDevices } from "./PreJoin";
+import { clock } from "./recording";
 import { CHAT_MAX_LENGTH, CHAT_TOPIC, meetHref, type ChatMessage } from "./shared";
+import { recordingSupported, useRecording, type ActiveRecording, type RecordingNotice } from "./useRecording";
 
 const ROOM_EVENTS = [
   RoomEvent.ParticipantConnected,
@@ -101,6 +104,24 @@ export function InCall({ room, roomName }: { room: Room; roomName: string }) {
     const id = setTimeout(() => setToast(null), 3500);
     return () => clearTimeout(id);
   }, [toast]);
+
+  // Recording: consent notices for everyone, start/stop for the local user.
+  const onRecordingNotice = useCallback(
+    (n: RecordingNotice) =>
+      flash(
+        n.kind === "started"
+          ? n.mine
+            ? t("recStartedSelf")
+            : t("recStartedBy", { name: n.name })
+          : n.kind === "stopped"
+            ? t("recStopped")
+            : t(`rec_${n.kind}`),
+      ),
+    [flash, t],
+  );
+  const recording = useRecording(room, roomName, onRecordingNotice);
+  const [canRecord, setCanRecord] = useState(false);
+  useEffect(() => setCanRecord(recordingSupported()), []);
 
   // Device failures raised by LiveKit while (re)publishing.
   useEffect(() => {
@@ -265,6 +286,9 @@ export function InCall({ room, roomName }: { room: Room; roomName: string }) {
           {t("reconnecting")}
         </div>
       )}
+      {recording.active && (
+        <RecordingBanner active={recording.active} busy={recording.busy} onStop={() => void recording.stop()} />
+      )}
       {!room.canPlaybackAudio && (
         <div className="flex items-center justify-center gap-3 border-b border-line bg-sheet-muted px-4 py-2 text-[13px] text-ink-soft">
           <Volume2 size={14} aria-hidden />
@@ -388,6 +412,29 @@ export function InCall({ room, roomName }: { room: Room; roomName: string }) {
               {lp.isScreenShareEnabled ? <Square size={16} aria-hidden /> : <MonitorUp size={18} aria-hidden />}
             </button>
           )}
+          {canRecord && (
+            <button
+              type="button"
+              className={ctrl(!!recording.active?.mine)}
+              onClick={() => void (recording.active?.mine ? recording.stop() : recording.start())}
+              disabled={recording.busy || (!!recording.active && !recording.active.mine)}
+              aria-pressed={!!recording.active?.mine}
+              aria-label={recording.active?.mine ? t("recStop") : t("recStart")}
+              title={
+                recording.active && !recording.active.mine
+                  ? t("recBy", { name: recording.active.byName })
+                  : recording.active?.mine
+                    ? t("recStop")
+                    : t("recStart")
+              }
+            >
+              {recording.active?.mine ? (
+                <Square size={15} aria-hidden className="text-danger" fill="currentColor" />
+              ) : (
+                <CircleDot size={18} aria-hidden className={recording.active ? "text-danger" : ""} />
+              )}
+            </button>
+          )}
           <button
             type="button"
             className={ctrl(effectiveLayout === "speaker")}
@@ -466,6 +513,38 @@ export function InCall({ room, roomName }: { room: Room; roomName: string }) {
         >
           {toast}
         </div>
+      )}
+    </div>
+  );
+}
+
+function RecordingBanner({ active, busy, onStop }: { active: ActiveRecording; busy: boolean; onStop: () => void }) {
+  const t = useTranslations("meet");
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div
+      role="status"
+      className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-line bg-sheet-muted px-4 py-2 text-[13px] text-ink-soft"
+    >
+      <span className="flex items-center gap-2 font-medium text-ink">
+        <span className="h-2 w-2 animate-pulse rounded-full bg-danger" aria-hidden />
+        {t("recRecording")}
+        <span className="font-mono text-[12px] text-ink-soft tabular-nums">{clock((now - active.since) / 1000)}</span>
+      </span>
+      <span>{active.mine ? t("recNoticeSelf") : t("recNotice", { name: active.byName })}</span>
+      {active.mine && (
+        <button
+          type="button"
+          onClick={onStop}
+          disabled={busy}
+          className="font-medium text-ink underline underline-offset-2 disabled:opacity-50"
+        >
+          {t("recStop")}
+        </button>
       )}
     </div>
   );

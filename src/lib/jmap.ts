@@ -21,14 +21,33 @@ export type Invocation = [name: string, args: Record<string, unknown>, callId: s
 
 export class JmapError extends Error {}
 
-const getJmapSession = cache(async (): Promise<JmapSession & { token: string }> => {
-  const { accessToken } = await requireSession();
-  const res = await fetch(`${env.issuer}/jmap/session`, {
+// React's cache() only memoizes inside a server render; outside one (route handlers such as the
+// MCP endpoint) every jmap() call would refetch the session. Keep it per access token briefly.
+const SESSION_TTL_MS = 60_000;
+const sessions = new Map<string, { at: number; value: Promise<JmapSession> }>();
+
+function fetchJmapSession(accessToken: string): Promise<JmapSession> {
+  const now = Date.now();
+  const hit = sessions.get(accessToken);
+  if (hit && now - hit.at < SESSION_TTL_MS) return hit.value;
+  if (sessions.size > 500) for (const [k, v] of sessions) if (now - v.at >= SESSION_TTL_MS) sessions.delete(k);
+  const value = fetch(`${env.issuer}/jmap/session`, {
     headers: { Authorization: `Bearer ${accessToken}` },
     cache: "no-store",
+  }).then(async (res) => {
+    if (!res.ok) throw new JmapError(`JMAP session failed: ${res.status}`);
+    return (await res.json()) as JmapSession;
   });
-  if (!res.ok) throw new JmapError(`JMAP session failed: ${res.status}`);
-  return { ...(await res.json()), token: accessToken };
+  value.catch(() => {
+    if (sessions.get(accessToken)?.value === value) sessions.delete(accessToken);
+  });
+  sessions.set(accessToken, { at: now, value });
+  return value;
+}
+
+const getJmapSession = cache(async (): Promise<JmapSession & { token: string }> => {
+  const { accessToken } = await requireSession();
+  return { ...(await fetchJmapSession(accessToken)), token: accessToken };
 });
 
 export async function primaryAccount(capability: string): Promise<string> {
