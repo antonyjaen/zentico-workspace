@@ -15,11 +15,14 @@ import { listTools, runTool } from "@/lib/mcp/tools";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MAX_BODY_BYTES = 2 * 1024 * 1024;
+// drive_upload accepts up to 10 MB of base64 content (~13.4 MB) plus the JSON-RPC envelope.
+const MAX_BODY_BYTES = 16 * 1024 * 1024;
 
 const INSTRUCTIONS = `Zentico Workspace: the user's mail, calendar, contacts, Drive/Docs, chat and meeting transcripts.
-Read tools are safe to call freely. Before sending mail, posting chat messages or inviting people, confirm the content with the user unless they explicitly asked you to act directly; prefer mail_create_draft when unsure.
-Typical flow for a meeting: meetings_list → meetings_get_transcript → summarize / extract action items → docs_create_markdown for notes, mail_create_draft or mail_send for follow-ups, calendar_find_free_time + calendar_create_event for next meetings.`;
+Read tools are safe to call freely. Before sending mail, posting chat messages, inviting people, sharing files or deleting anything, confirm with the user unless they explicitly asked you to act directly; prefer drafts (mail_create_draft, mail_reply/mail_forward without send) when unsure. drive_delete needs confirm=true.
+Calendar times default to the user's time zone and come back with their UTC offset.
+To change a file, read it with drive_read_text and edit it with drive_edit_text passing expectedModified, rather than rewriting it whole.
+Typical flow for a meeting: meetings_list → meetings_get_summary_inputs → summarize / extract action items → docs_create (markdown) for notes, mail_reply or mail_create_draft for follow-ups, calendar_find_free_time + calendar_create_event for next meetings.`;
 
 function jsonRpcError(status: number, code: number, message: string, headers: Record<string, string> = {}) {
   return Response.json({ jsonrpc: "2.0", error: { code, message }, id: null }, { status, headers });

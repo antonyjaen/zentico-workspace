@@ -6,7 +6,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getSession } from "@/lib/auth";
 import { createCommand, cleanTimeZone, hasWriteToken } from "@/lib/meetings/claude-commands";
 import { jsonError, NO_STORE, sameOrigin } from "@/lib/meetings/http";
-import { meetingLanguage, noteDetection } from "@/lib/meetings/language";
+import { meetingLanguage } from "@/lib/meetings/language";
 import { transcribeAudio, whisperConfig } from "@/lib/meetings/transcribe";
 import {
   controlOf,
@@ -141,18 +141,14 @@ async function handleWindow(req: NextRequest, session: Session) {
   let result;
   try {
     // Detect the meeting's language first, then transcribe every window in it (see language.ts).
-    const locked = cfg.language ?? meetingLanguage(room);
-    const hint = localeHint(req);
-    result = await transcribeAudio(cfg, audio, mime, { timeoutMs: WHISPER_TIMEOUT_MS, prompt: "Claude,", language: locked });
-    if (!locked) {
-      const text = result.segments.map((s) => s.text).join(" ");
-      const lock = noteDetection(room, result.language, text);
-      // While undecided, a short window detected as a language other than the user's own is
-      // usually a misdetection: redo it in the user's language.
-      if (!lock && hint && result.language !== hint && text.trim().length < 40) {
-        result = await transcribeAudio(cfg, audio, mime, { timeoutMs: WHISPER_TIMEOUT_MS, prompt: "Claude,", language: hint });
-      }
-    }
+    // Auto-detection on short windows proved unreliable live (Spanish heard as English), so the
+    // user's own UI language is used; a locked meeting language (or WHISPER_LANGUAGE) overrides it.
+    const language = cfg.language ?? meetingLanguage(room) ?? localeHint(req);
+    result = await transcribeAudio(cfg, audio, mime, {
+      timeoutMs: WHISPER_TIMEOUT_MS,
+      prompt: "Claude,",
+      language,
+    });
   } catch (e) {
     // Only the status/summary, never the audio.
     console.error("[voice] transcription:", e instanceof Error ? e.message.slice(0, 200) : "failed");

@@ -24,7 +24,9 @@ export type ToolView = { name: string; write: boolean };
 const GROUP_ORDER = ["account", "mail", "calendar", "contacts", "drive", "chat", "meetings"] as const;
 const groupOf = (tool: string) => {
   const prefix = tool.split("_")[0];
-  if (prefix === "docs" || prefix === "drive") return "drive";
+  if (prefix === "docs" || prefix === "drive" || prefix === "whiteboard") return "drive";
+  if (prefix === "directory") return "contacts";
+  if (prefix === "meet") return "meetings";
   return (GROUP_ORDER as readonly string[]).includes(prefix) ? prefix : "account";
 };
 

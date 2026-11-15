@@ -3,12 +3,12 @@
 import { get } from "../chat/db";
 import { postMessage } from "../chat/store";
 
-type ChatMeeting = { conversationId: string; messageId: number | null; title: string };
+export type ChatMeeting = { conversationId: string; messageId: number | null; title: string; calendarEventId: string | null };
 
 function chatMeeting(room: string): ChatMeeting | null {
   try {
     const r = get(
-      "SELECT conversation_id, message_id, title FROM meetings WHERE code = ? ORDER BY starts_at DESC LIMIT 1",
+      "SELECT conversation_id, message_id, title, calendar_event_id FROM meetings WHERE code = ? ORDER BY starts_at DESC LIMIT 1",
       room,
     );
     if (!r || typeof r.conversation_id !== "string") return null;
@@ -16,12 +16,16 @@ function chatMeeting(room: string): ChatMeeting | null {
       conversationId: r.conversation_id,
       messageId: typeof r.message_id === "number" ? r.message_id : r.message_id == null ? null : Number(r.message_id),
       title: typeof r.title === "string" ? r.title : "",
+      calendarEventId: typeof r.calendar_event_id === "string" && r.calendar_event_id ? r.calendar_event_id : null,
     };
   } catch (e) {
     console.error("[meetings] chat lookup:", e instanceof Error ? e.message : e);
     return null;
   }
 }
+
+/** The Chat meeting (conversation, card message, calendar event) that uses this room code, if any. */
+export const chatMeetingFor = (room: string): ChatMeeting | null => chatMeeting(room);
 
 /** Title of the Chat meeting card that uses this room code, if any. */
 export const chatMeetingTitle = (room: string): string | null => chatMeeting(room)?.title.trim() || null;

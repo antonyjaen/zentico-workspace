@@ -119,6 +119,23 @@ export type ConversationDetail = ConversationSummary & {
 
 export type Person = { email: string; name: string };
 
+/**
+ * Stalwart principals often carry the address as their name; turn "leo.park@x" into
+ * "Leo Park" so people read like people. Real names are kept.
+ */
+export function readableName(name: string | null | undefined, email: string): string {
+  const n = (name ?? "").trim();
+  if (n && !n.includes("@")) return n;
+  const local = email.split("@")[0] ?? email;
+  return (
+    local
+      .split(/[._-]+/)
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ") || email
+  );
+}
+
 /** Where a directory entry came from (principals are the real directory; the rest are fallbacks). */
 export type DirectorySource = "directory" | "chat" | "contacts" | "mail";
 

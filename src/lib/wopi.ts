@@ -430,6 +430,33 @@ export async function supportedExts(base: string): Promise<Set<string>> {
   return out;
 }
 
+/** Largest file sent to Collabora's convert-to endpoint. */
+export const MAX_CONVERT_BYTES = 25 * 1024 * 1024;
+
+/**
+ * Converts a file with Collabora's convert-to API (POST {COLLABORA_URL}/cool/convert-to/<format>,
+ * multipart field "data"). Null when Collabora isn't configured; throws when the conversion fails
+ * (unsupported input, or this host not allowed by Collabora's convert-to allowlist).
+ */
+export async function convertWithCollabora(bytes: Uint8Array, fileName: string, format: string): Promise<ArrayBuffer | null> {
+  const base = collaboraUrl();
+  if (!base) return null;
+  if (!/^[a-z0-9]{2,10}$/.test(format)) throw new Error("Invalid conversion format");
+  if (bytes.byteLength > MAX_CONVERT_BYTES) throw new Error("File too large to convert");
+  const form = new FormData();
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  form.append("data", new Blob([copy.buffer]), fileName.replace(/[\u0000-\u001f\u007f"\\/]/g, "_") || "file");
+  const res = await fetch(`${base}/cool/convert-to/${format}`, {
+    method: "POST",
+    body: form,
+    cache: "no-store",
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!res.ok) throw new Error(`Collabora convert-to failed: ${res.status}`);
+  return res.arrayBuffer();
+}
+
 /** The Collabora editor URL (without WOPISrc) for a file name, or null if unsupported. */
 export async function editorUrlFor(base: string, name: string): Promise<{ url: string; canEdit: boolean } | null> {
   const ext = extOf(name);
