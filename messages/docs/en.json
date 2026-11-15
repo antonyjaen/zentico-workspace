@@ -1,16 +1,20 @@
 {
   "docs": {
     "title": "Docs",
-    "subtitle": "Documents, spreadsheets and presentations",
+    "subtitle": "Documents, spreadsheets, presentations, whiteboards and Markdown",
     "untitled": {
       "text": "Untitled document",
       "spreadsheet": "Untitled spreadsheet",
-      "presentation": "Untitled presentation"
+      "presentation": "Untitled presentation",
+      "whiteboard": "Untitled whiteboard",
+      "markdown": "Untitled"
     },
     "kind": {
       "text": "Document",
       "spreadsheet": "Spreadsheet",
-      "presentation": "Presentation"
+      "presentation": "Presentation",
+      "whiteboard": "Whiteboard",
+      "markdown": "Markdown"
     },
     "startNew": "Start a new document",
     "templatesNote": "Templates create an empty file with a ready-made name.",
@@ -21,7 +25,9 @@
       "meetingNotes": "Meeting notes",
       "projectPlan": "Project plan",
       "budget": "Budget",
-      "pitchDeck": "Pitch deck"
+      "pitchDeck": "Pitch deck",
+      "blankWhiteboard": "Whiteboard",
+      "blankMarkdown": "Markdown"
     },
     "presets": {
       "meetingNotes": "Meeting notes",
@@ -31,7 +37,7 @@
     },
     "search": "Search documents",
     "upload": "Upload",
-    "uploadHint": "Word, Excel, PowerPoint, OpenDocument, RTF, CSV, TXT or Markdown files",
+    "uploadHint": "Word, Excel, PowerPoint, OpenDocument, RTF, CSV, TXT, Markdown or Excalidraw files",
     "dropToUpload": "Drop to upload to My Drive",
     "uploading": "Uploading",
     "uploadingN": "Uploading {index} of {total}",
@@ -42,7 +48,9 @@
       "all": "All",
       "text": "Documents",
       "spreadsheet": "Spreadsheets",
-      "presentation": "Presentations"
+      "presentation": "Presentations",
+      "whiteboard": "Whiteboards",
+      "markdown": "Markdown"
     },
     "sortBy": "Sort by",
     "sort": {
@@ -117,7 +125,48 @@
       "network": "Network error.",
       "unauthorized": "Your session expired. Sign in again.",
       "forbidden": "That request was blocked.",
-      "unsupported_type": "Only office files can be uploaded here (Word, Excel, PowerPoint, OpenDocument, RTF, CSV, TXT, Markdown)."
+      "unsupported_type": "Only documents can be uploaded here (Word, Excel, PowerPoint, OpenDocument, RTF, CSV, TXT, Markdown, Excalidraw)."
+    },
+    "nativeTooLarge": "This file is too large to open in the editor (over 10 MB).",
+    "draw": {
+      "downloadFile": "Whiteboard file (.excalidraw)",
+      "downloadPng": "PNG image",
+      "downloadSvg": "SVG image",
+      "emptyExport": "Draw something first: the whiteboard is empty.",
+      "invalid": "This whiteboard file can't be read",
+      "invalidHint": "It isn't a valid Excalidraw file. You can still download it or open its folder in Drive."
+    },
+    "md": {
+      "view": "Layout",
+      "views": {
+        "edit": "Edit",
+        "split": "Split",
+        "preview": "Preview"
+      },
+      "toolbar": "Formatting",
+      "tools": {
+        "bold": "Bold",
+        "italic": "Italic",
+        "heading": "Heading",
+        "link": "Link",
+        "list": "Bulleted list",
+        "checklist": "Checklist",
+        "code": "Code",
+        "quote": "Quote",
+        "table": "Table"
+      },
+      "placeholder": {
+        "bold": "bold text",
+        "italic": "italic text",
+        "code": "code",
+        "link": "link text",
+        "column": "Column"
+      },
+      "words": "{count, plural, one {# word} other {# words}}",
+      "editorLabel": "Markdown source",
+      "previewLabel": "Preview",
+      "empty": "Start writing in Markdown…",
+      "emptyPreview": "Nothing to preview yet."
     }
   }
 }

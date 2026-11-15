@@ -1,7 +1,34 @@
 // Client-safe Docs helpers: kinds, new-file presets, upload accept list and name handling.
 
-export type DocKind = "text" | "spreadsheet" | "presentation";
-export const DOC_KINDS: DocKind[] = ["text", "spreadsheet", "presentation"];
+/** Office kinds open in Collabora; whiteboards and Markdown have their own built-in editors. */
+export type OfficeKind = "text" | "spreadsheet" | "presentation";
+export type NativeKind = "whiteboard" | "markdown";
+export type DocKind = OfficeKind | NativeKind;
+export const DOC_KINDS: DocKind[] = ["text", "spreadsheet", "presentation", "whiteboard", "markdown"];
+
+/** Built-in editors: file extensions, stored media type and the empty file a new one starts as. */
+export const NATIVE: Record<NativeKind, { exts: string[]; ext: string; mediaType: string; route: string; blank: string }> = {
+  whiteboard: {
+    exts: ["excalidraw"],
+    ext: "excalidraw",
+    mediaType: "application/vnd.excalidraw+json",
+    route: "draw",
+    blank: JSON.stringify({ type: "excalidraw", version: 2, source: "zentico-workspace", elements: [], appState: {}, files: {} }),
+  },
+  markdown: { exts: ["md", "markdown"], ext: "md", mediaType: "text/markdown", route: "md", blank: "" },
+};
+
+/** Largest whiteboard / Markdown file the built-in editors load and save. */
+export const MAX_NATIVE_BYTES = 10 * 1024 * 1024;
+
+export function nativeKind(name: string): NativeKind | null {
+  const e = extOf(name);
+  if (!e) return null;
+  for (const k of Object.keys(NATIVE) as NativeKind[]) if (NATIVE[k].exts.includes(e)) return k;
+  return null;
+}
+
+export const isNativeKind = (k: DocKind): k is NativeKind => k === "whiteboard" || k === "markdown";
 
 export type DocItem = {
   id: string;
@@ -18,6 +45,10 @@ export type DocItem = {
 export type ViewMode = "list" | "grid";
 export const VIEW_COOKIE = "zw_docs_view";
 
+/** Markdown editor layout: source only, side by side, or rendered only. */
+export type MdView = "edit" | "split" | "preview";
+export const MD_VIEW_COOKIE = "zw_md_view";
+
 /**
  * "Start a new document" tiles. Templates are honest name presets: every new file starts as an
  * empty ODF file that Collabora opens as a blank document of that kind.
@@ -30,12 +61,14 @@ export const PRESETS = [
   { id: "projectPlan", kind: "text" },
   { id: "budget", kind: "spreadsheet" },
   { id: "pitchDeck", kind: "presentation" },
+  { id: "blankWhiteboard", kind: "whiteboard" },
+  { id: "blankMarkdown", kind: "markdown" },
 ] as const satisfies readonly { id: string; kind: DocKind }[];
 
 export type PresetId = (typeof PRESETS)[number]["id"];
 
 /** Office files the Upload button accepts (Collabora opens all of them). */
-export const UPLOAD_EXTS = ["docx", "xlsx", "pptx", "odt", "ods", "odp", "doc", "xls", "ppt", "rtf", "csv", "txt", "md"];
+export const UPLOAD_EXTS = ["docx", "xlsx", "pptx", "odt", "ods", "odp", "doc", "xls", "ppt", "rtf", "csv", "txt", "md", "markdown", "excalidraw"];
 export const UPLOAD_ACCEPT = UPLOAD_EXTS.map((e) => `.${e}`).join(",");
 export const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 
@@ -54,6 +87,13 @@ export function splitName(name: string): [string, string] {
 export const fold = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 export const editHref = (id: string) => `/docs/edit/${encodeURIComponent(id)}`;
+
+/** Editor for a file: Collabora for office files, the built-in editors for whiteboards / Markdown. */
+export function openHref(id: string, kindOrName: DocKind | string, from?: "drive"): string {
+  const k = DOC_KINDS.includes(kindOrName as DocKind) ? (kindOrName as DocKind) : nativeKind(kindOrName);
+  const base = k && isNativeKind(k) ? `/docs/${NATIVE[k].route}/${encodeURIComponent(id)}` : editHref(id);
+  return from ? `${base}?from=${from}` : base;
+}
 export const downloadHref = (id: string) => `/api/drive/file/${encodeURIComponent(id)}`;
 export const folderHref = (folderId: string | null) =>
   folderId ? `/drive?folder=${encodeURIComponent(folderId)}` : "/drive";

@@ -870,6 +870,38 @@ export async function uploadStream(
   return { blobId: out.blobId, type: out.type || type, size: out.size ?? (body instanceof ArrayBuffer ? body.byteLength : total) };
 }
 
+/**
+ * Replaces a file's content: uploads a new blob and points the node at it (FileNode/set update
+ * { blobId }). Mirrors FilesClient.replaceContent in lib/wopi: when the server doesn't derive
+ * size/modified from the new blob, they're patched best effort. Returns the refreshed node.
+ */
+export async function replaceContent(
+  id: string,
+  body: ArrayBuffer,
+  mediaType: string,
+  accountId?: string | null,
+): Promise<DriveNode> {
+  if (!validId(id)) throw new DriveError("Invalid id", "invalid");
+  const acc = await account(accountId);
+  const before = await getNode(id, acc);
+  if (!before || before.isFolder) throw new DriveError("Not found", "not_found");
+  const { blobId, size } = await uploadStream(body, mediaType, null, { accountId: acc });
+  const r = await jmap([["FileNode/set", { accountId: acc, update: { [id]: { blobId } } }, "s"]], USING);
+  const err = firstError(r.s, "notUpdated");
+  if (err) setFailure("update content", err);
+  let next = (await getNode(id, acc)) ?? { ...before, blobId, size };
+  const patch: Record<string, unknown> = {};
+  if (next.size !== size) patch.size = size;
+  if (!next.modified || next.modified === before.modified) patch.modified = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+  if (Object.keys(patch).length) {
+    const p = await jmapTry("FileNode/set size/modified", [["FileNode/set", { accountId: acc, update: { [id]: patch } }, "p"]], USING).catch(
+      () => null,
+    );
+    if (p?.p?.ok) next = (await getNode(id, acc)) ?? next;
+  }
+  return { ...next, blobId: next.blobId ?? blobId };
+}
+
 /** Fetches a file's blob from the JMAP download endpoint (optionally forwarding a Range header). */
 export async function fetchBlob(node: DriveNode, range?: string | null): Promise<Response> {
   const s = await getDriveSession();

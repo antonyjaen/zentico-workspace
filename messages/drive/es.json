@@ -12,6 +12,8 @@
     "newDocument": "Nuevo documento",
     "newSpreadsheet": "Nueva hoja de cálculo",
     "newPresentation": "Nueva presentación",
+    "newWhiteboard": "Nueva pizarra",
+    "newMarkdown": "Nuevo archivo Markdown",
     "storage": "Almacenamiento",
     "quotaOf": "{used} de {limit} usados",
     "quotaUsed": "{used} usados",

@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { unstable_rethrow } from "next/navigation";
 import { INIT_COOKIE, type Grant, type PrincipalOption } from "./shared";
+import { NATIVE } from "@/app/(apps)/docs/shared";
 import {
   createFile,
   createFolder,
@@ -160,19 +161,25 @@ export async function ensureFoldersAction(parentId: unknown, paths: unknown, acc
   });
 }
 
-const BLANK: Record<string, { name: string; type: string }> = {
+const BLANK: Record<string, { name: string; type: string; body?: string }> = {
   document: { name: "Untitled document.odt", type: "application/vnd.oasis.opendocument.text" },
   spreadsheet: { name: "Untitled spreadsheet.ods", type: "application/vnd.oasis.opendocument.spreadsheet" },
   presentation: { name: "Untitled presentation.odp", type: "application/vnd.oasis.opendocument.presentation" },
+  whiteboard: { name: "Untitled whiteboard.excalidraw", type: NATIVE.whiteboard.mediaType, body: NATIVE.whiteboard.blank },
+  markdown: { name: "Untitled.md", type: NATIVE.markdown.mediaType, body: NATIVE.markdown.blank },
 };
 
-/** Creates an empty office file (zero-byte placeholder) and returns its id for /docs/edit/<id>. */
+/**
+ * Creates an empty file for a Docs editor and returns its id: office files start as a zero-byte
+ * placeholder (Collabora), whiteboards as an empty Excalidraw scene, Markdown as an empty file.
+ */
 export async function newDocAction(parentId: unknown, kind: unknown) {
   return run(async () => {
     const spec = typeof kind === "string" ? BLANK[kind] : undefined;
     if (!spec) throw new DriveError("Invalid kind", "invalid");
     const p = parent(parentId);
-    const blob = await uploadStream(new ArrayBuffer(0), spec.type);
+    const bytes = new TextEncoder().encode(spec.body ?? "");
+    const blob = await uploadStream(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, spec.type);
     const node = await createFile(p, spec.name, { ...blob, type: spec.type });
     return node.id;
   });

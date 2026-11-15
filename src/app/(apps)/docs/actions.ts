@@ -4,7 +4,7 @@
 import { getTranslations } from "next-intl/server";
 import { revalidatePath } from "next/cache";
 import { unstable_rethrow } from "next/navigation";
-import { PRESETS, extOf, type DocKind } from "./shared";
+import { NATIVE, PRESETS, extOf, isNativeKind, nativeKind, type DocKind } from "./shared";
 import {
   createFile,
   destroyNodes,
@@ -48,7 +48,7 @@ async function fileNode(id: string) {
   return node;
 }
 
-/** Creates an empty office file in the Drive root (named after the preset) and returns its id. */
+/** Creates an empty file in the Drive root (named after the preset) and returns its id. */
 export async function createDocumentAction(preset: unknown) {
   return run(async () => {
     const spec = PRESETS.find((p) => p.id === preset);
@@ -56,6 +56,14 @@ export async function createDocumentAction(preset: unknown) {
     const kind: DocKind = spec.kind;
     const t = await getTranslations("docs");
     const base = spec.id.startsWith("blank") ? t(`untitled.${kind}`) : t(`presets.${spec.id}`);
+    if (isNativeKind(kind)) {
+      // Whiteboards start as an empty Excalidraw scene, Markdown as an empty text file.
+      const { ext, mediaType, blank } = NATIVE[kind];
+      const bytes = new TextEncoder().encode(blank);
+      const blob = await uploadStream(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, mediaType);
+      const node = await createFile(null, `${base}.${ext}`, { ...blob, type: mediaType });
+      return node.id;
+    }
     const { ext, type } = NEW_DOC[kind];
     // Zero-byte ODF: Collabora opens it as a new blank document of that type.
     const blob = await uploadStream(new ArrayBuffer(0), type);
@@ -66,7 +74,8 @@ export async function createDocumentAction(preset: unknown) {
 
 /**
  * Renames a file. The extension decides which editor opens it, so it's kept unless the new
- * name ends in another office extension. Returns the final name.
+ * name ends in another extension of the same editor (office ↔ office, .md ↔ .markdown).
+ * Returns the final name.
  */
 export async function renameDocumentAction(id: unknown, newName: unknown) {
   return run(async () => {
@@ -75,7 +84,9 @@ export async function renameDocumentAction(id: unknown, newName: unknown) {
     if (!name) throw new DriveError("Invalid name", "invalid_name");
     const node = await fileNode(fid);
     const oldExt = extOf(node.name);
-    if (oldExt && !docKind(name)) name = validName(`${name}.${oldExt}`);
+    const oldNative = nativeKind(node.name);
+    const keepsEditor = oldNative ? nativeKind(name) === oldNative : !!docKind(name);
+    if (oldExt && !keepsEditor) name = validName(`${name}.${oldExt}`);
     if (!name) throw new DriveError("Invalid name", "invalid_name");
     if (name === node.name) return name;
     const siblings = await listChildren(node.parentId).catch(() => []);

@@ -2,14 +2,14 @@ import { getTranslations } from "next-intl/server";
 import { cookies } from "next/headers";
 import { unstable_rethrow } from "next/navigation";
 import { DocsHome } from "./DocsHome";
-import { VIEW_COOKIE, type DocItem } from "./shared";
+import { nativeKind, VIEW_COOKIE, type DocItem } from "./shared";
 import { Notice } from "./ui";
 import { descendantsOf, getAllNodes, getDriveSession, getRootId, getTrashId, type DriveNode } from "@/lib/drive";
 import { collaboraUrl, docKind, extOf, supportedExts } from "@/lib/wopi";
 
 export const dynamic = "force-dynamic";
 
-/** Office files outside the trash, each with its Drive folder path. */
+/** Office files, whiteboards and Markdown files outside the trash, each with its Drive folder path. */
 function toDocs(all: DriveNode[], rootId: string | null, trashId: string | null, supported: Set<string> | null): DocItem[] {
   const byId = new Map(all.map((n) => [n.id, n]));
   const inTrash = trashId ? descendantsOf(all, trashId) : new Set<string>();
@@ -28,8 +28,11 @@ function toDocs(all: DriveNode[], rootId: string | null, trashId: string | null,
   const out: DocItem[] = [];
   for (const n of all) {
     if (n.isFolder || !n.blobId || n.role != null || inTrash.has(n.id)) continue;
-    const kind = docKind(n.name);
-    if (!kind || (supported && !supported.has(extOf(n.name)))) continue;
+    // Whiteboards and Markdown open in the built-in editors; office files need Collabora support.
+    const native = nativeKind(n.name);
+    const office = native ? null : docKind(n.name);
+    if (!native && (!office || (supported && !supported.has(extOf(n.name))))) continue;
+    const kind = native ?? office!;
     const folderId = n.parentId && n.parentId !== rootId ? n.parentId : null;
     out.push({ id: n.id, name: n.name, kind, folderId, location: locationOf(folderId), modified: n.modified, size: n.size });
   }

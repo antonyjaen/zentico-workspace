@@ -1,10 +1,12 @@
-import { FileSpreadsheet, FileText, Presentation, type LucideIcon } from "lucide-react";
+import { FileCode, FileSpreadsheet, FileText, Presentation, Shapes, type LucideIcon } from "lucide-react";
 import type { DocKind } from "./shared";
 
 export const KIND_ICON: Record<DocKind, LucideIcon> = {
   text: FileText,
   spreadsheet: FileSpreadsheet,
   presentation: Presentation,
+  whiteboard: Shapes,
+  markdown: FileCode,
 };
 
 /** Per-kind tint, matching Drive's file icons. */
@@ -12,6 +14,8 @@ export const KIND_COLOR: Record<DocKind, string> = {
   text: "var(--color-app-mail)",
   spreadsheet: "var(--color-signal)",
   presentation: "var(--color-amber)",
+  whiteboard: "var(--color-app-chat)",
+  markdown: "var(--color-ink-soft)",
 };
 
 export function DocIcon({ kind, size = 18, className = "" }: { kind: DocKind; size?: number; className?: string }) {

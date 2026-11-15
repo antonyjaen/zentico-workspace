@@ -5,7 +5,7 @@ import { useLocale, useTranslations } from "next-intl";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { FileIcon } from "./FileIcon";
-import { docsHref, fileUrl, formatSize, isOffice, kindOf, type Item } from "./shared";
+import { docsHref, fileUrl, formatSize, isOffice, kindOf, nativeEditorHref, type Item } from "./shared";
 
 /** Full-screen preview: images, PDF, video/audio, text (first 200 KB), office → "Open in Docs". */
 export function Preview({ item, onClose }: { item: Item; onClose: () => void }) {
@@ -13,7 +13,9 @@ export function Preview({ item, onClose }: { item: Item; onClose: () => void }) 
   const locale = useLocale();
   const kind = kindOf(item);
   // Docs opens files from the user's own account only, so shared files aren't offered there.
-  const office = isOffice(item.name) && !item.accountId;
+  const native = nativeEditorHref(item);
+  const office = (isOffice(item.name) && !item.accountId) || !!native;
+  const editHref = native ?? docsHref(item.id);
   const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -37,7 +39,7 @@ export function Preview({ item, onClose }: { item: Item; onClose: () => void }) 
         <span className="hidden font-mono text-[12px] text-white/60 sm:block">{formatSize(item.size, locale)}</span>
         {office && (
           <Link
-            href={docsHref(item.id)}
+            href={editHref}
             className="inline-flex h-8 items-center gap-2 rounded-md bg-white px-3 text-[13px] font-medium text-black transition-colors hover:bg-white/90"
           >
             <ExternalLink size={14} aria-hidden />
@@ -81,7 +83,7 @@ export function Preview({ item, onClose }: { item: Item; onClose: () => void }) 
             <p className="mb-4 truncate text-[14px] font-medium text-ink">{item.name}</p>
             <audio src={fileUrl(item.id, { inline: true, account: item.accountId })} controls autoPlay className="w-full" />
           </div>
-        ) : kind === "text" || kind === "code" ? (
+        ) : kind === "text" || kind === "code" || kind === "markdown" ? (
           <TextPreview item={item} />
         ) : (
           <div className="sheet max-w-sm p-8 text-center">
@@ -92,7 +94,7 @@ export function Preview({ item, onClose }: { item: Item; onClose: () => void }) 
             <div className="mt-5 flex justify-center gap-2">
               {office && (
                 <Link
-                  href={docsHref(item.id)}
+                  href={editHref}
                   className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-[13.5px] font-medium text-primary-ink transition-colors hover:bg-primary-hover"
                 >
                   <ExternalLink size={15} aria-hidden />

@@ -14,7 +14,7 @@ import { DocIcon } from "../../ui";
 
 const FRAME = "collabora-editor";
 
-type Status = "loading" | "saved" | "modified" | "saving" | "error";
+export type Status = "loading" | "saved" | "modified" | "saving" | "error";
 type Frame = { action: string; origin: string; token: string; ttl: number; title: string };
 type Msg = { MessageId?: string; Values?: Record<string, unknown> };
 
@@ -232,7 +232,7 @@ export function EditorWorkspace({
   );
 }
 
-function NameField({ name, onRename }: { name: string; onRename: (base: string) => void }) {
+export function NameField({ name, onRename }: { name: string; onRename: (base: string) => void }) {
   const t = useTranslations("docs");
   const [editing, setEditing] = useState(false);
   const [base, ext] = splitName(name);
@@ -289,7 +289,7 @@ function NameField({ name, onRename }: { name: string; onRename: (base: string) 
   );
 }
 
-function SaveStatus({ status, readOnly, onSave }: { status: Status; readOnly: boolean; onSave: () => void }) {
+export function SaveStatus({ status, readOnly, onSave }: { status: Status; readOnly: boolean; onSave: () => void }) {
   const t = useTranslations("docs");
   const base = "ml-1 hidden shrink-0 items-center gap-1.5 text-[12.5px] text-ink-mute sm:inline-flex";
   if (status === "loading" || (readOnly && status !== "error")) return null;

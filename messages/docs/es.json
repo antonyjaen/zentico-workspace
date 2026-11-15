@@ -1,16 +1,20 @@
 {
   "docs": {
     "title": "Documentos",
-    "subtitle": "Documentos, hojas de cálculo y presentaciones",
+    "subtitle": "Documentos, hojas de cálculo, presentaciones, pizarras y Markdown",
     "untitled": {
       "text": "Documento sin título",
       "spreadsheet": "Hoja de cálculo sin título",
-      "presentation": "Presentación sin título"
+      "presentation": "Presentación sin título",
+      "whiteboard": "Pizarra sin título",
+      "markdown": "Sin título"
     },
     "kind": {
       "text": "Documento",
       "spreadsheet": "Hoja de cálculo",
-      "presentation": "Presentación"
+      "presentation": "Presentación",
+      "whiteboard": "Pizarra",
+      "markdown": "Markdown"
     },
     "startNew": "Crear un documento",
     "templatesNote": "Las plantillas crean un archivo vacío con un nombre predefinido.",
@@ -21,7 +25,9 @@
       "meetingNotes": "Notas de reunión",
       "projectPlan": "Plan de proyecto",
       "budget": "Presupuesto",
-      "pitchDeck": "Presentación comercial"
+      "pitchDeck": "Presentación comercial",
+      "blankWhiteboard": "Pizarra",
+      "blankMarkdown": "Markdown"
     },
     "presets": {
       "meetingNotes": "Notas de reunión",
@@ -31,7 +37,7 @@
     },
     "search": "Buscar documentos",
     "upload": "Subir",
-    "uploadHint": "Archivos de Word, Excel, PowerPoint, OpenDocument, RTF, CSV, TXT o Markdown",
+    "uploadHint": "Archivos de Word, Excel, PowerPoint, OpenDocument, RTF, CSV, TXT, Markdown o Excalidraw",
     "dropToUpload": "Suelta para subir a Mi unidad",
     "uploading": "Subiendo",
     "uploadingN": "Subiendo {index} de {total}",
@@ -42,7 +48,9 @@
       "all": "Todos",
       "text": "Documentos",
       "spreadsheet": "Hojas de cálculo",
-      "presentation": "Presentaciones"
+      "presentation": "Presentaciones",
+      "whiteboard": "Pizarras",
+      "markdown": "Markdown"
     },
     "sortBy": "Ordenar por",
     "sort": {
@@ -117,7 +125,48 @@
       "network": "Error de red.",
       "unauthorized": "Tu sesión caducó. Vuelve a iniciar sesión.",
       "forbidden": "Se bloqueó la solicitud.",
-      "unsupported_type": "Aquí solo se pueden subir archivos de ofimática (Word, Excel, PowerPoint, OpenDocument, RTF, CSV, TXT, Markdown)."
+      "unsupported_type": "Aquí solo se pueden subir documentos (Word, Excel, PowerPoint, OpenDocument, RTF, CSV, TXT, Markdown, Excalidraw)."
+    },
+    "nativeTooLarge": "Este archivo es demasiado grande para abrirlo en el editor (más de 10 MB).",
+    "draw": {
+      "downloadFile": "Archivo de pizarra (.excalidraw)",
+      "downloadPng": "Imagen PNG",
+      "downloadSvg": "Imagen SVG",
+      "emptyExport": "Dibuja algo primero: la pizarra está vacía.",
+      "invalid": "No se puede leer esta pizarra",
+      "invalidHint": "No es un archivo de Excalidraw válido. Aún puedes descargarlo o abrir su carpeta en Drive."
+    },
+    "md": {
+      "view": "Diseño",
+      "views": {
+        "edit": "Editar",
+        "split": "Dividido",
+        "preview": "Vista previa"
+      },
+      "toolbar": "Formato",
+      "tools": {
+        "bold": "Negrita",
+        "italic": "Cursiva",
+        "heading": "Encabezado",
+        "link": "Enlace",
+        "list": "Lista con viñetas",
+        "checklist": "Lista de tareas",
+        "code": "Código",
+        "quote": "Cita",
+        "table": "Tabla"
+      },
+      "placeholder": {
+        "bold": "texto en negrita",
+        "italic": "texto en cursiva",
+        "code": "código",
+        "link": "texto del enlace",
+        "column": "Columna"
+      },
+      "words": "{count, plural, one {# palabra} other {# palabras}}",
+      "editorLabel": "Código Markdown",
+      "previewLabel": "Vista previa",
+      "empty": "Empieza a escribir en Markdown…",
+      "emptyPreview": "Todavía no hay nada que mostrar."
     }
   }
 }

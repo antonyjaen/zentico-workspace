@@ -27,13 +27,13 @@ import { createDocumentAction, deleteDocumentAction, renameDocumentAction, type 
 import {
   DOC_KINDS,
   downloadHref,
-  editHref,
   extOf,
   folderHref,
   fold,
   formatDate,
   formatSize,
   MAX_UPLOAD_BYTES,
+  openHref,
   PRESETS,
   UPLOAD_ACCEPT,
   UPLOAD_EXTS,
@@ -97,7 +97,7 @@ export function DocsHome({ docs, initialView }: { docs: DocItem[]; initialView: 
   }, [docs, hidden, filter, query, sort, locale]);
 
   const counts = useMemo(() => {
-    const c: Record<Filter, number> = { all: 0, text: 0, spreadsheet: 0, presentation: 0 };
+    const c: Record<Filter, number> = { all: 0, text: 0, spreadsheet: 0, presentation: 0, whiteboard: 0, markdown: 0 };
     for (const d of docs) {
       if (hidden.has(d.id)) continue;
       c.all++;
@@ -119,7 +119,7 @@ export function DocsHome({ docs, initialView }: { docs: DocItem[]; initialView: 
     try {
       const r = await createDocumentAction(preset);
       if (r.ok) {
-        router.push(editHref(r.data));
+        router.push(openHref(r.data, PRESETS.find((p) => p.id === preset)?.kind ?? "text"));
         return; // keep the tile spinner until navigation
       }
       setToast({ kind: "error", text: errorText(r.error) });
@@ -168,7 +168,7 @@ export function DocsHome({ docs, initialView }: { docs: DocItem[]; initialView: 
     if (upload || !files.length) return;
     const accepted = files.filter((f) => UPLOAD_EXTS.includes(extOf(f.name)));
     if (accepted.length < files.length) setToast({ kind: "error", text: t("errors.unsupported_type") });
-    const ok: string[] = [];
+    const ok: { id: string; name: string }[] = [];
     for (let i = 0; i < accepted.length; i++) {
       const file = accepted[i];
       if (file.size > MAX_UPLOAD_BYTES) {
@@ -177,11 +177,11 @@ export function DocsHome({ docs, initialView }: { docs: DocItem[]; initialView: 
       }
       setUpload({ name: file.name, pct: 0, index: i + 1, total: accepted.length });
       const r = await sendFile(file, (pct) => setUpload((u) => (u ? { ...u, pct } : u)));
-      if (r.ok) ok.push(r.id);
+      if (r.ok) ok.push({ id: r.id, name: file.name });
       else setToast({ kind: "error", text: `${file.name}: ${errorText(r.error)}` });
     }
     setUpload(null);
-    if (ok.length === 1 && accepted.length === 1) router.push(editHref(ok[0]));
+    if (ok.length === 1 && accepted.length === 1) router.push(openHref(ok[0].id, ok[0].name));
     else if (ok.length) {
       setToast({ kind: "info", text: t("uploaded", { count: ok.length }) });
       refresh();
@@ -313,7 +313,7 @@ export function DocsHome({ docs, initialView }: { docs: DocItem[]; initialView: 
             <h2 id="docs-recent" className="mr-auto text-[14px] font-medium text-ink">
               {t("recent")}
             </h2>
-            <div className="flex items-center gap-0.5 rounded-md border border-line p-0.5" role="tablist" aria-label={t("filterLabel")}>
+            <div className="flex max-w-full items-center gap-0.5 overflow-x-auto rounded-md border border-line p-0.5" role="tablist" aria-label={t("filterLabel")}>
               {(["all", ...DOC_KINDS] as Filter[]).map((f) => (
                 <button
                   key={f}
@@ -321,7 +321,7 @@ export function DocsHome({ docs, initialView }: { docs: DocItem[]; initialView: 
                   role="tab"
                   aria-selected={filter === f}
                   onClick={() => setFilter(f)}
-                  className="inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-[12.5px] text-ink-mute transition-colors hover:text-ink aria-selected:bg-hover aria-selected:font-medium aria-selected:text-ink"
+                  className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded px-2.5 text-[12.5px] text-ink-mute transition-colors hover:text-ink aria-selected:bg-hover aria-selected:font-medium aria-selected:text-ink"
                 >
                   {t(`filter.${f}`)}
                   <span className="font-mono text-[11px] tabular-nums text-ink-mute">{counts[f]}</span>
@@ -581,7 +581,7 @@ function ListRow(p: RowProps) {
         ) : (
           <span className="min-w-0">
             <Link
-              href={editHref(doc.id)}
+              href={openHref(doc.id, doc.kind)}
               className="block truncate text-[14px] text-ink after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:after:rounded-md focus-visible:after:outline focus-visible:after:outline-2 focus-visible:after:outline-accent"
               title={doc.name}
             >
@@ -628,7 +628,7 @@ function GridCard(p: RowProps) {
             <RenameInput initial={doc.name} onDone={p.onRenameDone} onCancel={p.onRenameCancel} />
           ) : (
             <Link
-              href={editHref(doc.id)}
+              href={openHref(doc.id, doc.kind)}
               className="block truncate text-[13.5px] font-medium text-ink after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:after:rounded-lg focus-visible:after:outline focus-visible:after:outline-2 focus-visible:after:outline-accent"
               title={doc.name}
             >
@@ -717,7 +717,7 @@ function RowMenu({ doc, onRename, onDelete }: RowProps) {
       </button>
       {open && (
         <div role="menu" className="pop absolute top-full right-0 z-40 mt-1 w-56 p-1.5" style={{ transformOrigin: "top right" }}>
-          <Link role="menuitem" href={editHref(doc.id)} className={item} onClick={close}>
+          <Link role="menuitem" href={openHref(doc.id, doc.kind)} className={item} onClick={close}>
             <ExternalLink size={16} aria-hidden className="shrink-0" />
             {t("open")}
           </Link>

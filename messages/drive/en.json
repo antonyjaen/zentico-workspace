@@ -12,6 +12,8 @@
     "newDocument": "New document",
     "newSpreadsheet": "New spreadsheet",
     "newPresentation": "New presentation",
+    "newWhiteboard": "New whiteboard",
+    "newMarkdown": "New Markdown file",
     "storage": "Storage",
     "quotaOf": "{used} of {limit} used",
     "quotaUsed": "{used} used",

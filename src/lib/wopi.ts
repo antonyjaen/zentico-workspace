@@ -37,7 +37,7 @@ export const ID = /^[A-Za-z0-9_-]{1,255}$/;
 export type DocKind = "text" | "spreadsheet" | "presentation";
 
 const KIND_BY_EXT: Record<string, DocKind> = {
-  odt: "text", ott: "text", doc: "text", docx: "text", docm: "text", dot: "text", dotx: "text", rtf: "text", txt: "text", md: "text",
+  odt: "text", ott: "text", doc: "text", docx: "text", docm: "text", dot: "text", dotx: "text", rtf: "text", txt: "text",
   ods: "spreadsheet", ots: "spreadsheet", xls: "spreadsheet", xlsx: "spreadsheet", xlsm: "spreadsheet", csv: "spreadsheet",
   odp: "presentation", otp: "presentation", ppt: "presentation", pptx: "presentation", pps: "presentation", ppsx: "presentation",
 };

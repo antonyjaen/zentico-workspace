@@ -9,6 +9,7 @@ import {
   Clock,
   Download,
   Eye,
+  FileCode,
   FileSpreadsheet,
   FileText,
   FolderInput,
@@ -23,6 +24,7 @@ import {
   Presentation,
   Search,
   Settings2,
+  Shapes,
   Share2,
   Trash2,
   Upload as UploadIcon,
@@ -47,6 +49,7 @@ import {
   fileUrl,
   formatDate,
   formatSize,
+  nativeEditorHref,
   setCookie,
   SORT_COOKIE,
   VIEW_COOKIE,
@@ -56,9 +59,12 @@ import {
   type ViewMode,
 } from "./shared";
 import { entriesFromDrop, entriesFromInput, useUploads, type Upload } from "./uploads";
+import { openHref } from "@/app/(apps)/docs/shared";
 import { usePopover } from "@/components/usePopover";
 
 const DRAG_MIME = "application/x-zw-drive";
+
+type NewDocKind = "document" | "spreadsheet" | "presentation" | "whiteboard" | "markdown";
 
 type Props = {
   section: Section;
@@ -190,7 +196,12 @@ export function DriveApp(props: Props) {
 
   const open = (item: Item) => {
     if (item.isFolder) router.push(driveHref({ folder: item.id, account: item.accountId, section: section === "trash" ? "trash" : "my" }));
-    else setPreview(item);
+    else {
+      // Whiteboards and Markdown files in the user's own drive open in the Docs editors.
+      const editor = section === "trash" ? null : nativeEditorHref(item);
+      if (editor) router.push(editor);
+      else setPreview(item);
+    }
   };
 
   const download = (list: Item[]) => {
@@ -237,9 +248,11 @@ export function DriveApp(props: Props) {
     if (r && section !== "my" && !account) router.push(driveHref({ folder: r.data }));
   };
 
-  const newDoc = async (kind: "document" | "spreadsheet" | "presentation") => {
+  const newDoc = async (kind: NewDocKind) => {
     const r = await act(() => newDocAction(uploadTarget, kind));
-    if (r) router.push(docsHref(r.data));
+    if (!r) return;
+    if (kind === "whiteboard" || kind === "markdown") router.push(openHref(r.data, kind, "drive"));
+    else router.push(docsHref(r.data));
   };
 
   /* ---------------------------------------------------------- selection */
@@ -812,7 +825,7 @@ function NewMenu({
   busy: boolean;
   onNewFolder: () => void;
   onFiles: (entries: ReturnType<typeof entriesFromInput>) => void;
-  onNewDoc: (kind: "document" | "spreadsheet" | "presentation") => void;
+  onNewDoc: (kind: NewDocKind) => void;
 }) {
   const t = useTranslations("drive");
   const { open, setOpen, toggle, ref } = usePopover();
@@ -877,6 +890,8 @@ function NewMenu({
           {item(FileText, t("newDocument"), () => onNewDoc("document"), !canNewDoc)}
           {item(FileSpreadsheet, t("newSpreadsheet"), () => onNewDoc("spreadsheet"), !canNewDoc)}
           {item(Presentation, t("newPresentation"), () => onNewDoc("presentation"), !canNewDoc)}
+          {item(Shapes, t("newWhiteboard"), () => onNewDoc("whiteboard"), !canNewDoc)}
+          {item(FileCode, t("newMarkdown"), () => onNewDoc("markdown"), !canNewDoc)}
         </div>
       )}
       <input ref={fileInput} type="file" multiple className="sr-only" tabIndex={-1} aria-hidden onChange={pick} />

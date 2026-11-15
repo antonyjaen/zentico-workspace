@@ -9,6 +9,7 @@ import {
   FileVideo,
   Folder,
   Presentation,
+  Shapes,
   type LucideIcon,
 } from "lucide-react";
 import { kindOf, type Kind } from "./shared";
@@ -23,6 +24,8 @@ const ICONS: Record<Kind, { icon: LucideIcon; color: string }> = {
   document: { icon: FileText, color: "var(--color-app-mail)" },
   spreadsheet: { icon: FileSpreadsheet, color: "var(--color-signal)" },
   presentation: { icon: Presentation, color: "var(--color-amber)" },
+  whiteboard: { icon: Shapes, color: "var(--color-app-chat)" },
+  markdown: { icon: FileCode, color: "var(--color-ink-soft)" },
   archive: { icon: FileArchive, color: "var(--color-ink-mute)" },
   code: { icon: FileCode, color: "var(--color-ink-mute)" },
   other: { icon: File, color: "var(--color-ink-mute)" },

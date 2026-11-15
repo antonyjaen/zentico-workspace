@@ -1,5 +1,6 @@
 // Client-safe Drive helpers: item shape, file kinds, MIME guessing and formatting.
 import type { Rights, ShareRole } from "@/lib/drive";
+import { nativeKind, openHref } from "@/app/(apps)/docs/shared";
 
 export type { Rights, ShareRole };
 
@@ -62,6 +63,8 @@ export type Kind =
   | "document"
   | "spreadsheet"
   | "presentation"
+  | "whiteboard"
+  | "markdown"
   | "archive"
   | "code"
   | "other";
@@ -93,6 +96,8 @@ const EXT_MIME: Record<string, string> = {
   m4a: "audio/mp4",
   txt: "text/plain",
   md: "text/markdown",
+  markdown: "text/markdown",
+  excalidraw: "application/vnd.excalidraw+json",
   csv: "text/csv",
   json: "application/json",
   xml: "application/xml",
@@ -125,6 +130,8 @@ export function kindOf(item: { name: string; isFolder: boolean; type: string }):
   if (["odt", "docx", "doc", "rtf"].includes(e)) return "document";
   if (["ods", "xlsx", "xls"].includes(e)) return "spreadsheet";
   if (["odp", "pptx", "ppt"].includes(e)) return "presentation";
+  const native = nativeKind(item.name);
+  if (native) return native;
   if (t === "application/pdf") return "pdf";
   if (t.startsWith("image/")) return "image";
   if (t.startsWith("video/")) return "video";
@@ -136,7 +143,7 @@ export function kindOf(item: { name: string; isFolder: boolean; type: string }):
 }
 
 /** Kinds the preview modal can show inline. */
-export const PREVIEWABLE = new Set<Kind>(["image", "pdf", "video", "audio", "text", "code"]);
+export const PREVIEWABLE = new Set<Kind>(["image", "pdf", "video", "audio", "text", "code", "markdown"]);
 
 export function formatSize(bytes: number, locale: string): string {
   if (!bytes) return "0 B";
@@ -184,3 +191,12 @@ export function fileUrl(id: string, opts: { inline?: boolean; text?: boolean; ac
 }
 
 export const docsHref = (id: string) => `/docs/edit/${encodeURIComponent(id)}`;
+
+/**
+ * Built-in Docs editor (whiteboard / Markdown) for a file, or null. Docs only opens files from
+ * the user's own drive, so shared files keep the regular preview.
+ */
+export function nativeEditorHref(item: { id: string; name: string; isFolder: boolean; accountId: string | null }): string | null {
+  if (item.isFolder || item.accountId || !nativeKind(item.name)) return null;
+  return openHref(item.id, item.name, "drive");
+}
