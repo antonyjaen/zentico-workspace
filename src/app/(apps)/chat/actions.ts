@@ -86,7 +86,9 @@ function ids(v: unknown, max = 200): number[] {
 async function directory(me: ChatUser): Promise<Person[]> {
   const out = new Map<string, Person>();
   try {
-    for (const p of await getPrincipals())
+    const principals = await getPrincipals();
+    console.info(`[chat] directory: ${principals.length} principals visible to the user`);
+    for (const p of principals)
       if (p.type === "individual" && EMAIL.test(p.email)) out.set(p.email, { email: p.email, name: p.name || p.email });
   } catch (e) {
     unstable_rethrow(e);
