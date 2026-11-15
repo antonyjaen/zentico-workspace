@@ -1,1 +1,63 @@
-{}
+{
+  "compose": {
+    "newMessage": "Mensaje nuevo",
+    "from": "De",
+    "to": "Para",
+    "cc": "Cc",
+    "bcc": "Cco",
+    "subject": "Asunto",
+    "send": "Enviar",
+    "sending": "Enviando…",
+    "sendHint": "Enviar (Ctrl/⌘ + Intro)",
+    "sent": "Mensaje enviado",
+    "discarded": "Borrador descartado",
+    "attach": "Adjuntar archivos",
+    "dropFiles": "Suelta los archivos para adjuntarlos",
+    "failed": "Error",
+    "removeAttachment": "Quitar {name}",
+    "removeRecipient": "Quitar {email}",
+    "invalidAddress": "Dirección de correo no válida",
+    "discard": "Descartar borrador",
+    "minimize": "Minimizar",
+    "restore": "Restaurar",
+    "fullscreen": "Pantalla completa",
+    "exitFullscreen": "Salir de pantalla completa",
+    "close": "Guardar y cerrar",
+    "loading": "Cargando…",
+    "saving": "Guardando…",
+    "saved": "Guardado",
+    "saveFailed": "No guardado",
+    "replyHeader": "El {date}, {name} escribió:",
+    "replyHeaderNoDate": "{name} escribió:",
+    "forward": {
+      "header": "---------- Mensaje reenviado ----------",
+      "from": "De",
+      "date": "Fecha",
+      "subject": "Asunto",
+      "to": "Para",
+      "cc": "Cc"
+    },
+    "toolbar": {
+      "label": "Formato",
+      "body": "Cuerpo del mensaje",
+      "bold": "Negrita",
+      "italic": "Cursiva",
+      "underline": "Subrayado",
+      "link": "Insertar enlace",
+      "bulleted": "Lista con viñetas",
+      "numbered": "Lista numerada",
+      "linkPrompt": "URL del enlace",
+      "invalidLink": "Solo se permiten enlaces http, https y mailto."
+    },
+    "errors": {
+      "noRecipients": "Añade al menos un destinatario.",
+      "invalidRecipients": "Corrige las direcciones no válidas antes de enviar.",
+      "uploading": "Espera a que terminen de subirse los adjuntos.",
+      "noIdentity": "Esta cuenta no tiene ninguna identidad de envío.",
+      "sendFailed": "No se pudo enviar el mensaje ({reason}). Se ha guardado en Borradores.",
+      "tooLarge": "Demasiado grande (máximo 25 MB en total)",
+      "uploadFailed": "Error al subir",
+      "loadFailed": "No pudimos abrir este mensaje. Inténtalo de nuevo."
+    }
+  }
+}

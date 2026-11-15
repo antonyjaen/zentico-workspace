@@ -1,1 +1,63 @@
-{}
+{
+  "compose": {
+    "newMessage": "New message",
+    "from": "From",
+    "to": "To",
+    "cc": "Cc",
+    "bcc": "Bcc",
+    "subject": "Subject",
+    "send": "Send",
+    "sending": "Sending…",
+    "sendHint": "Send (Ctrl/⌘ + Enter)",
+    "sent": "Message sent",
+    "discarded": "Draft discarded",
+    "attach": "Attach files",
+    "dropFiles": "Drop files to attach",
+    "failed": "Failed",
+    "removeAttachment": "Remove {name}",
+    "removeRecipient": "Remove {email}",
+    "invalidAddress": "Invalid email address",
+    "discard": "Discard draft",
+    "minimize": "Minimize",
+    "restore": "Restore",
+    "fullscreen": "Full screen",
+    "exitFullscreen": "Exit full screen",
+    "close": "Save and close",
+    "loading": "Loading…",
+    "saving": "Saving…",
+    "saved": "Saved",
+    "saveFailed": "Not saved",
+    "replyHeader": "On {date}, {name} wrote:",
+    "replyHeaderNoDate": "{name} wrote:",
+    "forward": {
+      "header": "---------- Forwarded message ----------",
+      "from": "From",
+      "date": "Date",
+      "subject": "Subject",
+      "to": "To",
+      "cc": "Cc"
+    },
+    "toolbar": {
+      "label": "Formatting",
+      "body": "Message body",
+      "bold": "Bold",
+      "italic": "Italic",
+      "underline": "Underline",
+      "link": "Insert link",
+      "bulleted": "Bulleted list",
+      "numbered": "Numbered list",
+      "linkPrompt": "Link URL",
+      "invalidLink": "Only http, https and mailto links are allowed."
+    },
+    "errors": {
+      "noRecipients": "Add at least one recipient.",
+      "invalidRecipients": "Fix the invalid email addresses before sending.",
+      "uploading": "Wait for attachments to finish uploading.",
+      "noIdentity": "No sending identity is available for this account.",
+      "sendFailed": "Couldn't send the message ({reason}). It was kept in Drafts.",
+      "tooLarge": "Too large (25 MB max in total)",
+      "uploadFailed": "Upload failed",
+      "loadFailed": "We couldn't open this message. Please try again."
+    }
+  }
+}

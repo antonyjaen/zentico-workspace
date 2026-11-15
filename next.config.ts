@@ -6,6 +6,8 @@ const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  // Composed messages (with quoted originals) can exceed the 1 MB default.
+  experimental: { serverActions: { bodySizeLimit: "10mb" } },
   async headers() {
     return [
       {
