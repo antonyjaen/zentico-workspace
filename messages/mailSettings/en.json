@@ -1,1 +1,118 @@
-{}
+{
+  "mailSettings": {
+    "title": "Settings",
+    "back": "Back to Mail",
+    "loadError": "We couldn't load these settings. Please try again in a moment.",
+    "unavailable": "Not available on this server",
+    "unavailableHint": "Your mail server doesn't offer this feature",
+    "tabs": {
+      "identities": "Identities",
+      "vacation": "Vacation",
+      "filters": "Filters",
+      "display": "Display"
+    },
+    "errors": {
+      "saved": "Saved",
+      "invalid": "Some fields are invalid. Check them and try again.",
+      "invalidEmail": "Enter a valid email address.",
+      "invalidFolder": "Choose a valid folder.",
+      "invalidDates": "Check the dates: the start must be before the end.",
+      "emptyBody": "Write a message for your automatic reply.",
+      "forbidden": "Your account isn't allowed to make this change.",
+      "forbiddenFrom": "You're not allowed to send from this address.",
+      "invalidSieve": "The server rejected the generated filter script.",
+      "invalidProperties": "The server rejected some of the values.",
+      "tooLarge": "This is too large to save.",
+      "overQuota": "Your account is over its storage quota.",
+      "unavailable": "Not available on this server.",
+      "server": "Something went wrong. Please try again.",
+      "unknown": "Something went wrong. Please try again."
+    },
+    "editor": {
+      "bold": "Bold",
+      "italic": "Italic",
+      "underline": "Underline",
+      "list": "Bulleted list",
+      "link": "Insert link",
+      "linkPrompt": "Link address (https:// or mailto:)",
+      "clear": "Clear formatting"
+    },
+    "identities": {
+      "title": "Identities & signatures",
+      "description": "Addresses you send from, their display name, reply-to and signature.",
+      "none": "No identities yet.",
+      "add": "Add an address",
+      "addTitle": "New identity",
+      "email": "Email address",
+      "emailHint": "Must be an address your account is allowed to send from.",
+      "name": "Display name",
+      "replyTo": "Reply-to",
+      "replyToHint": "Optional. Replies go here instead.",
+      "htmlSignature": "Signature",
+      "textSignature": "Plain-text signature",
+      "textSignatureHint": "Used for plain-text messages. Follows the signature above until you edit it.",
+      "save": "Save",
+      "create": "Create identity",
+      "cancel": "Cancel",
+      "delete": "Delete",
+      "confirmDelete": "Delete the identity {email}?"
+    },
+    "vacation": {
+      "title": "Vacation responder",
+      "description": "Automatically reply to incoming mail while you're away.",
+      "enable": "Automatic reply",
+      "enableHint": "Senders get one reply per period.",
+      "from": "First day",
+      "to": "Last day",
+      "optional": "Optional",
+      "subject": "Subject",
+      "subjectPlaceholder": "Out of office",
+      "message": "Message",
+      "save": "Save"
+    },
+    "filters": {
+      "title": "Filters",
+      "description": "Sort incoming mail automatically. Rules run on the server, even when you're offline.",
+      "empty": "No filters yet. Add a rule to get started.",
+      "if": "If",
+      "field": "Field",
+      "fields": {
+        "from": "From",
+        "to": "To or Cc",
+        "subject": "Subject"
+      },
+      "contains": "contains",
+      "value": "Text to match",
+      "action": "Action",
+      "actions": {
+        "move": "Move to",
+        "markRead": "Mark as read",
+        "star": "Star",
+        "delete": "Delete",
+        "forward": "Forward to"
+      },
+      "folder": "Folder",
+      "forwardTo": "name@example.com",
+      "remove": "Remove rule",
+      "add": "Add rule",
+      "save": "Save filters",
+      "orderHint": "Mark-read, star and forward rules apply first; the first matching move or delete stops further rules.",
+      "otherActive": "The script “{name}” is currently active. Saving will activate “{ours}” instead and turn it off.",
+      "unreadable": "The “{name}” script was edited outside Zentico and its rules can't be read. Saving will replace it.",
+      "raw": "Active script (read-only)",
+      "noActive": "No Sieve script is active."
+    },
+    "display": {
+      "title": "Display",
+      "description": "How your mail list looks on this device.",
+      "density": "Density",
+      "densityHint": "Row spacing in the message list.",
+      "comfortable": "Comfortable",
+      "compact": "Compact",
+      "pane": "Reading pane",
+      "paneHint": "Where messages open.",
+      "paneNone": "No split",
+      "paneRight": "Right of the list"
+    }
+  }
+}

@@ -6,6 +6,7 @@ import { AccountMenu } from "./AccountMenu";
 import { AppLauncher } from "./AppLauncher";
 import { Wordmark } from "./Logo";
 import { SearchBox } from "./SearchBox";
+import { SettingsLink } from "./SettingsLink";
 import { ThemeMenu } from "./ThemeMenu";
 
 export async function TopBar({ session, query }: { session: Session; query?: string }) {
@@ -18,6 +19,7 @@ export async function TopBar({ session, query }: { session: Session; query?: str
       </Link>
       <SearchBox placeholder={t("search")} defaultValue={query} />
       <div className="ml-auto flex items-center gap-1">
+        <SettingsLink />
         <ThemeMenu />
         <AppLauncher />
         <AccountMenu name={session.name} email={session.email} accountUrl={`${env.issuer}/account/`} />

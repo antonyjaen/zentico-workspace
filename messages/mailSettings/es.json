@@ -1,1 +1,118 @@
-{}
+{
+  "mailSettings": {
+    "title": "Configuración",
+    "back": "Volver al correo",
+    "loadError": "No pudimos cargar esta configuración. Inténtalo de nuevo en un momento.",
+    "unavailable": "No disponible en este servidor",
+    "unavailableHint": "Tu servidor de correo no ofrece esta función",
+    "tabs": {
+      "identities": "Identidades",
+      "vacation": "Vacaciones",
+      "filters": "Filtros",
+      "display": "Visualización"
+    },
+    "errors": {
+      "saved": "Guardado",
+      "invalid": "Algunos campos no son válidos. Revísalos e inténtalo de nuevo.",
+      "invalidEmail": "Introduce una dirección de correo válida.",
+      "invalidFolder": "Elige una carpeta válida.",
+      "invalidDates": "Revisa las fechas: el inicio debe ser anterior al fin.",
+      "emptyBody": "Escribe un mensaje para tu respuesta automática.",
+      "forbidden": "Tu cuenta no tiene permiso para hacer este cambio.",
+      "forbiddenFrom": "No tienes permiso para enviar desde esta dirección.",
+      "invalidSieve": "El servidor rechazó el script de filtros generado.",
+      "invalidProperties": "El servidor rechazó algunos de los valores.",
+      "tooLarge": "Es demasiado grande para guardarlo.",
+      "overQuota": "Tu cuenta superó su cuota de almacenamiento.",
+      "unavailable": "No disponible en este servidor.",
+      "server": "Algo salió mal. Inténtalo de nuevo.",
+      "unknown": "Algo salió mal. Inténtalo de nuevo."
+    },
+    "editor": {
+      "bold": "Negrita",
+      "italic": "Cursiva",
+      "underline": "Subrayado",
+      "list": "Lista con viñetas",
+      "link": "Insertar enlace",
+      "linkPrompt": "Dirección del enlace (https:// o mailto:)",
+      "clear": "Quitar formato"
+    },
+    "identities": {
+      "title": "Identidades y firmas",
+      "description": "Direcciones desde las que envías, su nombre visible, respuesta y firma.",
+      "none": "Aún no hay identidades.",
+      "add": "Añadir una dirección",
+      "addTitle": "Nueva identidad",
+      "email": "Dirección de correo",
+      "emailHint": "Debe ser una dirección desde la que tu cuenta pueda enviar.",
+      "name": "Nombre visible",
+      "replyTo": "Responder a",
+      "replyToHint": "Opcional. Las respuestas llegarán aquí.",
+      "htmlSignature": "Firma",
+      "textSignature": "Firma en texto plano",
+      "textSignatureHint": "Se usa en mensajes de texto plano. Sigue a la firma de arriba hasta que la edites.",
+      "save": "Guardar",
+      "create": "Crear identidad",
+      "cancel": "Cancelar",
+      "delete": "Eliminar",
+      "confirmDelete": "¿Eliminar la identidad {email}?"
+    },
+    "vacation": {
+      "title": "Respuesta automática",
+      "description": "Responde automáticamente al correo entrante mientras no estás.",
+      "enable": "Respuesta automática",
+      "enableHint": "Cada remitente recibe una respuesta por periodo.",
+      "from": "Primer día",
+      "to": "Último día",
+      "optional": "Opcional",
+      "subject": "Asunto",
+      "subjectPlaceholder": "Fuera de la oficina",
+      "message": "Mensaje",
+      "save": "Guardar"
+    },
+    "filters": {
+      "title": "Filtros",
+      "description": "Ordena el correo entrante automáticamente. Las reglas se ejecutan en el servidor, incluso sin conexión.",
+      "empty": "Aún no hay filtros. Añade una regla para empezar.",
+      "if": "Si",
+      "field": "Campo",
+      "fields": {
+        "from": "De",
+        "to": "Para o Cc",
+        "subject": "Asunto"
+      },
+      "contains": "contiene",
+      "value": "Texto a buscar",
+      "action": "Acción",
+      "actions": {
+        "move": "Mover a",
+        "markRead": "Marcar como leído",
+        "star": "Destacar",
+        "delete": "Eliminar",
+        "forward": "Reenviar a"
+      },
+      "folder": "Carpeta",
+      "forwardTo": "nombre@ejemplo.com",
+      "remove": "Quitar regla",
+      "add": "Añadir regla",
+      "save": "Guardar filtros",
+      "orderHint": "Las reglas de marcar como leído, destacar y reenviar se aplican primero; el primer mover o eliminar que coincida detiene las demás.",
+      "otherActive": "El script «{name}» está activo. Al guardar se activará «{ours}» y se desactivará el otro.",
+      "unreadable": "El script «{name}» se editó fuera de Zentico y no se pueden leer sus reglas. Al guardar se reemplazará.",
+      "raw": "Script activo (solo lectura)",
+      "noActive": "No hay ningún script Sieve activo."
+    },
+    "display": {
+      "title": "Visualización",
+      "description": "Cómo se ve tu lista de correo en este dispositivo.",
+      "density": "Densidad",
+      "densityHint": "Espaciado de las filas en la lista de mensajes.",
+      "comfortable": "Cómoda",
+      "compact": "Compacta",
+      "pane": "Panel de lectura",
+      "paneHint": "Dónde se abren los mensajes.",
+      "paneNone": "Sin dividir",
+      "paneRight": "A la derecha de la lista"
+    }
+  }
+}
