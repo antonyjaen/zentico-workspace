@@ -114,7 +114,7 @@ export function ChatApp({ initial, initialId }: { initial: ChatOverview; initial
             lastMessage:
               m.kind === "system"
                 ? c.lastMessage
-                : { preview: m.body || (m.meta?.files ?? []).map((f) => f.name).join(", ") || m.meta?.meeting?.title || "", author: m.author?.name ?? null, kind: m.kind, created: m.created },
+                : { preview: m.body || [...(m.meta?.files ?? []), ...(m.meta?.drive ?? [])].map((f) => f.name).join(", ") || m.meta?.meeting?.title || "", author: m.author?.name ?? null, kind: m.kind, created: m.created },
             unread: mine || isActive || m.kind === "system" || !c.joined ? c.unread : c.unread + 1,
           };
         });

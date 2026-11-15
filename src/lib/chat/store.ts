@@ -12,6 +12,7 @@ import {
   type ConversationDetail,
   type ConversationKind,
   type ConversationSummary,
+  type DriveRef,
   type FileMeta,
   type MeetingInfo,
   type MeetingMeta,
@@ -285,19 +286,33 @@ function postAndPublish(
 export function postMessage(
   convId: string,
   userId: number,
-  input: { body: string; kind?: "text" | "file"; files?: FileMeta[]; threadRoot?: number | null },
+  input: { body: string; kind?: "text" | "file"; files?: FileMeta[]; drive?: DriveRef[]; threadRoot?: number | null },
 ): ChatMessage {
   const conv = writable(convId, userId);
   if (input.threadRoot != null) {
     const root = get("SELECT conversation_id, thread_root_id, deleted FROM messages WHERE id = ?", input.threadRoot);
     if (!root || strv(root.conversation_id) !== convId || root.thread_root_id != null) throw new ChatError("notFound");
   }
+  const meta: MessageMeta | null = input.files?.length ? { files: input.files } : input.drive?.length ? { drive: input.drive } : null;
   return postAndPublish(conv, userId, {
     body: input.body,
-    kind: input.files?.length ? "file" : "text",
-    meta: input.files?.length ? { files: input.files } : null,
+    kind: meta ? "file" : "text",
+    meta,
     threadRoot: input.threadRoot ?? null,
   });
+}
+
+/** Everyone who can read a conversation I can read (members; plus the team for public channels). */
+export function readers(convId: string, userId: number): ChatUser[] {
+  const { conv } = readable(convId, userId);
+  return usersByIds([...new Set(audience(conv))]);
+}
+
+/** A message I can read (null when it doesn't exist or isn't visible to me). */
+export function readableMessage(messageId: number, userId: number): ChatMessage | null {
+  const m = messageById(messageId);
+  if (!m || m.deleted || !canReadConversation(m.conversationId, userId)) return null;
+  return m;
 }
 
 function ownMessage(messageId: number, userId: number): { conv: ConvRow; row: Row } {
@@ -404,7 +419,7 @@ function previewOf(r: Row): string {
   const kind = strv(r.kind);
   if (kind === "file") {
     const meta = parseMeta(r.meta);
-    return strv(r.body) || meta?.files?.map((f) => f.name).join(", ") || "";
+    return strv(r.body) || [...(meta?.files ?? []), ...(meta?.drive ?? [])].map((f) => f.name).join(", ") || "";
   }
   if (kind === "meeting") return parseMeta(r.meta)?.meeting?.title ?? "";
   return strv(r.body)

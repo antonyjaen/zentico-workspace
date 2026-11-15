@@ -6,6 +6,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import { usePopover } from "@/components/usePopover";
 import { meetHref } from "../meet/shared";
 import { deleteMessage, editMessage, endMeeting, react } from "./actions";
+import { DriveCards } from "./DriveCard";
 import { Markdown, mentionsMe } from "./Markdown";
 import {
   BODY_MAX,
@@ -111,6 +112,7 @@ export const MessageItem = memo(function MessageItem({ m, me, grouped, nameOf, o
               )
             )}
             {m.meta?.files && m.meta.files.length > 0 && <Attachments files={m.meta.files} />}
+            <DriveCards m={m} me={me} canInteract={canInteract} />
           </>
         )}
 

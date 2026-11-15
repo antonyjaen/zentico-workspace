@@ -1,9 +1,11 @@
 "use client";
 
-import { FileText, Loader2, Paperclip, SendHorizontal, X } from "lucide-react";
+import { FileText, HardDrive, Loader2, Paperclip, SendHorizontal, Upload, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { usePopover } from "@/components/usePopover";
 import { sendMessage } from "./actions";
+import { DrivePickerDialog } from "./DrivePicker";
 import { BODY_MAX, FILE_MAX_BYTES, formatSize, isPreviewableImage, type ChatMessage, type ChatUser } from "./shared";
 import { Avatar, fold, useErrorText } from "./ui";
 
@@ -36,6 +38,8 @@ export function Composer({ conversationId, threadRoot, me, members, placeholder,
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const lastTyping = useRef(0);
+  const attachMenu = usePopover();
+  const [drivePicker, setDrivePicker] = useState(false);
 
   const addFiles = (list: File[]) => {
     setError(null);
@@ -188,15 +192,47 @@ export function Composer({ conversationId, threadRoot, me, members, placeholder,
         )}
 
         <div className="flex items-end gap-1 p-1.5">
-          <button
-            type="button"
-            onClick={() => fileInput.current?.click()}
-            className="icon-btn h-8 w-8"
-            aria-label={t("attach")}
-            title={t("attach")}
-          >
-            <Paperclip size={17} aria-hidden />
-          </button>
+          <div ref={attachMenu.ref} className="relative">
+            <button
+              type="button"
+              onClick={attachMenu.toggle}
+              className="icon-btn h-8 w-8"
+              aria-label={t("attach")}
+              title={t("attach")}
+              aria-haspopup="menu"
+              aria-expanded={attachMenu.open}
+            >
+              <Paperclip size={17} aria-hidden />
+            </button>
+            {attachMenu.open && (
+              <div role="menu" className="pop absolute bottom-full left-0 z-20 mb-1.5 w-56 p-1">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    attachMenu.setOpen(false);
+                    fileInput.current?.click();
+                  }}
+                  className="flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-[13.5px] text-ink-soft hover:bg-hover hover:text-ink"
+                >
+                  <Upload size={15} aria-hidden />
+                  {t("drive.uploadFromComputer")}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    attachMenu.setOpen(false);
+                    setDrivePicker(true);
+                  }}
+                  className="flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-[13.5px] text-ink-soft hover:bg-hover hover:text-ink"
+                >
+                  <HardDrive size={15} aria-hidden style={{ color: "var(--color-app-drive)" }} />
+                  {t("drive.chooseFromDrive")}
+                </button>
+              </div>
+            )}
+          </div>
           <input
             ref={fileInput}
             type="file"
@@ -264,6 +300,21 @@ export function Composer({ conversationId, threadRoot, me, members, placeholder,
         </div>
       </div>
       <p className="mt-1 hidden px-1 text-[11px] text-ink-mute md:block">{t("composerHint")}</p>
+      {drivePicker && (
+        <DrivePickerDialog
+          conversationId={conversationId}
+          threadRoot={threadRoot}
+          text={text.trim()}
+          onClose={() => {
+            setDrivePicker(false);
+            ref.current?.focus();
+          }}
+          onSent={(messages) => {
+            if (text.trim()) setText("");
+            for (const m of messages) onSent(m);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -29,7 +29,24 @@ export type SystemMeta = {
   name?: string;
 };
 
-export type MessageMeta = { files?: FileMeta[]; meeting?: MeetingMeta; system?: SystemMeta };
+/**
+ * A Drive file or folder posted in a conversation (a `file` message with `meta.drive`). Name,
+ * type and size are a snapshot from when it was sent; viewers re-resolve it with their own rights.
+ */
+export type DriveRef = {
+  source: "drive";
+  /** Owning JMAP account (always the real id, never null). */
+  accountId: string;
+  fileId: string;
+  name: string;
+  mediaType: string;
+  size: number;
+  isFolder: boolean;
+  /** Owner's display name when it was sent (account name, or the sender for their own drive). */
+  owner?: string;
+};
+
+export type MessageMeta = { files?: FileMeta[]; drive?: DriveRef[]; meeting?: MeetingMeta; system?: SystemMeta };
 
 export type Reaction = { emoji: string; users: number[] };
 
@@ -200,6 +217,91 @@ export function formatSize(bytes: number): string {
 }
 
 export const fileHref = (id: string, download = false) => `/api/chat/file/${id}${download ? "?download=1" : ""}`;
+
+// ---------- Drive files in Chat ----------
+
+export const MAX_DRIVE_PICKS = 10;
+const DRIVE_ID = /^[A-Za-z0-9_-]{1,255}$/;
+export const isDriveId = (v: unknown): v is string => typeof v === "string" && DRIVE_ID.test(v);
+
+/** A file or folder picked in the Drive picker / Drive's "Send in Chat" (accountId null = my drive). */
+export type DrivePick = { accountId: string | null; fileId: string };
+
+/** One row of the Drive picker. */
+export type DrivePickItem = {
+  id: string;
+  /** Owning account (real id). */
+  accountId: string;
+  name: string;
+  isFolder: boolean;
+  type: string;
+  size: number;
+  modified: string | null;
+  /** Folder path ("Projects / 2026"); null = top level. */
+  location: string | null;
+  /** Owner for items outside my drive; null = me. */
+  owner: string | null;
+};
+
+export type DriveBrowse = { items: DrivePickItem[]; path: { id: string; name: string }[] };
+
+/** Who in a conversation can't open the picked files (computed by the server with the sender's view). */
+export type DriveAccessCheck = {
+  /** False when the server doesn't report grants (no access step then). */
+  supported: boolean;
+  files: {
+    accountId: string;
+    fileId: string;
+    name: string;
+    isFolder: boolean;
+    /** The sender may change grants (myRights.mayShare). */
+    canShare: boolean;
+    /** Members who can't open it (and can be granted access). */
+    missing: { id: number; name: string }[];
+    /** Members without access who aren't in the Drive directory (can't be granted here). */
+    unknown: { id: number; name: string }[];
+  }[];
+};
+
+export type DriveGrant = "viewer" | "editor" | "none";
+
+/** A Drive card as the viewer sees it (resolved with their own rights). */
+export type DriveCardData =
+  | { ok: true; ref: DriveRef; mine: boolean; modified: string | null }
+  | { ok: false; reason: "noAccess" };
+
+/** Universal open link: the server sends each viewer to the right editor, folder or preview. */
+export const driveOpenHref = (r: { accountId: string | null; fileId: string }) =>
+  `/api/chat/drive/open?${new URLSearchParams({ ...(r.accountId ? { account: r.accountId } : {}), id: r.fileId })}`;
+
+export const driveDownloadHref = (r: { accountId: string | null; fileId: string }) =>
+  `/api/drive/file/${encodeURIComponent(r.fileId)}${r.accountId ? `?account=${encodeURIComponent(r.accountId)}` : ""}`;
+
+/** Hosts whose links unfurl into Drive cards (besides the current origin). */
+export const DRIVE_LINK_HOSTS = ["team.zentico.dev"];
+
+const DRIVE_PATH = /^\/(?:drive|docs\/(?:edit|md|draw)\/[^/]+|api\/drive\/file\/[^/]+|api\/chat\/drive\/open)$/;
+
+/** Links in a message body that may point at Drive files/folders (at most 3, deduplicated). */
+export function driveLinksIn(body: string, currentHost?: string): string[] {
+  const out: string[] = [];
+  for (const m of body.matchAll(/https?:\/\/[^\s<>"()\]]+/g)) {
+    const raw = m[0].replace(/[.,;:!?'*_~]+$/, "");
+    let u: URL;
+    try {
+      u = new URL(raw);
+    } catch {
+      continue;
+    }
+    if (!(DRIVE_LINK_HOSTS.includes(u.host) || (currentHost && u.host === currentHost))) continue;
+    if (!DRIVE_PATH.test(u.pathname)) continue;
+    if (u.pathname === "/drive" && !u.searchParams.get("folder") && !u.searchParams.get("preview")) continue;
+    if (u.pathname === "/api/chat/drive/open" && !u.searchParams.get("id")) continue;
+    if (!out.includes(u.toString())) out.push(u.toString());
+    if (out.length === 3) break;
+  }
+  return out;
+}
 
 /** Image types we preview inline (no SVG: it can carry script). */
 export const isPreviewableImage = (mime: string) => /^image\/(png|jpe?g|gif|webp|avif|bmp)$/i.test(mime);

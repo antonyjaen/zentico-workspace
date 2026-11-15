@@ -19,6 +19,7 @@ import {
   LayoutGrid,
   List,
   Loader2,
+  MessageSquare,
   Pencil,
   Plus,
   Presentation,
@@ -60,6 +61,7 @@ import {
 } from "./shared";
 import { entriesFromDrop, entriesFromInput, useUploads, type Upload } from "./uploads";
 import { openHref } from "@/app/(apps)/docs/shared";
+import { SendToChatDialog } from "@/app/(apps)/chat/DrivePicker";
 import { usePopover } from "@/components/usePopover";
 
 const DRAG_MIME = "application/x-zw-drive";
@@ -113,6 +115,8 @@ export function DriveApp(props: Props) {
 
   const [showExt, setShowExt] = useState(props.showExt);
   const [sharing, setSharing] = useState<Item | null>(null);
+  const [sendingToChat, setSendingToChat] = useState<Item[] | null>(null);
+  const tChat = useTranslations("chat");
   const [view, setView] = useState<ViewMode>(initialView);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const anchor = useRef<number | null>(null);
@@ -144,6 +148,18 @@ export function DriveApp(props: Props) {
       .then((r) => r.ok && r.data && refresh())
       .catch(() => {});
   }, [needsInit, refresh]);
+
+  // ?preview=<id> (links from Chat): open that file's preview once, then drop the parameter.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const id = url.searchParams.get("preview");
+    if (!id) return;
+    const item = items.find((i) => i.id === id && !i.isFolder);
+    if (item) setPreview(item);
+    url.searchParams.delete("preview");
+    window.history.replaceState(window.history.state, "", url.pathname + url.search);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only on mount
+  }, []);
 
   // Drop selections that no longer exist after a refresh.
   useEffect(() => {
@@ -564,6 +580,7 @@ export function DriveApp(props: Props) {
                 {single && <ToolButton icon={Eye} label={single.isFolder ? t("open") : t("preview")} onClick={() => open(single)} />}
                 {selectedItems.some((i) => !i.isFolder) && <ToolButton icon={Download} label={t("download")} onClick={() => download(selectedItems)} />}
                 {canShare && <ToolButton icon={Share2} label={t("share.action")} onClick={() => setSharing(single)} />}
+                {section !== "trash" && <ToolButton icon={MessageSquare} label={tChat("drive.sendInChat")} onClick={() => setSendingToChat(selectedItems)} />}
                 {single && canRename && <ToolButton icon={Pencil} label={t("rename")} onClick={() => setRenaming(keyOf(single))} />}
                 {canMove && <ToolButton icon={FolderInput} label={section === "trash" ? t("restore") : t("move")} onClick={() => setMoving(selectedItems.map((i) => i.id))} />}
                 {canDelete && <ToolButton icon={Trash2} label={forever ? t("deleteForever") : t("delete")} onClick={() => setConfirmDelete(true)} />}
@@ -760,6 +777,7 @@ export function DriveApp(props: Props) {
       {uploads.length > 0 && <UploadTray uploads={uploads} onClose={clearUploads} />}
       {preview && <Preview item={preview} onClose={() => setPreview(null)} />}
       {sharing && <ShareDialog item={sharing} onClose={() => setSharing(null)} onChanged={refresh} />}
+      {sendingToChat && <SendToChatDialog items={sendingToChat} onClose={() => (setSendingToChat(null), refresh())} />}
       {moving && (
         <MoveDialog
           excluded={moving}

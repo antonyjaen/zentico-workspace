@@ -548,6 +548,35 @@ export async function getSharing(id: string, accountId?: string | null): Promise
   return { supported: true, node, shareWith };
 }
 
+/**
+ * `shareWith` of several nodes of one account in a single FileNode/get (e.g. a node and its
+ * ancestors). Null when the server doesn't expose the property.
+ */
+export async function getShareWithMany(ids: string[], accountId?: string | null): Promise<Map<string, Record<string, Rights>> | null> {
+  const out = new Map<string, Record<string, Rights>>();
+  const valid = ids.filter(validId);
+  if (!valid.length) return out;
+  const acc = await account(accountId);
+  const r = await jmapTry(
+    "FileNode/get shareWith (many)",
+    [["FileNode/get", { accountId: acc, ids: valid, properties: ["id", "shareWith"] }, "g"]],
+    USING,
+  );
+  const res = r.g;
+  if (!res?.ok) return null;
+  const list = (res.args.list as RawNode[] | undefined) ?? [];
+  if (list.length && !list.some((n) => "shareWith" in n)) return null;
+  for (const raw of list) {
+    if (!raw.id) continue;
+    const grants: Record<string, Rights> = {};
+    for (const [pid, rights] of Object.entries(raw.shareWith ?? {})) {
+      if (rights && ID.test(pid)) grants[pid] = normalizeRights(rights, READ_RIGHTS);
+    }
+    out.set(raw.id, grants);
+  }
+  return out;
+}
+
 /** Grants (rights object) or revokes (null) access with a `shareWith/<principalId>` patch. */
 export async function setShare(id: string, principalId: string, rights: Rights | null, accountId?: string | null): Promise<void> {
   if (!validId(id) || !validId(principalId)) throw new DriveError("Invalid id", "invalid");
