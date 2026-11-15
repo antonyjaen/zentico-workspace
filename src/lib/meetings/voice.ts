@@ -4,7 +4,7 @@
 import type { TranscriptSegment } from "@/app/(apps)/meet/recording";
 
 /** Wake phrase at the start of an utterance (English/Spanish, common Whisper misspellings). */
-const WAKE = /^(?:(?:hey|oye|ok|okay)[\s,]+)?(?:claude|cloud|clod|claud|cloth)\b[,:.!]?\s*(.+)/i;
+const WAKE = /^(?:(?:hey|oye|ok|okay)[\s,]+)?(?:claude|cloud|clod|claud|cloth|klaud|klod|clow|clau|cloude)\b[,:.!]?\s*(.+)/i;
 const LEADING_JUNK = /^[\s"'“”‘’¿¡.,;:!?\-–—…]+/;
 
 const fold = (t: string) =>
