@@ -6,7 +6,7 @@ export type Locale = (typeof LOCALES)[number];
 export const LOCALE_COOKIE = "zw_locale";
 
 /** Per-feature message files (messages/<feature>/<locale>.json), merged over the base file. */
-const FEATURES = ["mailRead", "compose", "mailActions", "mailSettings", "calendar", "contacts"] as const;
+const FEATURES = ["mailRead", "compose", "mailActions", "mailSettings", "calendar", "contacts", "drive", "docs", "meet"] as const;
 
 function pick(value: string | undefined): Locale | undefined {
   return LOCALES.find((l) => value?.toLowerCase().startsWith(l));
