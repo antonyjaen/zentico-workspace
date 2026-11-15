@@ -301,31 +301,19 @@ export async function searchContactIds(text: string, addressBookId?: string): Pr
 
 /** Up to `limit` {name, email} pairs for mail autocomplete. */
 export async function suggestRecipients(q: string, limit = 8): Promise<{ name: string; email: string }[]> {
-  const accountId = await contactsAccount();
-  const r = await jmap(
-    [
-      ["ContactCard/query", { accountId, filter: { text: q }, limit: 25 }, "q"],
-      [
-        "ContactCard/get",
-        {
-          accountId,
-          "#ids": { resultOf: "q", name: "ContactCard/query", path: "/ids" },
-          properties: ["name", "emails", "kind"],
-        },
-        "g",
-      ],
-    ],
-    CONTACTS_USING,
-  );
+  // Stalwart's `text` filter matches whole words only, so typing "Prue" would never find
+  // "Prueba"; autocomplete matches prefixes and substrings locally instead.
+  const cards = await getAllCards();
   const needle = q.toLowerCase();
   const out: { name: string; email: string; score: number }[] = [];
-  for (const card of (r.g.list as JSCard[]) ?? []) {
+  for (const card of cards) {
     if (isGroup(card)) continue;
     const c = fromCard(card);
     for (const e of c.emails) {
       const name = c.displayName === e.value ? "" : c.displayName;
       const hay = `${name} ${e.value}`.toLowerCase();
-      const score = e.value.toLowerCase().startsWith(needle) || name.toLowerCase().startsWith(needle) ? 0 : hay.includes(needle) ? 1 : 2;
+      if (!hay.includes(needle)) continue;
+      const score = e.value.toLowerCase().startsWith(needle) || name.toLowerCase().startsWith(needle) ? 0 : 1;
       out.push({ name, email: e.value, score });
     }
   }

@@ -9,7 +9,7 @@ import type { AddressBook, Contact, EmailLabel, PhoneLabel } from "@/lib/contact
 
 const INPUT =
   "h-9 w-full rounded-md border border-line bg-sheet px-3 text-[14px] text-ink placeholder:text-ink-mute transition-colors hover:border-line-strong focus:border-line-strong focus:outline-none";
-const SELECT = `${INPUT} w-auto shrink-0 pr-2`;
+const SELECT = `${INPUT.replace("w-full", "w-auto")} shrink-0 pr-2`;
 const LEGEND = "mb-2 font-mono text-[11px] uppercase tracking-[0.16em] text-ink-mute";
 
 type Row<L> = { key: number; label: L; value: string };

@@ -3,6 +3,7 @@
 import { cache } from "react";
 import { getSession } from "./auth";
 import { env } from "./env";
+import { suggestRecipients } from "./contacts";
 import { CAP, jmap, JmapError, primaryAccount } from "./jmap";
 import { getMailboxes } from "./mail";
 
@@ -538,37 +539,8 @@ export async function suggestContacts(query: string): Promise<Address[]> {
   const q = query.trim().slice(0, 100);
   if (q.length < 2) return [];
   try {
-    const session = await getComposeSession();
-    const accountId = session?.primaryAccounts[CAP.contacts];
-    if (!session || !accountId || !(CAP.contacts in session.capabilities)) return [];
-    const r = await jmap(
-      [
-        ["ContactCard/query", { accountId, filter: { text: q }, limit: 8 }, "q"],
-        [
-          "ContactCard/get",
-          {
-            accountId,
-            "#ids": { resultOf: "q", name: "ContactCard/query", path: "/ids" },
-            properties: ["name", "emails"],
-          },
-          "g",
-        ],
-      ],
-      [CAP.core, CAP.contacts],
-    );
-    type Card = {
-      name?: { full?: string; components?: { value?: string }[] } | null;
-      emails?: Record<string, { address?: string }> | null;
-    };
-    const out: Address[] = [];
-    for (const c of (r.g.list as Card[]) ?? []) {
-      const name = c.name?.full || c.name?.components?.map((p) => p.value).filter(Boolean).join(" ") || null;
-      for (const e of Object.values(c.emails ?? {})) {
-        if (e.address && isEmail(e.address)) out.push({ name, email: e.address });
-      }
-    }
-    return out.slice(0, 8);
+    return (await suggestRecipients(q)).map((c) => ({ name: c.name || null, email: c.email }));
   } catch {
-    return [];
+    return []; // contacts unavailable: autocomplete simply stays empty
   }
 }
