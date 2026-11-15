@@ -3,8 +3,8 @@
 import { Plus, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
-import { useActionState, useState } from "react";
-import { saveContact } from "./actions";
+import { useActionState, useEffect, useRef, useState } from "react";
+import { saveContact, type FormState } from "./actions";
 import type { AddressBook, Contact, EmailLabel, PhoneLabel } from "@/lib/contacts";
 
 const INPUT =
@@ -93,15 +93,32 @@ export function ContactForm({
   books,
   defaultBookId,
   contact,
+  draft,
   backHref,
+  onCancel,
+  saveAction,
+  onSaved,
 }: {
   books: AddressBook[];
   defaultBookId: string;
   contact?: Contact;
-  backHref: string;
+  /** Prefilled values for a new contact (e.g. "Add to contacts" from Chat → People). */
+  draft?: Pick<Contact, "given" | "surname" | "emails">;
+  backHref?: string;
+  /** Used instead of the back link when the form is embedded (Chat). */
+  onCancel?: () => void;
+  /** Alternative save action that returns `{ ok: id }` instead of redirecting. */
+  saveAction?: (prev: FormState, fd: FormData) => Promise<FormState>;
+  onSaved?: (id: string) => void;
 }) {
   const t = useTranslations("contacts");
-  const [state, action, pending] = useActionState(saveContact, undefined);
+  const [state, action, pending] = useActionState(saveAction ?? saveContact, undefined);
+  const savedRef = useRef(onSaved);
+  savedRef.current = onSaved;
+  useEffect(() => {
+    if (state?.ok) savedRef.current?.(state.ok);
+  }, [state]);
+  const src: Partial<Contact> | undefined = contact ?? draft;
   const a = contact?.address;
   const emailLabels: { value: EmailLabel; text: string }[] = (["work", "home", "other"] as const).map((v) => ({
     value: v,
@@ -125,12 +142,22 @@ export function ContactForm({
         <h2 className="flex-1 truncate text-[14px] font-medium text-ink">
           {contact ? t("editTitle") : t("newTitle")}
         </h2>
-        <Link
-          href={backHref}
-          className="inline-flex h-8 items-center rounded-md px-3 text-[13px] text-ink-soft transition-colors hover:bg-hover hover:text-ink"
-        >
-          {t("cancel")}
-        </Link>
+        {onCancel || !backHref ? (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="inline-flex h-8 items-center rounded-md px-3 text-[13px] text-ink-soft transition-colors hover:bg-hover hover:text-ink"
+          >
+            {t("cancel")}
+          </button>
+        ) : (
+          <Link
+            href={backHref}
+            className="inline-flex h-8 items-center rounded-md px-3 text-[13px] text-ink-soft transition-colors hover:bg-hover hover:text-ink"
+          >
+            {t("cancel")}
+          </Link>
+        )}
         <button
           type="submit"
           disabled={pending}
@@ -152,10 +179,10 @@ export function ContactForm({
             <legend className={LEGEND}>{t("name")}</legend>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label={t("given")}>
-                <input name="given" defaultValue={contact?.given} maxLength={200} autoFocus className={INPUT} />
+                <input name="given" defaultValue={src?.given} maxLength={200} autoFocus className={INPUT} />
               </Field>
               <Field label={t("surname")}>
-                <input name="surname" defaultValue={contact?.surname} maxLength={200} className={INPUT} />
+                <input name="surname" defaultValue={src?.surname} maxLength={200} className={INPUT} />
               </Field>
             </div>
           </fieldset>
@@ -166,7 +193,7 @@ export function ContactForm({
               name="email"
               type="email"
               labels={emailLabels}
-              initial={contact?.emails ?? []}
+              initial={src?.emails ?? []}
               fallback="work"
               placeholder={t("emailPlaceholder")}
               addText={t("addEmail")}

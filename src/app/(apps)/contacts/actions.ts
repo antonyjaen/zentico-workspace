@@ -109,9 +109,8 @@ const errorKey = (e: unknown) => {
   return "failed";
 };
 
-/** Creates (no `id`) or updates a contact, then opens it. */
-export async function saveContact(_prev: FormState, fd: FormData): Promise<FormState> {
-  let savedId: string;
+/** Creates (no `id`) or updates a contact; returns its id or an error key. */
+async function persistContact(fd: FormData): Promise<{ id: string } | { error: string }> {
   try {
     const input = await parseContact(fd);
     const accountId = await contactsAccount();
@@ -133,18 +132,31 @@ export async function saveContact(_prev: FormState, fd: FormData): Promise<FormS
       );
       const err = setErrors(r.s, "notUpdated");
       if (err) return { error: "failed" };
-      savedId = cardId;
-    } else {
-      const r = await jmap([["ContactCard/set", { accountId, create: { c: newCard(input) } }, "s"]], CONTACTS_USING);
-      const created = (r.s.created as Record<string, { id: string }> | null)?.c;
-      if (!created) return { error: "failed" };
-      savedId = created.id;
+      return { id: cardId };
     }
+    const r = await jmap([["ContactCard/set", { accountId, create: { c: newCard(input) } }, "s"]], CONTACTS_USING);
+    const created = (r.s.created as Record<string, { id: string }> | null)?.c;
+    if (!created) return { error: "failed" };
+    return { id: created.id };
   } catch (e) {
     return { error: errorKey(e) };
   }
+}
+
+/** Creates (no `id`) or updates a contact, then opens it. */
+export async function saveContact(_prev: FormState, fd: FormData): Promise<FormState> {
+  const r = await persistContact(fd);
+  if ("error" in r) return r;
   revalidatePath("/contacts", "layout");
-  redirect(contactsHref({ id: savedId }));
+  redirect(contactsHref({ id: r.id }));
+}
+
+/** Same as saveContact but stays on the page (Chat → People): `ok` carries the contact id. */
+export async function saveContactInline(_prev: FormState, fd: FormData): Promise<FormState> {
+  const r = await persistContact(fd);
+  if ("error" in r) return r;
+  revalidatePath("/contacts", "layout");
+  return { ok: r.id };
 }
 
 export async function deleteContact(fd: FormData) {

@@ -3,7 +3,7 @@
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { APPS } from "./apps";
+import { RAIL_APPS } from "./apps";
 import { ChatUnreadBadge } from "./ChatUnreadBadge";
 import { LogoMark } from "./Logo";
 
@@ -19,7 +19,7 @@ export function AppRail() {
       <Link href="/mail" className="mb-4 rounded-lg p-1" aria-label="Zentico Workspace">
         <LogoMark size={30} />
       </Link>
-      {APPS.map(({ id, href, icon: Icon, color }) => {
+      {RAIL_APPS.map(({ id, href, icon: Icon, color }) => {
         const active = pathname === href || pathname.startsWith(`${href}/`);
         return (
           <Link

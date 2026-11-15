@@ -2,13 +2,14 @@
 
 // Chat shell: conversation list on the left, the open conversation on the right (one at a time
 // on mobile), live updates from /api/chat/events fanned out to the open views.
-import { MessageSquare } from "lucide-react";
+import { MessageSquare, UserPlus } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getOverview } from "./actions";
 import { Conversation } from "./Conversation";
 import { CreateChannelDialog, CreateTeamDialog, NewChatDialog, TeamMembersDialog } from "./Dialogs";
-import { Sidebar } from "./Sidebar";
+import { AddressBookMenu, PeopleList, PeoplePane, usePeopleData, type PeopleView } from "./People";
+import { Sidebar, type SidebarTab } from "./Sidebar";
 import { UNREAD_EVENT, type ChatEvent, type ChatOverview, type ConversationSummary } from "./shared";
 
 export type Subscribe = (fn: (e: ChatEvent) => void) => () => void;
@@ -21,6 +22,7 @@ type DialogState =
   | null;
 
 const urlFor = (id: string | null) => (id ? `/chat?c=${id}` : "/chat");
+const TAB_KEY = "zw_chat_tab";
 
 export function ChatApp({ initial, initialId }: { initial: ChatOverview; initialId: string | null }) {
   const t = useTranslations("chat");
@@ -28,6 +30,10 @@ export function ChatApp({ initial, initialId }: { initial: ChatOverview; initial
   const [activeId, setActiveId] = useState<string | null>(initialId);
   const [dialog, setDialog] = useState<DialogState>(null);
   const [connected, setConnected] = useState(true);
+  const [tab, setTabState] = useState<SidebarTab>("chats");
+  const [person, setPerson] = useState<PeopleView | null>(null);
+  const [scheduleIn, setScheduleIn] = useState<string | null>(null);
+  const people = usePeopleData(tab === "people" || person !== null);
   const listeners = useRef(new Set<(e: ChatEvent) => void>());
   const activeRef = useRef(activeId);
   activeRef.current = activeId;
@@ -137,6 +143,35 @@ export function ChatApp({ initial, initialId }: { initial: ChatOverview; initial
     [patch],
   );
 
+  const setTab = useCallback((next: SidebarTab) => {
+    setTabState(next);
+    try {
+      localStorage.setItem(TAB_KEY, next);
+    } catch {}
+  }, []);
+  useEffect(() => {
+    try {
+      if (!initialId && localStorage.getItem(TAB_KEY) === "people") setTabState("people");
+    } catch {}
+  }, [initialId]);
+
+  const openConversation = useCallback(
+    (id: string | null) => {
+      setPerson(null);
+      setScheduleIn(null);
+      open(id);
+    },
+    [open],
+  );
+
+  const selectPerson = useCallback(
+    (v: PeopleView | null) => {
+      setPerson(v);
+      if (v && activeRef.current) open(null);
+    },
+    [open],
+  );
+
   useEffect(() => {
     const onPop = () => setActiveId(new URLSearchParams(window.location.search).get("c"));
     window.addEventListener("popstate", onPop);
@@ -148,24 +183,44 @@ export function ChatApp({ initial, initialId }: { initial: ChatOverview; initial
   const created = (id: string) => {
     setDialog(null);
     refresh();
-    open(id);
+    openConversation(id);
   };
+
+  const showMain = !!activeId || !!person;
 
   return (
     <main className="sheet flex min-w-0 flex-1 overflow-hidden">
-      <div className={`${activeId ? "hidden md:flex" : "flex"} w-full shrink-0 flex-col border-line md:w-[300px] md:border-r`}>
+      <div className={`${showMain ? "hidden md:flex" : "flex"} w-full shrink-0 flex-col border-line md:w-[300px] md:border-r`}>
         <Sidebar
           data={data}
           activeId={activeId}
           connected={connected}
-          onOpen={open}
+          onOpen={openConversation}
+          tab={tab}
+          onTab={setTab}
+          renderPeople={(query) => <PeopleList query={query} people={people} view={person} onSelect={selectPerson} />}
+          peopleActions={
+            <>
+              <button
+                type="button"
+                onClick={() => selectPerson({ kind: "newContact", back: person })}
+                disabled={!people.data?.contacts}
+                className="icon-btn h-8 w-8"
+                aria-label={t("people.newContact")}
+                title={t("people.newContact")}
+              >
+                <UserPlus size={17} aria-hidden />
+              </button>
+              <AddressBookMenu onImported={() => void people.reload(true)} />
+            </>
+          }
           onNewChat={() => setDialog({ kind: "newChat" })}
           onNewTeam={() => setDialog({ kind: "newTeam" })}
           onTeamMembers={(teamId) => setDialog({ kind: "teamMembers", teamId })}
           onNewChannel={(teamId) => setDialog({ kind: "newChannel", teamId })}
         />
       </div>
-      <section className={`${activeId ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col`}>
+      <section className={`${showMain ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col`}>
         {activeId ? (
           <Conversation
             key={activeId}
@@ -175,8 +230,22 @@ export function ChatApp({ initial, initialId }: { initial: ChatOverview; initial
             subscribe={subscribe}
             onBack={() => open(null)}
             onChanged={refresh}
-            onOpen={open}
+            onOpen={openConversation}
             onRead={() => patch(activeId, (c) => ({ ...c, unread: 0 }))}
+            autoSchedule={scheduleIn === activeId}
+          />
+        ) : person ? (
+          <PeoplePane
+            view={person}
+            people={people}
+            onSelect={selectPerson}
+            onBack={() => setPerson(null)}
+            onOpenConversation={(id, schedule) => {
+              refresh();
+              setTab("chats");
+              openConversation(id);
+              if (schedule) setScheduleIn(id);
+            }}
           />
         ) : (
           <div className="grid flex-1 place-items-center p-10 text-center">

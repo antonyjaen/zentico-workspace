@@ -2,7 +2,7 @@
 
 import { Plus, Upload } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useActionState, useRef, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { createGroup, importVcf } from "./actions";
 
 /** Inline "New group" field under the group list. */
@@ -42,10 +42,15 @@ export function NewGroup() {
 }
 
 /** "Import vCard": picking a .vcf file submits it straight away. */
-export function ImportVcf() {
+export function ImportVcf({ onImported }: { onImported?: () => void } = {}) {
   const t = useTranslations("contacts");
   const form = useRef<HTMLFormElement>(null);
   const [state, action, pending] = useActionState(importVcf, undefined);
+  const importedRef = useRef(onImported);
+  importedRef.current = onImported;
+  useEffect(() => {
+    if (state?.ok) importedRef.current?.();
+  }, [state]);
   const errorKey = state?.error && ["noFile", "tooLarge", "noCards"].includes(state.error) ? state.error : "failed";
 
   return (

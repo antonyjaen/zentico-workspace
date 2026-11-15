@@ -12,7 +12,7 @@ import { ScheduleDialog } from "./Dialogs";
 import { MessageItem } from "./MessageItem";
 import { MembersPanel, ThreadPanel } from "./Panels";
 import { TYPING_TTL_MS, type ChatMessage, type ChatUser, type ConversationDetail, type ConversationSummary, type MeetingInfo } from "./shared";
-import { Avatar, BTN, BTN_MEET, BTN_PRIMARY, ConversationIcon, dayKey, dayLabel, timeOf, useErrorText } from "./ui";
+import { Avatar, BTN, BTN_MEET, BTN_PRIMARY, ConversationIcon, dayKey, dayLabel, openMeeting, timeOf, useErrorText } from "./ui";
 
 type Props = {
   id: string;
@@ -23,6 +23,8 @@ type Props = {
   onChanged: () => void;
   onOpen: (id: string | null) => void;
   onRead: () => void;
+  /** Open the "schedule a meeting" dialog once the conversation has loaded (Chat → People). */
+  autoSchedule?: boolean;
 };
 
 type Panel = { kind: "thread"; root: number } | { kind: "members" } | null;
@@ -30,20 +32,7 @@ type Panel = { kind: "thread"; root: number } | { kind: "members" } | null;
 const GROUP_GAP_MS = 5 * 60_000;
 const groupable = (m: ChatMessage) => m.kind === "text" || m.kind === "file";
 
-/** Opens a meeting in a new tab; the tab is opened synchronously so popup blockers allow it. */
-async function openMeeting(getCode: () => Promise<string | null>) {
-  const w = window.open("about:blank", "_blank");
-  const code = await getCode();
-  if (!code) {
-    w?.close();
-    return false;
-  }
-  if (w) w.location.href = meetHref(code);
-  else window.open(meetHref(code), "_blank");
-  return true;
-}
-
-export function Conversation({ id, me, summary, subscribe, onBack, onChanged, onOpen, onRead }: Props) {
+export function Conversation({ id, me, summary, subscribe, onBack, onChanged, onOpen, onRead, autoSchedule = false }: Props) {
   const t = useTranslations("chat");
   const locale = useLocale();
   const errorText = useErrorText();
@@ -56,6 +45,7 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
   const [typing, setTyping] = useState<Record<number, { name: string; until: number }>>({});
   const [panel, setPanel] = useState<Panel>(null);
   const [scheduling, setScheduling] = useState(false);
+  const autoScheduled = useRef(false);
   const [dragging, setDragging] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -81,6 +71,13 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
     if (r.ok) setDetail(r.data);
     return r;
   }, [id]);
+
+  useEffect(() => {
+    if (autoSchedule && detail?.joined && !autoScheduled.current) {
+      autoScheduled.current = true;
+      setScheduling(true);
+    }
+  }, [autoSchedule, detail]);
 
   // Initial load.
   useEffect(() => {

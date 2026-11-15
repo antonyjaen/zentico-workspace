@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronRight, MoreHorizontal, Plus, Search, SquarePen, UserPlus, Users, WifiOff, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Contact, MessageSquare, MoreHorizontal, Plus, Search, SquarePen, UserPlus, Users, WifiOff, X } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { usePopover } from "@/components/usePopover";
@@ -16,7 +16,15 @@ type Props = {
   onNewTeam: () => void;
   onTeamMembers: (teamId: string) => void;
   onNewChannel: (teamId: string) => void;
+  tab: SidebarTab;
+  onTab: (tab: SidebarTab) => void;
+  /** People tab content for the current search. */
+  renderPeople: (query: string) => React.ReactNode;
+  /** People tab header actions. */
+  peopleActions: React.ReactNode;
 };
+
+export type SidebarTab = "chats" | "people";
 
 const COLLAPSED_KEY = "zw_chat_collapsed";
 
@@ -28,7 +36,20 @@ function readCollapsed(): Set<string> {
   }
 }
 
-export function Sidebar({ data, activeId, connected, onOpen, onNewChat, onNewTeam, onTeamMembers, onNewChannel }: Props) {
+export function Sidebar({
+  data,
+  activeId,
+  connected,
+  onOpen,
+  onNewChat,
+  onNewTeam,
+  onTeamMembers,
+  onNewChannel,
+  tab,
+  onTab,
+  renderPeople,
+  peopleActions,
+}: Props) {
   const t = useTranslations("chat");
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
@@ -61,12 +82,34 @@ export function Sidebar({ data, activeId, connected, onOpen, onNewChat, onNewTea
             <WifiOff size={15} aria-label={t("offline")} />
           </span>
         )}
-        <button type="button" onClick={onNewTeam} className="icon-btn h-8 w-8" aria-label={t("newTeam")} title={t("newTeam")}>
-          <Users size={17} aria-hidden />
-        </button>
-        <button type="button" onClick={onNewChat} className="icon-btn h-8 w-8" aria-label={t("newChat")} title={t("newChat")}>
-          <SquarePen size={17} aria-hidden />
-        </button>
+        {tab === "people" ? (
+          peopleActions
+        ) : (
+          <>
+            <button type="button" onClick={onNewTeam} className="icon-btn h-8 w-8" aria-label={t("newTeam")} title={t("newTeam")}>
+              <Users size={17} aria-hidden />
+            </button>
+            <button type="button" onClick={onNewChat} className="icon-btn h-8 w-8" aria-label={t("newChat")} title={t("newChat")}>
+              <SquarePen size={17} aria-hidden />
+            </button>
+          </>
+        )}
+      </div>
+
+      <div role="tablist" aria-label={t("title")} className="mx-3 mt-3 grid shrink-0 grid-cols-2 gap-1 rounded-md bg-sheet-muted p-0.5">
+        {(["chats", "people"] as const).map((id) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            onClick={() => onTab(id)}
+            className="flex h-7 items-center justify-center gap-1.5 rounded text-[12.5px] font-medium text-ink-mute transition-colors hover:text-ink aria-selected:bg-sheet aria-selected:text-ink aria-selected:shadow-sm"
+          >
+            {id === "chats" ? <MessageSquare size={13} aria-hidden /> : <Contact size={13} aria-hidden />}
+            {id === "chats" ? t("tabChats") : t("tabPeople")}
+          </button>
+        ))}
       </div>
 
       <div className="shrink-0 p-3 pb-2">
@@ -76,7 +119,7 @@ export function Sidebar({ data, activeId, connected, onOpen, onNewChat, onNewTea
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={t("search")}
+            placeholder={tab === "people" ? t("people.search") : t("search")}
             maxLength={100}
             className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-mute"
           />
@@ -88,38 +131,44 @@ export function Sidebar({ data, activeId, connected, onOpen, onNewChat, onNewTea
         </label>
       </div>
 
-      <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3" aria-label={t("title")}>
-        <SectionTitle label={t("teams")} action={{ label: t("newTeam"), onClick: onNewTeam }} />
-        {teams.length === 0 ? (
-          <p className="px-2 pb-3 text-[12.5px] leading-relaxed text-ink-mute">{q ? t("noMatches") : t("noTeams")}</p>
-        ) : (
-          teams.map((team) => (
-            <TeamBlock
-              key={team.id}
-              team={team}
-              open={!collapsed.has(team.id) || !!q}
-              onToggle={() => toggle(team.id)}
-              activeId={activeId}
-              onOpen={onOpen}
-              onMembers={() => onTeamMembers(team.id)}
-              onNewChannel={() => onNewChannel(team.id)}
-            />
-          ))
-        )}
+      {tab === "people" ? (
+        <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3" aria-label={t("tabPeople")}>
+          {renderPeople(query)}
+        </nav>
+      ) : (
+        <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3" aria-label={t("title")}>
+          <SectionTitle label={t("teams")} action={{ label: t("newTeam"), onClick: onNewTeam }} />
+          {teams.length === 0 ? (
+            <p className="px-2 pb-3 text-[12.5px] leading-relaxed text-ink-mute">{q ? t("noMatches") : t("noTeams")}</p>
+          ) : (
+            teams.map((team) => (
+              <TeamBlock
+                key={team.id}
+                team={team}
+                open={!collapsed.has(team.id) || !!q}
+                onToggle={() => toggle(team.id)}
+                activeId={activeId}
+                onOpen={onOpen}
+                onMembers={() => onTeamMembers(team.id)}
+                onNewChannel={() => onNewChannel(team.id)}
+              />
+            ))
+          )}
 
-        <SectionTitle label={t("chats")} action={{ label: t("newChat"), onClick: onNewChat }} />
-        {chats.length === 0 ? (
-          <p className="px-2 pb-3 text-[12.5px] leading-relaxed text-ink-mute">{q ? t("noMatches") : t("noChats")}</p>
-        ) : (
-          <ul className="space-y-px">
-            {chats.map((c) => (
-              <li key={c.id}>
-                <ChatRow c={c} active={c.id === activeId} onOpen={() => onOpen(c.id)} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </nav>
+          <SectionTitle label={t("chats")} action={{ label: t("newChat"), onClick: onNewChat }} />
+          {chats.length === 0 ? (
+            <p className="px-2 pb-3 text-[12.5px] leading-relaxed text-ink-mute">{q ? t("noMatches") : t("noChats")}</p>
+          ) : (
+            <ul className="space-y-px">
+              {chats.map((c) => (
+                <li key={c.id}>
+                  <ChatRow c={c} active={c.id === activeId} onOpen={() => onOpen(c.id)} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </nav>
+      )}
     </div>
   );
 }

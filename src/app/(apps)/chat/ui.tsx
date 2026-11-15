@@ -5,6 +5,7 @@
 import { Hash, Lock, Users, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { meetHref } from "../meet/shared";
 import { listPeople } from "./actions";
 import { avatarGradient, initials, type ConversationSummary, type Person } from "./shared";
 
@@ -97,7 +98,7 @@ export function PeoplePicker({
     if (!people) return [];
     return people
       .filter((p) => !picked.has(p.email) && (!q || fold(p.name).includes(q) || fold(p.email).includes(q)))
-      .slice(0, 8);
+      .slice(0, 50);
   }, [people, query, picked]);
 
   useEffect(() => setActive(0), [query]);
@@ -172,7 +173,7 @@ export function PeoplePicker({
         />
       </div>
       {show && (
-        <ul id={listId} role="listbox" className="pop absolute top-full right-0 left-0 z-20 mt-1 max-h-64 overflow-y-auto p-1">
+        <ul id={listId} role="listbox" className="pop mt-1 max-h-80 overflow-y-auto overscroll-contain p-1">
           {matches.map((p, i) => (
             <li key={p.email} role="option" aria-selected={i === active}>
               <button
@@ -295,4 +296,17 @@ export const dayKey = (ms: number) => {
 export function useErrorText() {
   const t = useTranslations("chat");
   return (code: string) => (t.has(`errors.${code}`) ? t(`errors.${code}` as "errors.failed") : t("errors.failed"));
+}
+
+/** Opens a meeting in a new tab; the tab is opened synchronously so popup blockers allow it. */
+export async function openMeeting(getCode: () => Promise<string | null>) {
+  const w = window.open("about:blank", "_blank");
+  const code = await getCode();
+  if (!code) {
+    w?.close();
+    return false;
+  }
+  if (w) w.location.href = meetHref(code);
+  else window.open(meetHref(code), "_blank");
+  return true;
 }

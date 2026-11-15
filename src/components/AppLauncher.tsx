@@ -3,7 +3,7 @@
 import { Grip } from "lucide-react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
-import { APPS } from "./apps";
+import { RAIL_APPS } from "./apps";
 import { usePopover } from "./usePopover";
 
 export function AppLauncher() {
@@ -28,7 +28,7 @@ export function AppLauncher() {
             {t("launcher")}
           </p>
           <div className="grid grid-cols-3 gap-1">
-            {APPS.map(({ id, href, icon: Icon, color }) => (
+            {RAIL_APPS.map(({ id, href, icon: Icon, color }) => (
               <Link
                 key={id}
                 role="menuitem"
