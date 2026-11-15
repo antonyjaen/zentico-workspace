@@ -441,4 +441,9 @@ export async function editorUrlFor(base: string, name: string): Promise<{ url: s
   return { url, canEdit: !!edit };
 }
 
-export const wopiSrc = (fileId: string) => `${env.appUrl}/api/wopi/files/${encodeURIComponent(fileId)}`;
+/**
+ * Public base Collabora uses to call our WOPI endpoints. Defaults to APP_URL; set WOPI_BASE_URL
+ * when Collabora only allows another host (e.g. a path on the Nextcloud domain proxied to us).
+ */
+const wopiBase = () => (process.env.WOPI_BASE_URL || env.appUrl).replace(/\/$/, "");
+export const wopiSrc = (fileId: string) => `${wopiBase()}/api/wopi/files/${encodeURIComponent(fileId)}`;
