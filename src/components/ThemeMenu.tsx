@@ -3,8 +3,7 @@
 import { Check, Monitor, Moon, Sun } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useState, useTransition } from "react";
-import { setTheme } from "@/lib/preferences";
-import type { Theme } from "@/lib/theme";
+import { THEME_COOKIE, type Theme } from "@/lib/theme";
 import { usePopover } from "./usePopover";
 
 function apply(pref: Theme) {
@@ -48,7 +47,10 @@ export function ThemeMenu() {
                 setPref(value);
                 apply(value);
                 setOpen(false);
-                startTransition(() => setTheme(value));
+                // Client-side cookie: survives tabs left open across a deploy (stale server actions fail).
+                startTransition(() => {
+                  document.cookie = `${THEME_COOKIE}=${value}; path=/; max-age=31536000; samesite=lax`;
+                });
               }}
               className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-[14px] text-ink-soft transition-colors hover:bg-hover hover:text-ink"
             >

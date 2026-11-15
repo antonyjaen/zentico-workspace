@@ -6,7 +6,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTransition } from "react";
 import type { AccountSummary } from "@/lib/auth";
-import { setLocale } from "@/lib/preferences";
 import { usePopover } from "./usePopover";
 
 /** Deterministic two-hue gradient per account, so every user gets a recognizable avatar. */
@@ -53,9 +52,11 @@ export function AccountMenu({ accounts, accountUrl }: { accounts: AccountSummary
   const others = accounts.filter((a) => a !== active);
   const multiple = accounts.length > 1;
 
+  // Written client-side (the cookie isn't httpOnly) instead of via a server action, so it keeps
+  // working in tabs left open across a deploy, where stale action ids fail silently.
   const switchLocale = (next: "es" | "en") =>
-    startTransition(async () => {
-      await setLocale(next);
+    startTransition(() => {
+      document.cookie = `zw_locale=${next}; path=/; max-age=31536000; samesite=lax`;
       router.refresh();
     });
 

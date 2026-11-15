@@ -4,6 +4,9 @@ import createNextIntlPlugin from "next-intl/plugin";
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
 const nextConfig: NextConfig = {
+  // Build identifier inlined into server and client bundles; VersionWatcher compares them to
+  // offer a reload when a tab outlives a deploy (its server-action ids would be stale).
+  env: { NEXT_PUBLIC_BUILD_ID: process.env.BUILD_ID || String(Date.now()) },
   output: "standalone",
   poweredByHeader: false,
   // Composed messages (with quoted originals) can exceed the 1 MB default.
