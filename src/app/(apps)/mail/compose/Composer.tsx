@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Address, ComposeAttachment, ComposePrefill, Identity, QuotedOriginal } from "@/lib/mail-compose";
 import { composeHref, parseCompose } from "../hrefs";
 import { discardDraftAction, loadCompose, saveDraftAction, sendAction } from "./actions";
-import { RecipientField, toRecipient, type Recipient } from "./RecipientField";
+import { parseRecipients, RecipientField, toRecipient, type Recipient } from "./RecipientField";
 import { RichEditor } from "./RichEditor";
 import { escapeHtml, sanitizeHtml, SIGNATURE_ATTR, textToHtml } from "./sanitize";
 
@@ -171,7 +171,11 @@ function ComposerPanel({
         const { identities, prefill } = r.data;
         setIdentities(identities);
         setIdentityId(prefill.identityId ?? identities[0]?.id ?? "");
-        setTo(prefill.to.map(toRecipient));
+        // `?to=` prefills a new message (e.g. "Send email" from Contacts).
+        const toParam = new URLSearchParams(window.location.search).get("to");
+        setTo(
+          prefill.to.length || !toParam ? prefill.to.map(toRecipient) : parseRecipients(toParam.slice(0, 2000)),
+        );
         setCc(prefill.cc.map(toRecipient));
         setBcc(prefill.bcc.map(toRecipient));
         setShowCc(prefill.cc.length > 0);
