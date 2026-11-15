@@ -1,9 +1,10 @@
-import { CalendarDays, FileText, HardDrive, Mail, Users, Video, type LucideIcon } from "lucide-react";
+import { CalendarDays, FileText, HardDrive, Mail, MessageSquare, Users, Video, type LucideIcon } from "lucide-react";
 
-export type AppId = "mail" | "calendar" | "contacts" | "drive" | "docs" | "meet";
+export type AppId = "mail" | "chat" | "calendar" | "contacts" | "drive" | "docs" | "meet";
 
 export const APPS: { id: AppId; href: string; icon: LucideIcon; color: string; ready: boolean }[] = [
   { id: "mail", href: "/mail", icon: Mail, color: "var(--color-app-mail)", ready: true },
+  { id: "chat", href: "/chat", icon: MessageSquare, color: "var(--color-app-chat)", ready: true },
   { id: "calendar", href: "/calendar", icon: CalendarDays, color: "var(--color-app-calendar)", ready: true },
   { id: "contacts", href: "/contacts", icon: Users, color: "var(--color-app-contacts)", ready: true },
   { id: "drive", href: "/drive", icon: HardDrive, color: "var(--color-app-drive)", ready: true },

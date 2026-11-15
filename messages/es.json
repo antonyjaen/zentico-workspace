@@ -10,6 +10,8 @@
     "drive": "Drive",
     "docs": "Documentos",
     "meet": "Reuniones",
+    "chat": "Chat",
+    "chatUnread": "{count, plural, one {# mensaje sin leer} other {# mensajes sin leer}}",
     "launcher": "Apps de Zentico"
   },
   "signin": {

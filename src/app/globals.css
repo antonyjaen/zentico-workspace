@@ -45,6 +45,7 @@
   --color-app-drive: #2b9ad6;
   --color-app-docs: #e5484d;
   --color-app-meet: #16a34a;
+  --color-app-chat: #7c5cf0;
 
   --radius-sheet: 0.75rem;
   --shadow-sheet: 0 0 0 1px var(--color-line);
@@ -71,6 +72,8 @@
   --color-primary-soft-ink: #ededed;
 
   --color-accent: #5b8cff;
+
+  --color-app-chat: #9d85ff;
 
   --shadow-sheet: 0 0 0 1px var(--color-line);
   --shadow-pop: 0 0 0 1px var(--color-line-strong), 0 16px 40px -12px rgb(0 0 0 / 0.9);

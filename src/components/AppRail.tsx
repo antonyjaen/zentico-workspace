@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { APPS } from "./apps";
+import { ChatUnreadBadge } from "./ChatUnreadBadge";
 import { LogoMark } from "./Logo";
 
 export function AppRail() {
@@ -28,8 +29,9 @@ export function AppRail() {
             className="group flex w-full flex-col items-center gap-1 py-1.5 text-[11px] font-medium text-ink-mute transition-colors hover:text-ink aria-[current=page]:text-ink"
           >
             <span
-              className="grid h-8 w-12 place-items-center rounded-lg transition-colors duration-150 group-hover:bg-hover group-aria-[current=page]:bg-primary-soft"
+              className="relative grid h-8 w-12 place-items-center rounded-lg transition-colors duration-150 group-hover:bg-hover group-aria-[current=page]:bg-primary-soft"
             >
+              {id === "chat" && <ChatUnreadBadge />}
               <Icon
                 size={19}
                 strokeWidth={active ? 2.2 : 1.8}

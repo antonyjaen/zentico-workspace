@@ -1,6 +1,6 @@
 // JMAP for Calendars (draft-ietf-jmap-calendars) on Stalwart: calendars and JSCalendar events,
 // calendars shared with me (extra session accounts) and principals (people/groups + availability).
-import { addDays, DAY_MS, parseDuration, zonedToUtc } from "@/app/(apps)/calendar/time";
+import { addDays, DAY_MS, formatDuration, parseDuration, zonedToUtc } from "@/app/(apps)/calendar/time";
 import { unstable_rethrow } from "next/navigation";
 import { cache } from "react";
 import { requireSession } from "./auth";
@@ -449,4 +449,84 @@ export async function getAvailability(principalId: string, afterMs: number, befo
   return ((r.a.list as Raw[]) ?? [])
     .map((b) => ({ start: Date.parse(str(b.utcStart)), end: Date.parse(str(b.utcEnd)), status: str(b.busyStatus) || "confirmed" }))
     .filter((b) => Number.isFinite(b.start) && Number.isFinite(b.end) && b.end > b.start);
+}
+
+// ---- Meetings scheduled from other apps (Chat) ----
+
+export type MeetingEventInput = {
+  title: string;
+  description: string;
+  /** Local start "YYYY-MM-DDTHH:MM:SS" in `timeZone`. */
+  start: string;
+  timeZone: string;
+  durationMs: number;
+  /** Usually the meeting link (`${APP_URL}/meet/<code>`). */
+  location: string;
+  attendees: { email: string; name?: string }[];
+};
+
+/**
+ * Creates a timed event in the signed-in user's default calendar with the user as organizer and
+ * the attendees invited (iTIP/iMIP via sendSchedulingMessages). Returns the new event id.
+ * Inputs must already be validated by the caller.
+ */
+export async function createMeetingEvent(input: MeetingEventInput): Promise<{ id: string; calendarId: string }> {
+  const session = await requireSession();
+  const me = { email: session.email.toLowerCase(), name: session.name };
+  const accountId = await calendarAccount();
+  const own = (await getCalendars()).filter((c) => c.accountId === accountId && c.mayWrite);
+  const calendar = own.find((c) => c.isDefault) ?? own[0];
+  if (!calendar) throw new JmapError("No writable calendar");
+
+  const key = () => crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+  const guests = input.attendees.filter((a) => a.email.toLowerCase() !== me.email);
+  const participants: Record<string, Raw> = {};
+  if (guests.length) {
+    participants[key()] = {
+      "@type": "Participant",
+      name: me.name,
+      email: me.email,
+      sendTo: { imip: `mailto:${me.email}` },
+      roles: { owner: true, attendee: true },
+      participationStatus: "accepted",
+    };
+    for (const g of guests) {
+      const email = g.email.toLowerCase();
+      participants[key()] = {
+        "@type": "Participant",
+        ...(g.name ? { name: g.name } : {}),
+        email,
+        sendTo: { imip: `mailto:${email}` },
+        roles: { attendee: true },
+        participationStatus: "needs-action",
+        expectReply: true,
+      };
+    }
+  }
+
+  // Stalwart rejects explicit nulls on create, so optional properties are only set when present.
+  const event: Raw = {
+    "@type": "Event",
+    calendarIds: { [calendar.id]: true },
+    title: input.title,
+    start: input.start,
+    timeZone: input.timeZone,
+    duration: formatDuration(input.durationMs),
+    showWithoutTime: false,
+  };
+  if (input.description) event.description = input.description;
+  if (input.location) event.locations = { [key()]: { "@type": "Location", name: input.location } };
+  if (guests.length) {
+    event.participants = participants;
+    event.replyTo = { imip: `mailto:${me.email}` };
+  }
+
+  const r = await jmap(
+    [["CalendarEvent/set", { accountId, create: { new: event }, sendSchedulingMessages: guests.length > 0 }, "s"]],
+    CAL_USING,
+  );
+  const err = (r.s.notCreated as Record<string, { type?: string; description?: string }> | undefined)?.new;
+  if (err) throw new JmapError(`notCreated: ${err.type ?? "error"} ${err.description ?? ""}`.trim());
+  const id = String(((r.s.created as Record<string, Raw> | undefined)?.new?.id as string | undefined) ?? "");
+  return { id, calendarId: calendar.id };
 }

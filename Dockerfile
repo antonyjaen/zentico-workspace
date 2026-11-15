@@ -15,6 +15,9 @@ FROM node:24-alpine AS run
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
 RUN addgroup -S app && adduser -S app -G app
+# Chat data (SQLite + attachments, see CHAT_DB_PATH / CHAT_FILES_DIR). Mount a persistent volume
+# here; creating it owned by `app` lets a fresh named volume inherit writable ownership.
+RUN mkdir -p /app/data && chown app:app /app/data
 COPY --from=build --chown=app:app /app/.next/standalone ./
 COPY --from=build --chown=app:app /app/.next/static ./.next/static
 USER app
