@@ -1,1 +1,40 @@
-{}
+{
+  "docs": {
+    "title": "Documentos",
+    "subtitle": "Documentos, hojas de cálculo y presentaciones",
+    "create": {
+      "text": "Nuevo documento",
+      "spreadsheet": "Nueva hoja de cálculo",
+      "presentation": "Nueva presentación"
+    },
+    "untitled": {
+      "text": "Documento sin título",
+      "spreadsheet": "Hoja de cálculo sin título",
+      "presentation": "Presentación sin título"
+    },
+    "kind": {
+      "text": "Documento",
+      "spreadsheet": "Hoja de cálculo",
+      "presentation": "Presentación"
+    },
+    "recent": "Recientes",
+    "name": "Nombre",
+    "modified": "Modificado",
+    "size": "Tamaño",
+    "empty": "Aún no hay documentos",
+    "emptyHint": "Crea uno arriba o sube archivos de ofimática a Drive.",
+    "createFailed": "No se pudo crear el archivo. Inténtalo de nuevo.",
+    "notConfigured": "El editor de documentos aún no está configurado",
+    "notConfiguredHint": "Un administrador debe conectar un servidor de Collabora Online (COLLABORA_URL) para poder editar documentos aquí.",
+    "unavailable": "No se pudieron cargar tus archivos",
+    "unavailableHint": "El almacenamiento de archivos no responde ahora mismo. Inténtalo de nuevo en un momento.",
+    "back": "Volver",
+    "backToDocs": "Documentos",
+    "backToDrive": "Drive",
+    "notFound": "Este archivo no existe o no tienes acceso a él.",
+    "unsupported": "Este tipo de archivo no se puede abrir en el editor.",
+    "editorError": "No se pudo conectar con el editor de documentos. Inténtalo de nuevo en un momento.",
+    "readOnly": "Solo lectura",
+    "editorTitle": "Editor: {name}"
+  }
+}

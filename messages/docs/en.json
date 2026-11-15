@@ -1,1 +1,40 @@
-{}
+{
+  "docs": {
+    "title": "Docs",
+    "subtitle": "Documents, spreadsheets and presentations",
+    "create": {
+      "text": "New document",
+      "spreadsheet": "New spreadsheet",
+      "presentation": "New presentation"
+    },
+    "untitled": {
+      "text": "Untitled document",
+      "spreadsheet": "Untitled spreadsheet",
+      "presentation": "Untitled presentation"
+    },
+    "kind": {
+      "text": "Document",
+      "spreadsheet": "Spreadsheet",
+      "presentation": "Presentation"
+    },
+    "recent": "Recent",
+    "name": "Name",
+    "modified": "Modified",
+    "size": "Size",
+    "empty": "No documents yet",
+    "emptyHint": "Create one above, or upload office files to Drive.",
+    "createFailed": "Couldn't create the file. Please try again.",
+    "notConfigured": "Docs editor isn't configured yet",
+    "notConfiguredHint": "An administrator needs to connect a Collabora Online server (COLLABORA_URL) before documents can be edited here.",
+    "unavailable": "Couldn't load your files",
+    "unavailableHint": "File storage isn't reachable right now. Please try again in a moment.",
+    "back": "Back",
+    "backToDocs": "Docs",
+    "backToDrive": "Drive",
+    "notFound": "This file doesn't exist or you don't have access to it.",
+    "unsupported": "This file type can't be opened in the editor.",
+    "editorError": "Couldn't reach the document editor. Please try again in a moment.",
+    "readOnly": "Read only",
+    "editorTitle": "Editor: {name}"
+  }
+}
