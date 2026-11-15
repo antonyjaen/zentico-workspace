@@ -7,6 +7,6 @@ export async function GET(req: NextRequest) {
   const returnTo = safeReturnTo(req.nextUrl.searchParams.get("returnTo"));
   const { url, tx } = await buildAuthorizeUrl(returnTo);
   const res = NextResponse.redirect(url);
-  res.cookies.set(TX_COOKIE, await seal(tx), cookieOptions(60 * 10));
+  res.cookies.set(TX_COOKIE, await seal(tx), cookieOptions(60 * 30));
   return res;
 }

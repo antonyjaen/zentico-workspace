@@ -367,7 +367,8 @@ async function resolveIdentity(identityId: string): Promise<Identity> {
 
 function emailObject(input: ComposeInput, identity: Identity, mailboxId: string, includeBcc: boolean) {
   const addr = (list: string[]) => (list.length ? list.map((email) => ({ email })) : null);
-  return {
+  // Stalwart rejects explicit nulls on create (e.g. `cc: null`), so empty fields are omitted.
+  return omitNulls({
     mailboxIds: { [mailboxId]: true },
     keywords: { $draft: true, $seen: true },
     from: [{ name: identity.name || null, email: identity.email }],
@@ -386,7 +387,11 @@ function emailObject(input: ComposeInput, identity: Identity, mailboxId: string,
       name: a.name,
       disposition: "attachment",
     })),
-  };
+  });
+}
+
+function omitNulls<T extends Record<string, unknown>>(obj: T): Partial<T> {
+  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v != null)) as Partial<T>;
 }
 
 function cleanDraftId(id: unknown): string | null {
@@ -413,7 +418,10 @@ export async function saveDraft(raw: unknown, previousId: unknown): Promise<stri
     ],
   ]);
   const created = (r.s.created as Record<string, { id: string }> | undefined)?.draft;
-  if (!created) fail(`Draft not saved: ${describeSetError(r.s.notCreated)}`);
+  if (!created) {
+    console.error("[compose] draft rejected:", JSON.stringify(r.s.notCreated));
+    fail(`Draft not saved: ${describeSetError(r.s.notCreated)}`);
+  }
   await destroyQuietly(accountId, prev);
   return created.id;
 }
@@ -447,16 +455,19 @@ export async function sendMessage(
   const onSuccess: Record<string, unknown> = { "keywords/$draft": null };
   if (sent) Object.assign(onSuccess, { [`mailboxIds/${drafts}`]: null, [`mailboxIds/${sent}`]: true });
 
-  const r = await jmap(
+  // Create first so a rejection reports the real reason, then submit by id.
+  const r = await jmap([
+    ["Email/set", { accountId, create: { msg: emailObject(input, identity, drafts, false) } }, "e"],
+  ]);
+  const created = (r.e.created as Record<string, { id: string }> | undefined)?.msg;
+  if (!created) {
+    console.error("[compose] Email/set rejected:", JSON.stringify(r.e.notCreated));
+    return { ok: false, error: describeSetError(r.e.notCreated), draftId: prev };
+  }
+  // The previous draft version is replaced only once the new message exists.
+  await destroyQuietly(accountId, prev);
+  const s = await jmap(
     [
-      [
-        "Email/set",
-        {
-          accountId,
-          create: { msg: emailObject(input, identity, drafts, false) },
-        },
-        "e",
-      ],
       [
         "EmailSubmission/set",
         {
@@ -464,7 +475,7 @@ export async function sendMessage(
           create: {
             sub: {
               identityId: identity.id,
-              emailId: "#msg",
+              emailId: created.id,
               envelope: {
                 mailFrom: { email: identity.email, parameters: null },
                 rcptTo: rcpt.map((email) => ({ email, parameters: null })),
@@ -478,12 +489,11 @@ export async function sendMessage(
     ],
     USING_SUBMIT,
   );
-  const created = (r.e.created as Record<string, { id: string }> | undefined)?.msg;
-  if (!created) return { ok: false, error: describeSetError(r.e.notCreated), draftId: prev };
-  // The previous draft version is replaced only once the new message exists.
-  await destroyQuietly(accountId, prev);
-  const submitted = (r.s.created as Record<string, unknown> | undefined)?.sub;
-  if (!submitted) return { ok: false, error: describeSetError(r.s.notCreated), draftId: created.id };
+  const submitted = (s.s.created as Record<string, unknown> | undefined)?.sub;
+  if (!submitted) {
+    console.error("[compose] EmailSubmission/set rejected:", JSON.stringify(s.s.notCreated));
+    return { ok: false, error: describeSetError(s.s.notCreated), draftId: created.id };
+  }
   return { ok: true };
 }
 

@@ -12,6 +12,7 @@ async function run<T>(fn: () => Promise<T>): Promise<Result<T>> {
   try {
     return { ok: true, data: await fn() };
   } catch (e) {
+    if (!(e instanceof compose.ComposeError)) console.error("[compose]", e instanceof Error ? e.message : e);
     // Only surface our own validation messages; hide internals.
     return { ok: false, error: e instanceof compose.ComposeError ? e.message : "unexpected" };
   }

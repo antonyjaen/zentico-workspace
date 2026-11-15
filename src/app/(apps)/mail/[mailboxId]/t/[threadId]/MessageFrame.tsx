@@ -19,8 +19,10 @@ export function MessageFrame({ srcDoc, title }: { srcDoc: string; title: string 
     const measure = () => {
       const doc = frame.contentDocument;
       if (!doc?.documentElement || frame.offsetWidth === 0) return;
-      const h = Math.max(doc.documentElement.scrollHeight, doc.body?.scrollHeight ?? 0);
-      if (h > 0) setHeight(h + 2);
+      // The <html> box is as tall as its content; scrollHeight would be at least the frame's own
+      // height, which grows the frame forever once we observe it.
+      const h = Math.ceil(doc.documentElement.getBoundingClientRect().height);
+      if (h > 0) setHeight((prev) => (Math.abs(prev - h) > 1 ? h : prev));
     };
 
     const attach = () => {

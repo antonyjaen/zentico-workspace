@@ -55,7 +55,9 @@ export async function jmap(
   const out: Record<string, Record<string, unknown>> = {};
   for (const [name, args, id] of methodResponses) {
     if (name === "error") throw new JmapError(`JMAP ${id}: ${String(args.type)}`);
-    out[id] = args;
+    // Implicit responses (e.g. the Email/set from onSuccessUpdateEmail) reuse the call id;
+    // keep the explicit method's response.
+    out[id] ??= args;
   }
   return out;
 }
