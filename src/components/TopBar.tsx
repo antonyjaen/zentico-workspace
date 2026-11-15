@@ -1,5 +1,6 @@
 import { getTranslations } from "next-intl/server";
 import Link from "next/link";
+import { listAccounts } from "@/lib/auth";
 import { env } from "@/lib/env";
 import type { Session } from "@/lib/session";
 import { AccountMenu } from "./AccountMenu";
@@ -11,6 +12,11 @@ import { ThemeMenu } from "./ThemeMenu";
 
 export async function TopBar({ session, query }: { session: Session; query?: string }) {
   const t = await getTranslations("topbar");
+  const accounts = await listAccounts();
+  // Explicit sessions without account cookies still show the signed-in user.
+  if (!accounts.some((a) => a.active)) {
+    accounts.unshift({ slot: -1, email: session.email, name: session.name, active: true, expired: false });
+  }
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 pr-3 pl-4 md:pl-1">
@@ -22,7 +28,7 @@ export async function TopBar({ session, query }: { session: Session; query?: str
         <SettingsLink />
         <ThemeMenu />
         <AppLauncher />
-        <AccountMenu name={session.name} email={session.email} accountUrl={`${env.issuer}/account/`} />
+        <AccountMenu accounts={accounts} accountUrl={`${env.issuer}/account/`} />
       </div>
     </header>
   );

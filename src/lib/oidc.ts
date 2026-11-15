@@ -35,14 +35,19 @@ export function getDiscovery(): Promise<Discovery> {
 
 export const redirectUri = () => `${env.appUrl}/api/auth/callback`;
 
-/** Short-lived login transaction kept in an encrypted cookie between /login and /callback. */
-export type AuthTransaction = { state: string; verifier: string; returnTo: string };
+/**
+ * Short-lived login transaction kept in an encrypted cookie between /login and /callback.
+ * `add` = sign in an additional account instead of replacing the active one.
+ */
+export type AuthTransaction = { state: string; verifier: string; returnTo: string; add?: boolean };
 
-export async function buildAuthorizeUrl(returnTo: string) {
+export async function buildAuthorizeUrl(
+  returnTo: string,
+  { add = false, loginHint }: { add?: boolean; loginHint?: string } = {},
+) {
   const { authorization_endpoint } = await getDiscovery();
-  const tx: AuthTransaction = { state: randomToken(), verifier: randomToken(48), returnTo };
-  const url = new URL(authorization_endpoint);
-  url.search = new URLSearchParams({
+  const tx: AuthTransaction = { state: randomToken(), verifier: randomToken(48), returnTo, add };
+  const params = new URLSearchParams({
     response_type: "code",
     client_id: env.clientId,
     redirect_uri: redirectUri(),
@@ -50,8 +55,20 @@ export async function buildAuthorizeUrl(returnTo: string) {
     state: tx.state,
     code_challenge: base64url(await sha256(tx.verifier)),
     code_challenge_method: "S256",
-  }).toString();
+  });
+  // Adding or re-authenticating a specific account must not silently reuse the provider's
+  // current single sign-on session (which belongs to whichever account signed in last).
+  if (add || loginHint) params.set("prompt", "login");
+  if (loginHint) params.set("login_hint", loginHint);
+  const url = new URL(authorization_endpoint);
+  url.search = params.toString();
   return { url: url.toString(), tx };
+}
+
+/** Validates an untrusted login hint: a plain email address, or undefined. */
+export function safeLoginHint(value: string | null | undefined): string | undefined {
+  if (!value || value.length > 254) return undefined;
+  return /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(value) ? value : undefined;
 }
 
 export type TokenSet = {
@@ -105,4 +122,22 @@ export function safeReturnTo(value: string | null | undefined): string {
     return "/mail";
   }
   return value;
+}
+
+/**
+ * The root of the app a path belongs to ("/mail/inbox/abc" -> "/mail"). Used when switching
+ * accounts, because mailbox/thread/file ids in deeper URLs belong to the previous account.
+ */
+export function appRoot(path: string | null | undefined): string {
+  const segment = safeReturnTo(path).split(/[/?#]/)[1] ?? "";
+  return /^[a-z][a-z0-9-]*$/.test(segment) && segment !== "api" && segment !== "signin"
+    ? `/${segment}`
+    : "/mail";
+}
+
+/** CSRF guard for state-changing auth POSTs: the request must come from this app's own pages. */
+export function isSameOrigin(req: Request): boolean {
+  const origin = req.headers.get("origin");
+  if (origin) return origin === new URL(env.appUrl).origin;
+  return req.headers.get("sec-fetch-site") === "same-origin";
 }

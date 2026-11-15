@@ -3,8 +3,8 @@ import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { Wordmark } from "@/components/Logo";
-import { getSession } from "@/lib/auth";
-import { safeReturnTo } from "@/lib/oidc";
+import { getSession, listAccounts } from "@/lib/auth";
+import { safeLoginHint, safeReturnTo } from "@/lib/oidc";
 
 export const metadata: Metadata = { title: "Sign in" };
 
@@ -13,12 +13,20 @@ const ERRORS = ["invalid_state", "login_failed", "access_denied"] as const;
 export default async function SignIn({
   searchParams,
 }: {
-  searchParams: Promise<{ returnTo?: string; error?: string }>;
+  searchParams: Promise<{ returnTo?: string; error?: string; hint?: string }>;
 }) {
-  const { returnTo, error } = await searchParams;
+  const { returnTo, error, hint } = await searchParams;
   if (await getSession()) redirect(safeReturnTo(returnTo));
 
+  // Re-authenticating a signed-out account: pre-fill it, and offer the other signed-in accounts.
+  const loginHint = safeLoginHint(hint);
+  const others = (await listAccounts()).filter((a) => !a.active && !a.expired);
+  const loginHref = `/api/auth/login?returnTo=${encodeURIComponent(safeReturnTo(returnTo))}${
+    loginHint ? `&hint=${encodeURIComponent(loginHint)}` : ""
+  }`;
+
   const t = await getTranslations("signin");
+  const tAccount = await getTranslations("account");
   const tApps = await getTranslations("apps");
   const errorKey = error
     ? (ERRORS as readonly string[]).includes(error)
@@ -69,13 +77,38 @@ export default async function SignIn({
           )}
 
           <a
-            href={`/api/auth/login?returnTo=${encodeURIComponent(safeReturnTo(returnTo))}`}
+            href={loginHref}
             className="group mt-7 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary text-[14px] font-medium text-primary-ink transition-colors duration-150 hover:bg-primary-hover"
           >
             {t("cta")}
             <ArrowRight size={16} className="transition-transform duration-150 group-hover:translate-x-0.5" />
           </a>
-          <p className="mt-3 text-center text-[12.5px] text-ink-mute">{t("hint")}</p>
+          <p className="mt-3 text-center text-[12.5px] text-ink-mute">
+            {loginHint ? tAccount("reauth", { email: loginHint }) : t("hint")}
+          </p>
+
+          {others.length > 0 && (
+            <div className="mt-6 border-t border-line pt-4">
+              <p className="mb-2 text-[12.5px] text-ink-mute">{tAccount("continueAs")}</p>
+              <ul className="space-y-1">
+                {others.map((a) => (
+                  <li key={a.slot}>
+                    <form action="/api/auth/switch" method="post">
+                      <input type="hidden" name="slot" value={a.slot} />
+                      <input type="hidden" name="returnTo" value={safeReturnTo(returnTo)} />
+                      <button
+                        type="submit"
+                        className="flex w-full flex-col items-start rounded-lg px-3 py-2 text-left transition-colors hover:bg-hover focus-visible:bg-hover"
+                      >
+                        <span className="text-[13.5px] text-ink">{a.name}</span>
+                        <span className="text-[12.5px] text-ink-mute">{a.email}</span>
+                      </button>
+                    </form>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </section>
 
         <p

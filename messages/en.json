@@ -39,7 +39,15 @@
     "menu": "Account",
     "manage": "Manage your account",
     "language": "Language",
-    "signout": "Sign out"
+    "signout": "Sign out",
+    "otherAccounts": "Other accounts",
+    "switchTo": "Switch to {email}",
+    "signedOut": "Signed out",
+    "addAccount": "Add another account",
+    "signoutCurrent": "Sign out of this account",
+    "signoutAll": "Sign out of all accounts",
+    "continueAs": "Or continue with another account",
+    "reauth": "Sign in again as {email}."
   },
   "mail": {
     "compose": "Compose",

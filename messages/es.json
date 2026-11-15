@@ -39,7 +39,15 @@
     "menu": "Cuenta",
     "manage": "Administrar tu cuenta",
     "language": "Idioma",
-    "signout": "Cerrar sesión"
+    "signout": "Cerrar sesión",
+    "otherAccounts": "Otras cuentas",
+    "switchTo": "Cambiar a {email}",
+    "signedOut": "Sesión cerrada",
+    "addAccount": "Agregar otra cuenta",
+    "signoutCurrent": "Cerrar sesión en esta cuenta",
+    "signoutAll": "Cerrar sesión en todas las cuentas",
+    "continueAs": "O continúa con otra cuenta",
+    "reauth": "Vuelve a iniciar sesión como {email}."
   },
   "mail": {
     "compose": "Redactar",

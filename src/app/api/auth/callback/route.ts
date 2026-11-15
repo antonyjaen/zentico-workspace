@@ -3,12 +3,18 @@ import { unseal } from "@/lib/crypto";
 import { env } from "@/lib/env";
 import { exchangeCode, fetchUserInfo, safeReturnTo, type AuthTransaction } from "@/lib/oidc";
 import {
-  cookieOptions,
+  ACTIVE_COOKIE,
+  freeSlot,
+  LEGACY_SESSION_COOKIE,
+  promote,
+  readAccounts,
+  sameAccount,
   sealSession,
-  SESSION_COOKIE,
-  SESSION_MAX_AGE,
+  serializeOrder,
   sessionFromTokens,
+  slotCookie,
   TX_COOKIE,
+  writeCookie,
 } from "@/lib/session";
 
 function fail(reason: string) {
@@ -30,9 +36,20 @@ export async function GET(req: NextRequest) {
     const user = await fetchUserInfo(tokens.access_token);
     const session = sessionFromTokens(tokens, user);
 
+    // Pick the slot: an account that is already signed in is updated in place; otherwise an
+    // added account takes a free slot (or the least recently used one), and a plain sign-in
+    // replaces the active account.
+    const accounts = await readAccounts(req.cookies);
+    const existing = accounts.order.find((slot) => sameAccount(accounts.sessions[slot]!, session));
+    const slot = existing ?? (tx.add || !accounts.order.length ? freeSlot(accounts) : accounts.order[0]);
+    const sealed = await sealSession(session);
+    if (sealed.length > 3800) console.warn(`[auth] session cookie is ${sealed.length} bytes (limit ~4096)`);
+
     const res = NextResponse.redirect(`${env.appUrl}${safeReturnTo(tx.returnTo)}`);
     res.cookies.delete(TX_COOKIE);
-    res.cookies.set(SESSION_COOKIE, await sealSession(session), cookieOptions(SESSION_MAX_AGE));
+    writeCookie(res, slotCookie(slot), sealed);
+    writeCookie(res, ACTIVE_COOKIE, serializeOrder(promote(accounts.order, slot)));
+    if (req.cookies.has(LEGACY_SESSION_COOKIE)) writeCookie(res, LEGACY_SESSION_COOKIE, null);
     return res;
   } catch (error) {
     console.error("[auth] callback failed:", error instanceof Error ? error.message : error);
