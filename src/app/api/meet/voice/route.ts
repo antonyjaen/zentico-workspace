@@ -6,6 +6,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getSession } from "@/lib/auth";
 import { createCommand, cleanTimeZone, hasWriteToken } from "@/lib/meetings/claude-commands";
 import { jsonError, NO_STORE, sameOrigin } from "@/lib/meetings/http";
+import { meetingLanguage, noteDetection } from "@/lib/meetings/language";
 import { transcribeAudio, whisperConfig } from "@/lib/meetings/transcribe";
 import {
   controlOf,
@@ -126,7 +127,19 @@ export async function POST(req: NextRequest) {
   let audio: Uint8Array | null = new Uint8Array(await file.arrayBuffer());
   let result;
   try {
-    result = await transcribeAudio(cfg, audio, mime, { timeoutMs: WHISPER_TIMEOUT_MS, prompt: "Claude," });
+    // Detect the meeting's language first, then transcribe every window in it (see language.ts).
+    const locked = cfg.language ?? meetingLanguage(room);
+    const hint = localeHint(req);
+    result = await transcribeAudio(cfg, audio, mime, { timeoutMs: WHISPER_TIMEOUT_MS, prompt: "Claude,", language: locked });
+    if (!locked) {
+      const text = result.segments.map((s) => s.text).join(" ");
+      const lock = noteDetection(room, result.language, text);
+      // While undecided, a short window detected as a language other than the user's own is
+      // usually a misdetection: redo it in the user's language.
+      if (!lock && hint && result.language !== hint && text.trim().length < 40) {
+        result = await transcribeAudio(cfg, audio, mime, { timeoutMs: WHISPER_TIMEOUT_MS, prompt: "Claude,", language: hint });
+      }
+    }
   } catch (e) {
     // Only the status/summary, never the audio.
     console.error("[voice] transcription:", e instanceof Error ? e.message.slice(0, 200) : "failed");
@@ -136,6 +149,7 @@ export async function POST(req: NextRequest) {
   }
 
   const segments = result.segments;
+  console.info(`[voice] lang=${meetingLanguage(room) ?? `detecting(${result.language ?? "?"})`} heard=${segments.reduce((n, x) => n + x.text.length, 0)}ch`);
   const heard = segments.map((s) => s.text).join(" ").trim();
   const duration = result.duration ?? durationMs / 1000;
   if (heard) addUtterance(session.email, room, heard);
@@ -169,4 +183,11 @@ export async function POST(req: NextRequest) {
     console.error("[voice] command:", e instanceof Error ? e.message : e);
     return jsonError("failed", 500);
   }
+}
+
+/** The user's UI language (zw_locale cookie, else Accept-Language), as a Whisper language hint. */
+function localeHint(req: NextRequest): string | null {
+  const c = req.cookies.get("zw_locale")?.value ?? req.headers.get("accept-language") ?? "";
+  const m = c.toLowerCase().match(/^(es|en)/);
+  return m ? m[1] : null;
 }

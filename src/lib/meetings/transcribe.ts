@@ -46,14 +46,15 @@ export async function transcribeAudio(
   cfg: WhisperConfig,
   audio: Uint8Array,
   mime: string,
-  opts: { timeoutMs: number; prompt?: string },
-): Promise<{ segments: TranscriptSegment[]; duration: number | null }> {
+  opts: { timeoutMs: number; prompt?: string; language?: string | null },
+): Promise<{ segments: TranscriptSegment[]; duration: number | null; language: string | null }> {
   const form = new FormData();
   form.set("file", new Blob([new Uint8Array(audio)], { type: mime }), filename(mime));
   form.set("model", cfg.model);
   form.set("response_format", "verbose_json");
   form.set("temperature", "0");
-  if (cfg.language) form.set("language", cfg.language);
+  const language = opts.language ?? cfg.language;
+  if (language) form.set("language", language);
   if (opts.prompt) form.set("prompt", opts.prompt);
 
   const res = await fetch(`${cfg.url}/v1/audio/transcriptions`, {
@@ -66,10 +67,11 @@ export async function transcribeAudio(
     const detail = (await res.text().catch(() => "")).slice(0, 200);
     throw new Error(`Whisper ${res.status}${detail ? `: ${detail}` : ""}`);
   }
-  const body = (await res.json()) as { segments?: WhisperSegment[]; text?: string; duration?: number };
+  const body = (await res.json()) as { segments?: WhisperSegment[]; text?: string; duration?: number; language?: string };
   const segments = Array.isArray(body.segments) ? body.segments : [];
   const duration = typeof body.duration === "number" && Number.isFinite(body.duration) ? body.duration : null;
-  return { segments: cleanSegments(segments), duration };
+  const detected = typeof body.language === "string" ? toIso(body.language) : null;
+  return { segments: cleanSegments(segments), duration, language: language ?? detected };
 }
 
 function cleanSegments(segments: WhisperSegment[]): TranscriptSegment[] {
@@ -153,4 +155,12 @@ export function toMarkdown(meeting: MeetingSummary, segments: TranscriptSegment[
   }
   flush();
   return lines.join("\n").trimEnd() + "\n";
+}
+
+/** Whisper reports either ISO codes ("es") or names ("spanish"); normalize the common ones. */
+function toIso(lang: string): string | null {
+  const l = lang.trim().toLowerCase();
+  if (/^[a-z]{2,3}$/.test(l)) return l;
+  const names: Record<string, string> = { spanish: "es", english: "en", portuguese: "pt", french: "fr", german: "de", italian: "it" };
+  return names[l] ?? null;
 }
