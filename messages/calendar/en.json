@@ -9,8 +9,14 @@
     "more": "{count} more",
     "noEvents": "No events in this period.",
     "calendars": "My calendars",
+    "otherCalendars": "Other calendars",
     "viewLabel": "View",
-    "views": { "day": "Day", "week": "Week", "month": "Month", "agenda": "Agenda" },
+    "views": {
+      "day": "Day",
+      "week": "Week",
+      "month": "Month",
+      "agenda": "Agenda"
+    },
     "notExpanded": "Showing first occurrences",
     "notExpandedHint": "This server doesn't expand repeating events yet, so only the first occurrence of each series is shown.",
     "confirmDelete": "Delete this event?",
@@ -100,7 +106,46 @@
       "move": "We couldn't move the event.",
       "delete": "We couldn't delete the event.",
       "rsvp": "We couldn't send your response.",
-      "generic": "Something went wrong. Please try again."
+      "generic": "Something went wrong. Please try again.",
+      "calendar": "We couldn't update the calendar. Please try again."
+    },
+    "manage": {
+      "newTitle": "New calendar",
+      "editTitle": "Calendar settings",
+      "settings": "Settings",
+      "settingsFor": "Settings for {name}",
+      "name": "Name",
+      "color": "Color",
+      "create": "Create",
+      "sharing": "Share with people and groups",
+      "addPeople": "Add people or groups",
+      "notShared": "Only you can see this calendar.",
+      "role": "Permission",
+      "removeShare": "Stop sharing with {name}",
+      "roles": {
+        "freebusy": "See only free/busy",
+        "read": "See all event details",
+        "write": "Make changes to events",
+        "manage": "Make changes and manage sharing"
+      },
+      "makeDefault": "Make default",
+      "delete": "Delete calendar",
+      "confirmDelete": "Delete this calendar and all its events?"
+    },
+    "people": {
+      "title": "People",
+      "search": "Search for people",
+      "unavailable": "People directory isn't available",
+      "remove": "Remove {name}",
+      "hint": "Their busy times show in Day and Week views.",
+      "busy": "Busy",
+      "tentative": "Maybe busy"
+    },
+    "findTime": {
+      "toggle": "Find a time",
+      "you": "You",
+      "noInfo": "No availability info",
+      "pickHint": "Click a free spot to move the event there."
     }
   }
 }

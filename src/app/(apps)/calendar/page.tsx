@@ -6,6 +6,7 @@ import { unstable_rethrow } from "next/navigation";
 import { requireSession } from "@/lib/auth";
 import { getCalendars, getEvents } from "@/lib/calendar";
 import { CalendarApp } from "./CalendarApp";
+import { parsePeople, PEOPLE_COOKIE } from "./shared";
 import { isDayKey, isTimeZone, TZ_COOKIE, VIEWS, viewRange, weekStartFor, zonedParts, zonedToUtc, type View } from "./time";
 
 export async function generateMetadata() {
@@ -21,7 +22,9 @@ export default async function CalendarPage({
   const sp = await searchParams;
   const session = await requireSession();
   const locale = await getLocale();
-  const cookieTz = (await cookies()).get(TZ_COOKIE)?.value;
+  const jar = await cookies();
+  const cookieTz = jar.get(TZ_COOKIE)?.value;
+  const people = parsePeople(jar.get(PEOPLE_COOKIE)?.value);
 
   try {
     const calendars = await getCalendars();
@@ -50,6 +53,8 @@ export default async function CalendarPage({
         tz={tz}
         tzFromCookie={isTimeZone(cookieTz)}
         weekStart={weekStart}
+        people={people}
+        myEmail={session.email}
       />
     );
   } catch (e) {

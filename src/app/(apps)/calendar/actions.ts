@@ -7,10 +7,18 @@ import { requireSession } from "@/lib/auth";
 import {
   CAL_USING,
   calendarAccount,
+  getAvailability,
+  getPrincipals,
   getRawEvent,
   normalizeEvent,
   participantEmail,
+  resolveCalendarAccount,
+  rightsFor,
+  SHARE_ROLES,
+  type BusyBlock,
   type CalEvent,
+  type Principal,
+  type ShareRole,
 } from "@/lib/calendar";
 import { jmap } from "@/lib/jmap";
 import { addDays, diffDays, formatDuration, isDayKey, isTimeZone, utcToLocal, zonedToUtc } from "./time";
@@ -18,6 +26,8 @@ import { addDays, diffDays, formatDuration, isDayKey, isTimeZone, utcToLocal, zo
 export type ActionResult<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 
 export type EventInput = {
+  /** Account of the calendar (omitted for my own account). */
+  accountId?: string;
   calendarId: string;
   title: string;
   description: string;
@@ -171,10 +181,16 @@ function buildParticipants(
   return out;
 }
 
-async function loadOwned(id: string, myEmail: string) {
-  const raw = await getRawEvent(id);
+/** Validates an optional account id from the client against the session's calendar accounts. */
+async function account(accountId?: string | null): Promise<string> {
+  if (accountId != null) assertId(accountId);
+  return resolveCalendarAccount(accountId);
+}
+
+async function loadOwned(id: string, myEmail: string, accountId: string) {
+  const raw = await getRawEvent(id, accountId);
   if (!raw) throw new InputError("Event not found");
-  const ev = normalizeEvent(raw, "UTC", myEmail);
+  const ev = normalizeEvent(raw, "UTC", myEmail, accountId);
   return { raw, ev };
 }
 
@@ -185,12 +201,12 @@ export async function saveEvent(id: string | null, input: EventInput): Promise<A
     const me = { email: session.email.toLowerCase(), name: session.name };
     if (id !== null) assertId(id);
     const v = validate(input);
-    const accountId = await calendarAccount();
+    const accountId = await account(input.accountId);
 
     let existingParticipants: Record<string, Raw> = {};
     let hadGuests = false;
     if (id) {
-      const { raw, ev } = await loadOwned(id, me.email);
+      const { raw, ev } = await loadOwned(id, me.email, accountId);
       if (!ev.isOrganizer) throw new InputError("Only the organizer can edit this event");
       existingParticipants = (raw.participants as Record<string, Raw> | null) ?? {};
       hadGuests = ev.participants.some((p) => !p.isMe);
@@ -235,39 +251,46 @@ export async function saveEvent(id: string | null, input: EventInput): Promise<A
 }
 
 /** Moves/resizes a timed event to absolute UTC instants (from drag in the time grid). */
-export async function moveEvent(id: string, startMs: number, endMs: number, displayTz: string): Promise<ActionResult> {
+export async function moveEvent(
+  id: string,
+  startMs: number,
+  endMs: number,
+  displayTz: string,
+  accountId?: string,
+): Promise<ActionResult> {
   return wrap(async () => {
     assertId(id);
+    const acc = await account(accountId);
     if (!isTimeZone(displayTz)) throw new InputError("Invalid time zone");
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs || endMs - startMs > 366 * 86_400_000)
       throw new InputError("Invalid range");
     const session = await requireSession();
-    const { raw, ev } = await loadOwned(id, session.email);
+    const { raw, ev } = await loadOwned(id, session.email, acc);
     if (!ev.isOrganizer) throw new InputError("Only the organizer can move this event");
     if (ev.allDay || ev.recurrence !== "none") throw new InputError("Event cannot be moved here");
     // Floating events (no timeZone) keep floating: write the wall-clock time the user saw.
     const tz = typeof raw.timeZone === "string" && isTimeZone(raw.timeZone) ? raw.timeZone : displayTz;
-    await patch(id, { start: utcToLocal(startMs, tz), duration: formatDuration(endMs - startMs) }, ev);
+    await patch(id, { start: utcToLocal(startMs, tz), duration: formatDuration(endMs - startMs) }, ev, acc);
   });
 }
 
 /** Shifts an event by whole days, keeping its time of day (month view / all-day row). */
-export async function shiftEventDays(id: string, days: number): Promise<ActionResult> {
+export async function shiftEventDays(id: string, days: number, accountId?: string): Promise<ActionResult> {
   return wrap(async () => {
     assertId(id);
+    const acc = await account(accountId);
     if (!Number.isInteger(days) || Math.abs(days) > 3660) throw new InputError("Invalid shift");
     if (days === 0) return;
     const session = await requireSession();
-    const { raw, ev } = await loadOwned(id, session.email);
+    const { raw, ev } = await loadOwned(id, session.email, acc);
     if (!ev.isOrganizer) throw new InputError("Only the organizer can move this event");
     if (ev.recurrence !== "none") throw new InputError("Event cannot be moved here");
     const start = String(raw.start);
-    await patch(id, { start: `${addDays(start.slice(0, 10), days)}${start.slice(10)}` }, ev);
+    await patch(id, { start: `${addDays(start.slice(0, 10), days)}${start.slice(10)}` }, ev, acc);
   });
 }
 
-async function patch(id: string, update: Raw, ev: CalEvent) {
-  const accountId = await calendarAccount();
+async function patch(id: string, update: Raw, ev: CalEvent, accountId: string) {
   const sendSchedulingMessages = ev.participants.some((p) => !p.isMe);
   const r = await jmap(
     [["CalendarEvent/set", { accountId, update: { [id]: update }, sendSchedulingMessages }, "s"]],
@@ -276,12 +299,12 @@ async function patch(id: string, update: Raw, ev: CalEvent) {
   setErrors(r.s, id);
 }
 
-export async function deleteEvent(id: string): Promise<ActionResult> {
+export async function deleteEvent(id: string, accountIdIn?: string): Promise<ActionResult> {
   return wrap(async () => {
     assertId(id);
+    const accountId = await account(accountIdIn);
     const session = await requireSession();
-    const { ev } = await loadOwned(id, session.email);
-    const accountId = await calendarAccount();
+    const { ev } = await loadOwned(id, session.email, accountId);
     const sendSchedulingMessages = ev.isOrganizer && ev.participants.some((p) => !p.isMe);
     const r = await jmap(
       [["CalendarEvent/set", { accountId, destroy: [id], sendSchedulingMessages }, "s"]],
@@ -292,15 +315,19 @@ export async function deleteEvent(id: string): Promise<ActionResult> {
 }
 
 /** Updates the signed-in user's own participationStatus and notifies the organizer. */
-export async function respond(id: string, status: "accepted" | "tentative" | "declined"): Promise<ActionResult> {
+export async function respond(
+  id: string,
+  status: "accepted" | "tentative" | "declined",
+  accountIdIn?: string,
+): Promise<ActionResult> {
   return wrap(async () => {
     assertId(id);
     if (!["accepted", "tentative", "declined"].includes(status)) throw new InputError("Invalid status");
+    const accountId = await account(accountIdIn);
     const session = await requireSession();
-    const { ev } = await loadOwned(id, session.email);
+    const { ev } = await loadOwned(id, session.email, accountId);
     const mine = ev.participants.find((p) => p.isMe);
     if (!mine) throw new InputError("You are not invited to this event");
-    const accountId = await calendarAccount();
     const r = await jmap(
       [
         [
@@ -315,10 +342,10 @@ export async function respond(id: string, status: "accepted" | "tentative" | "de
   });
 }
 
-export async function setCalendarVisible(calendarId: string, visible: boolean): Promise<ActionResult> {
+export async function setCalendarVisible(calendarId: string, visible: boolean, accountIdIn?: string): Promise<ActionResult> {
   return wrap(async () => {
     assertId(calendarId);
-    const accountId = await calendarAccount();
+    const accountId = await account(accountIdIn);
     const r = await jmap(
       [["Calendar/set", { accountId, update: { [calendarId]: { isVisible: visible === true } } }, "s"]],
       CAL_USING,
@@ -328,16 +355,174 @@ export async function setCalendarVisible(calendarId: string, visible: boolean): 
 }
 
 /** Loads a stored event (e.g. the series behind an expanded instance) for the editor. */
-export async function loadEvent(id: string, displayTz: string): Promise<ActionResult<CalEvent>> {
+export async function loadEvent(id: string, displayTz: string, accountIdIn?: string): Promise<ActionResult<CalEvent>> {
   try {
     assertId(id);
     if (!isTimeZone(displayTz)) throw new InputError("Invalid time zone");
+    const accountId = await account(accountIdIn);
+    const primary = accountId === (await calendarAccount());
     const session = await requireSession();
-    const raw = await getRawEvent(id);
+    const raw = await getRawEvent(id, accountId);
     if (!raw) throw new InputError("Event not found");
-    return { ok: true, data: normalizeEvent(raw, displayTz, session.email) };
+    return { ok: true, data: normalizeEvent(raw, displayTz, session.email, accountId, primary) };
   } catch (e) {
     unstable_rethrow(e);
     return { ok: false, error: e instanceof InputError ? e.message : "failed" };
   }
+}
+
+// ---- Managing my calendars ----
+
+const COLOR = /^#[0-9a-fA-F]{6}$/;
+
+function calendarName(v: unknown): string {
+  const name = text(v, 255).replace(/[\u0000-\u001F\u007F]/g, "");
+  if (!name) throw new InputError("Name required");
+  return name;
+}
+function calendarColor(v: unknown): string {
+  if (typeof v !== "string" || !COLOR.test(v)) throw new InputError("Invalid color");
+  return v.toLowerCase();
+}
+
+/** Creates a calendar in my account. Retries with "@type" when the server insists on it. */
+export async function createCalendar(name: string, color: string): Promise<ActionResult<string>> {
+  return wrap(async () => {
+    const calendar: Raw = { name: calendarName(name), color: calendarColor(color), isVisible: true };
+    const accountId = await calendarAccount();
+    const create = async (body: Raw) => {
+      const r = await jmap([["Calendar/set", { accountId, create: { new: body } }, "s"]], CAL_USING);
+      const err = (r.s.notCreated as Record<string, { type?: string; description?: string }> | undefined)?.new;
+      return { r, err };
+    };
+    let { r, err } = await create(calendar);
+    if (err && /@type/i.test(`${err.description ?? ""}`)) ({ r, err } = await create({ "@type": "Calendar", ...calendar }));
+    if (err) {
+      console.error("[calendar] Calendar/set create failed", err.type, err.description);
+      throw new Error(`notCreated: ${err.type ?? "error"}`);
+    }
+    return String(((r.s.created as Record<string, Raw>)?.new?.id as string | undefined) ?? "");
+  });
+}
+
+/** Renames / recolors one of my calendars. */
+export async function updateCalendar(calendarId: string, patch: { name?: string; color?: string }): Promise<ActionResult> {
+  return wrap(async () => {
+    assertId(calendarId);
+    const update: Raw = {};
+    if (patch?.name !== undefined) update.name = calendarName(patch.name);
+    if (patch?.color !== undefined) update.color = calendarColor(patch.color);
+    if (!Object.keys(update).length) return;
+    const accountId = await calendarAccount();
+    const r = await jmap([["Calendar/set", { accountId, update: { [calendarId]: update } }, "s"]], CAL_USING);
+    logSetError("Calendar/set update", r.s, calendarId);
+    setErrors(r.s, calendarId);
+  });
+}
+
+/** Deletes one of my calendars with its events (never the default one). */
+export async function deleteCalendar(calendarId: string): Promise<ActionResult> {
+  return wrap(async () => {
+    assertId(calendarId);
+    const accountId = await calendarAccount();
+    const g = await jmap([["Calendar/get", { accountId, ids: [calendarId], properties: ["id", "isDefault"] }, "g"]], CAL_USING);
+    const cal = ((g.g.list as Raw[]) ?? [])[0];
+    if (!cal) throw new InputError("Calendar not found");
+    if (cal.isDefault === true) throw new InputError("The default calendar can't be deleted");
+    const r = await jmap(
+      [["Calendar/set", { accountId, destroy: [calendarId], onDestroyRemoveEvents: true }, "s"]],
+      CAL_USING,
+    );
+    logSetError("Calendar/set destroy", r.s, calendarId);
+    setErrors(r.s, calendarId);
+  });
+}
+
+/** Makes one of my calendars the default for new events. */
+export async function setDefaultCalendar(calendarId: string): Promise<ActionResult> {
+  return wrap(async () => {
+    assertId(calendarId);
+    const accountId = await calendarAccount();
+    try {
+      const r = await jmap([["Calendar/set", { accountId, onSuccessSetIsDefault: calendarId }, "s"]], CAL_USING);
+      setErrors(r.s, calendarId);
+    } catch (e) {
+      unstable_rethrow(e);
+      // Servers without onSuccessSetIsDefault may accept a direct isDefault update instead.
+      console.error("[calendar] onSuccessSetIsDefault failed, trying isDefault update", e instanceof Error ? e.message : e);
+      const r = await jmap([["Calendar/set", { accountId, update: { [calendarId]: { isDefault: true } } }, "s"]], CAL_USING);
+      logSetError("Calendar/set isDefault", r.s, calendarId);
+      setErrors(r.s, calendarId);
+    }
+  });
+}
+
+/** Replaces who one of my calendars is shared with (principal id → role). */
+export async function shareCalendar(calendarId: string, shares: Record<string, ShareRole>): Promise<ActionResult> {
+  return wrap(async () => {
+    assertId(calendarId);
+    if (!shares || typeof shares !== "object" || Object.keys(shares).length > 200) throw new InputError("Invalid sharing");
+    const shareWith: Record<string, Record<string, boolean>> = {};
+    for (const [principalId, role] of Object.entries(shares)) {
+      assertId(principalId);
+      if (!SHARE_ROLES.includes(role)) throw new InputError("Invalid role");
+      shareWith[principalId] = rightsFor(role);
+    }
+    const accountId = await calendarAccount();
+    const update = { shareWith };
+    const r = await jmap([["Calendar/set", { accountId, update: { [calendarId]: update } }, "s"]], CAL_USING);
+    logSetError("Calendar/set shareWith", r.s, calendarId);
+    setErrors(r.s, calendarId);
+  });
+}
+
+function logSetError(what: string, r: Record<string, unknown>, key: string) {
+  for (const k of ["notCreated", "notUpdated", "notDestroyed"]) {
+    const err = (r[k] as Record<string, { type?: string; description?: string }> | undefined)?.[key];
+    if (err) console.error(`[calendar] ${what} ${k}`, err.type, err.description ?? "");
+  }
+}
+
+// ---- People: principals and their availability (read-only; no revalidation) ----
+
+async function read<T>(what: string, fn: () => Promise<T>): Promise<ActionResult<T>> {
+  try {
+    return { ok: true, data: await fn() };
+  } catch (e) {
+    unstable_rethrow(e);
+    if (!(e instanceof InputError)) console.error(`[calendar] ${what} failed`, e instanceof Error ? e.message : e);
+    return { ok: false, error: e instanceof InputError ? e.message : "failed" };
+  }
+}
+
+/** People and groups on this server (the client searches them locally). */
+export async function listPrincipals(): Promise<ActionResult<Principal[]>> {
+  return read("Principal/query", () => getPrincipals());
+}
+
+/** Busy blocks per principal id in [startMs, endMs) (max 20 people, 62 days). */
+export async function principalsAvailability(
+  ids: string[],
+  startMs: number,
+  endMs: number,
+): Promise<ActionResult<Record<string, BusyBlock[]>>> {
+  return read("Principal/getAvailability", async () => {
+    if (!Array.isArray(ids) || ids.length > 20) throw new InputError("Invalid people");
+    ids.forEach((id) => assertId(id));
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs || endMs - startMs > 62 * 86_400_000)
+      throw new InputError("Invalid range");
+    const out: Record<string, BusyBlock[]> = {};
+    await Promise.all(
+      [...new Set(ids)].map(async (id) => {
+        try {
+          out[id] = await getAvailability(id, startMs, endMs);
+        } catch (e) {
+          unstable_rethrow(e);
+          // One person's availability failing (e.g. forbidden) shouldn't hide everyone else's.
+          console.error("[calendar] Principal/getAvailability failed", id, e instanceof Error ? e.message : e);
+        }
+      }),
+    );
+    return out;
+  });
 }

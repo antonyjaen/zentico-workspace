@@ -1,14 +1,15 @@
 "use client";
 
-import { AlignLeft, Bell, CalendarDays, Clock, Globe, MapPin, Plus, Repeat, Trash2, Users, Video, X } from "lucide-react";
+import { AlignLeft, Bell, CalendarDays, CalendarSearch, Clock, Globe, MapPin, Plus, Repeat, Trash2, Users, Video, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import type { Calendar, Participant } from "@/lib/calendar";
 import type { EventInput } from "./actions";
+import { Combobox, useAvailability, usePrincipals, type ComboItem } from "./people";
 import { reminderLabel } from "./Popovers";
 import { generateRoomCode } from "../meet/shared";
-import { BTN, BTN_PRIMARY, FIELD, meetCodeOf } from "./shared";
-import { addDays, diffDays, keyToUtc, minutesToHHMM, utcToKey } from "./time";
+import { BTN, BTN_PRIMARY, busyStyle, FIELD, fmt, matches, meetCodeOf, PEOPLE_COLORS } from "./shared";
+import { addDays, diffDays, isTimeZone, keyToUtc, minutesToHHMM, utcToKey, zonedParts, zonedToUtc } from "./time";
 
 export type EditorState = {
   /** Stored event id when editing, null when creating. */
@@ -28,12 +29,18 @@ const fromMin = (m: number) => ({ date: utcToKey(Math.floor(m / 1440) * 86_400_0
 export function EventEditor({
   state,
   calendars,
+  tz,
+  locale,
+  myEmail,
   onClose,
   onSave,
   onDelete,
 }: {
   state: EditorState;
   calendars: Calendar[];
+  tz: string;
+  locale: string;
+  myEmail: string;
   onClose: () => void;
   onSave: (id: string | null, input: EventInput) => Promise<string | null>;
   onDelete: (id: string) => void;
@@ -43,7 +50,34 @@ export function EventEditor({
   const [guest, setGuest] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const writable = calendars.filter((c) => c.mayWrite || c.id === v.calendarId);
+  const [findTime, setFindTime] = useState(false);
+  const principals = usePrincipals();
+  const contacts = useContactSuggestions(guest);
+  // Existing events can't change account; new ones may go to any calendar I can write to.
+  const currentKey = calendars.find((c) => c.id === v.calendarId && (!v.accountId || c.accountId === v.accountId))?.key ?? "";
+  const writable = calendars.filter(
+    (c) => (c.mayWrite || c.key === currentKey) && (!state.id || !state.input.accountId || c.accountId === state.input.accountId),
+  );
+
+  const guestItems = useMemo((): ComboItem[] => {
+    const q = guest.split(/[,;]/).pop()?.trim() ?? "";
+    if (!q) return [];
+    const taken = new Set([...v.guests.map((g) => g.email), myEmail.toLowerCase()]);
+    const out: ComboItem[] = [];
+    for (const p of principals ?? []) {
+      if (out.length >= 6) break;
+      if (!p.email || taken.has(p.email) || (p.type !== "individual" && p.type !== "group") || !matches(q, p.name, p.email)) continue;
+      taken.add(p.email);
+      out.push({ key: p.email, label: p.name || p.email, sub: p.email, group: p.type === "group" });
+    }
+    for (const c of contacts) {
+      if (out.length >= 8) break;
+      if (taken.has(c.email)) continue;
+      taken.add(c.email);
+      out.push({ key: c.email, label: c.name || c.email, sub: c.email });
+    }
+    return out;
+  }, [guest, principals, contacts, v.guests, myEmail]);
   const statusByEmail = useMemo(() => new Map(state.participants.map((p) => [p.email, p.status])), [state.participants]);
 
   const zones = useMemo(() => {
@@ -198,21 +232,19 @@ export function EventEditor({
 
           <Field icon={<Users size={16} aria-hidden />}>
             <div className="flex gap-2">
-              <input
-                type="text"
-                inputMode="email"
-                autoComplete="off"
+              <Combobox
                 value={guest}
-                onChange={(e) => setGuest(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === ",") {
-                    e.preventDefault();
-                    addGuest();
-                  }
+                onChange={setGuest}
+                items={guestItems}
+                onPick={(it) => {
+                  if (!v.guests.some((g) => g.email === it.key)) set("guests", [...v.guests, { email: it.key, optional: false }]);
+                  setGuest("");
+                  setError(null);
                 }}
+                onEnter={addGuest}
+                icon={false}
                 placeholder={t("editor.guestPlaceholder")}
-                aria-label={t("editor.guests")}
-                className={FIELD}
+                label={t("editor.guests")}
               />
               <button type="button" className={`${BTN} h-9 shrink-0`} onClick={addGuest}>
                 <Plus size={14} aria-hidden />
@@ -255,6 +287,21 @@ export function EventEditor({
               </ul>
             )}
             {v.guests.length > 0 && <p className="mt-1.5 text-[12px] text-ink-mute">{t("editor.invitesNote")}</p>}
+            {v.guests.length > 0 && !v.allDay && (
+              <button type="button" className={`${BTN} mt-2`} aria-expanded={findTime} onClick={() => setFindTime((f) => !f)}>
+                <CalendarSearch size={14} aria-hidden />
+                {t("findTime.toggle")}
+              </button>
+            )}
+            {findTime && !v.allDay && v.guests.length > 0 && (
+              <FindTime
+                input={v}
+                tz={isTimeZone(v.timeZone) ? v.timeZone : tz}
+                locale={locale}
+                myEmail={myEmail}
+                onPick={(time) => setStart(v.startDate, time)}
+              />
+            )}
           </Field>
 
           <Field icon={<MapPin size={16} aria-hidden />}>
@@ -283,10 +330,18 @@ export function EventEditor({
           </Field>
 
           <Field icon={<CalendarDays size={16} aria-hidden />}>
-            <select value={v.calendarId} onChange={(e) => set("calendarId", e.target.value)} className={FIELD} aria-label={t("editor.calendar")}>
+            <select
+              value={currentKey}
+              onChange={(e) => {
+                const c = calendars.find((x) => x.key === e.target.value);
+                if (c) setV((p) => ({ ...p, calendarId: c.id, accountId: c.accountId }));
+              }}
+              className={FIELD}
+              aria-label={t("editor.calendar")}
+            >
               {writable.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
+                <option key={c.key} value={c.key}>
+                  {c.owner ? `${c.name} (${c.owner})` : c.name}
                 </option>
               ))}
             </select>
@@ -366,6 +421,139 @@ function Field({ icon, children }: { icon: React.ReactNode; children: React.Reac
     <div className="flex items-start gap-3">
       <span className="mt-2.5 shrink-0 text-ink-mute">{icon}</span>
       <div className="min-w-0 flex-1">{children}</div>
+    </div>
+  );
+}
+
+/** Contacts matching the last typed guest token, from the mail autocomplete endpoint (debounced). */
+function useContactSuggestions(text: string): { name: string; email: string }[] {
+  const [list, setList] = useState<{ name: string; email: string }[]>([]);
+  const q = text.split(/[,;]/).pop()?.trim() ?? "";
+  useEffect(() => {
+    if (q.length < 2 || q.length > 100) {
+      setList([]);
+      return;
+    }
+    const ctrl = new AbortController();
+    const id = setTimeout(() => {
+      fetch(`/api/contacts/suggest?q=${encodeURIComponent(q)}`, { signal: ctrl.signal })
+        .then((r) => (r.ok ? r.json() : []))
+        .then((data: unknown) => {
+          if (!Array.isArray(data)) return;
+          setList(
+            data
+              .filter((c): c is { name: string; email: string } => !!c && typeof c.email === "string")
+              .map((c) => ({ name: typeof c.name === "string" ? c.name : "", email: c.email.toLowerCase() })),
+          );
+        })
+        .catch(() => {});
+    }, 200);
+    return () => {
+      clearTimeout(id);
+      ctrl.abort();
+    };
+  }, [q]);
+  return list;
+}
+
+const FT_FROM = 7 * 60;
+const FT_TO = 21 * 60;
+const FT_SPAN = FT_TO - FT_FROM;
+
+/** Guests' (and my) busy times on the event's day, with the proposed slot; click to move it. */
+function FindTime({
+  input,
+  tz,
+  locale,
+  myEmail,
+  onPick,
+}: {
+  input: EventInput;
+  tz: string;
+  locale: string;
+  myEmail: string;
+  onPick: (time: string) => void;
+}) {
+  const t = useTranslations("calendar");
+  const principals = usePrincipals();
+  const me = myEmail.toLowerCase();
+  const rows = useMemo(() => {
+    const byEmail = new Map((principals ?? []).filter((p) => p.email).map((p) => [p.email, p]));
+    return [me, ...input.guests.map((g) => g.email).filter((e) => e !== me)].map((email) => ({
+      email,
+      label: email === me ? t("findTime.you") : byEmail.get(email)?.name || email,
+      principal: byEmail.get(email) ?? null,
+    }));
+  }, [principals, input.guests, me, t]);
+
+  const dayStart = zonedToUtc(`${input.startDate}T00:00:00`, tz);
+  const dayEnd = zonedToUtc(`${addDays(input.startDate, 1)}T00:00:00`, tz);
+  const ids = rows.flatMap((r) => (r.principal ? [r.principal.id] : []));
+  const availability = useAvailability(ids, dayStart, dayEnd);
+
+  const slotStart = toMin(input.startDate, input.startTime) - keyToUtc(input.startDate) / 60_000;
+  const slotEnd = toMin(input.endDate, input.endTime) - keyToUtc(input.startDate) / 60_000;
+  const pct = (m: number) => `${((Math.min(Math.max(m, FT_FROM), FT_TO) - FT_FROM) / FT_SPAN) * 100}%`;
+  const minOf = (ms: number) => (ms <= dayStart ? 0 : ms >= dayEnd ? 1440 : zonedParts(ms, tz).minutes);
+  const hourFmt = fmt(locale, { hour: "numeric", timeZone: "UTC" });
+
+  function pick(e: React.MouseEvent<HTMLDivElement>) {
+    const r = e.currentTarget.getBoundingClientRect();
+    const m = FT_FROM + ((e.clientX - r.left) / r.width) * FT_SPAN;
+    const snapped = Math.min(FT_TO - 15, Math.max(FT_FROM, Math.round(m / 15) * 15));
+    onPick(minutesToHHMM(snapped));
+  }
+
+  return (
+    <div className="mt-2 rounded-md border border-line p-3">
+      <div className="mb-1 flex text-[10px] text-ink-mute tabular-nums" style={{ paddingLeft: 112 }}>
+        <div className="relative h-3 flex-1">
+          {Array.from({ length: FT_SPAN / 120 + 1 }, (_, i) => FT_FROM + i * 120).map((m) => (
+            <span key={m} className="absolute -translate-x-1/2" style={{ left: pct(m) }}>
+              {hourFmt.format(new Date(Date.UTC(2020, 0, 1, m / 60)))}
+            </span>
+          ))}
+        </div>
+      </div>
+      <ul className="flex flex-col gap-1.5">
+        {rows.map((row, i) => {
+          const blocks = row.principal ? (availability[row.principal.id] ?? []) : [];
+          const color = PEOPLE_COLORS[i % PEOPLE_COLORS.length];
+          return (
+            <li key={row.email} className="flex items-center gap-2">
+              <span className="w-[104px] shrink-0 truncate text-[12px] text-ink-soft" title={row.email}>
+                {row.label}
+              </span>
+              <div
+                className="relative h-6 flex-1 cursor-pointer overflow-hidden rounded-[4px] bg-sheet-muted"
+                onClick={pick}
+                title={t("findTime.pickHint")}
+              >
+                {!row.principal && (
+                  <span className="absolute inset-0 grid place-items-center text-[11px] text-ink-mute">{t("findTime.noInfo")}</span>
+                )}
+                {blocks.map((b, j) => {
+                  const s = minOf(b.start);
+                  const e = minOf(b.end);
+                  if (e <= FT_FROM || s >= FT_TO) return null;
+                  return (
+                    <span
+                      key={j}
+                      className="pointer-events-none absolute inset-y-0 border"
+                      style={{ ...busyStyle(color), left: pct(s), right: `calc(100% - ${pct(e)})` }}
+                    />
+                  );
+                })}
+                <span
+                  className="pointer-events-none absolute inset-y-0 border-2"
+                  style={{ left: pct(slotStart), right: `calc(100% - ${pct(slotEnd)})`, borderColor: "var(--color-app-calendar)" }}
+                />
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="mt-2 text-[11px] text-ink-mute">{t("findTime.pickHint")}</p>
     </div>
   );
 }

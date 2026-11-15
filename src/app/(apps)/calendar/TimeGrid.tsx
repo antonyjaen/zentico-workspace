@@ -4,9 +4,12 @@ import { Repeat } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CalEvent } from "@/lib/calendar";
-import { chipStyle, eventDays, fmt, fmtDay, fmtTime, HOUR_PX, isBand, SNAP_MIN, type Anchor, type Slot } from "./shared";
+import { busyStyle, chipStyle, eventDays, fmt, fmtDay, fmtTime, HOUR_PX, isBand, SNAP_MIN, type Anchor, type Slot } from "./shared";
 import { addDays, minutesToHHMM, zonedParts, zonedToUtc } from "./time";
 import { useDayDrag } from "./useDayDrag";
+
+/** Someone else's busy period, drawn as a hatched block behind events. */
+export type BusyOverlay = { key: string; start: number; end: number; color: string; name: string; tentative: boolean };
 
 type Props = {
   days: string[];
@@ -16,6 +19,7 @@ type Props = {
   todayKey: string;
   now: number | null;
   ghost: Slot | null;
+  busy?: BusyOverlay[];
   colorOf: (ev: CalEvent) => string;
   canDrag: (ev: CalEvent) => boolean;
   onCreate: (slot: Slot, anchor: Anchor) => void;
@@ -99,6 +103,20 @@ export function TimeGrid(props: Props) {
       return { ...ev, utcEnd: Math.max(ev.utcStart + SNAP_MIN * 60_000, ev.utcEnd + ms) };
     });
   }, [events, drag, canDrag]);
+
+  const busyPerDay = useMemo(
+    () =>
+      bounds.map(([ds, de]) =>
+        (props.busy ?? [])
+          .filter((b) => b.start < de && b.end > ds)
+          .map((b) => ({
+            b,
+            startMin: b.start <= ds ? 0 : zonedParts(b.start, tz).minutes,
+            endMin: b.end >= de ? 1440 : zonedParts(b.end, tz).minutes,
+          })),
+      ),
+    [bounds, props.busy, tz],
+  );
 
   const band = shown.filter(isBand);
   const timed = shown.filter((e) => !isBand(e));
@@ -334,6 +352,23 @@ export function TimeGrid(props: Props) {
         >
           {days.map((d, i) => (
             <div key={d} className="relative border-l border-line">
+              {busyPerDay[i].map(({ b, startMin, endMin }) => {
+                const height = Math.max(((endMin - startMin) / 60) * HOUR_PX - 2, 10);
+                return (
+                  <div
+                    key={b.key}
+                    className={`pointer-events-none absolute inset-x-0.5 overflow-hidden rounded-[5px] border px-1.5 text-[11px] leading-tight text-ink-soft ${b.tentative ? "border-dashed" : ""}`}
+                    style={{ ...busyStyle(b.color), top: (startMin / 60) * HOUR_PX + 1, height }}
+                    title={`${t("people.busy")} · ${b.name}`}
+                  >
+                    {height >= 16 && (
+                      <span className="block truncate pt-0.5">
+                        {t(b.tentative ? "people.tentative" : "people.busy")} · {b.name}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
               {perDay[i].map((s) => {
                 const ev = s.ev;
                 const top = (s.startMin / 60) * HOUR_PX;

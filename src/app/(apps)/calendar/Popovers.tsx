@@ -75,7 +75,8 @@ export function QuickCreate({
   const t = useTranslations("calendar");
   const writable = calendars.filter((c) => c.mayWrite);
   const [title, setTitle] = useState("");
-  const [calendarId, setCalendarId] = useState(writable[0]?.id ?? "");
+  // Calendar *key* (account/id): ids alone are only unique per account.
+  const [calendarId, setCalendarId] = useState((writable.find((c) => c.isDefault) ?? writable[0])?.key ?? "");
   const [busy, setBusy] = useState(false);
 
   const when = slot.allDay
@@ -115,8 +116,8 @@ export function QuickCreate({
           <CalendarDays size={14} aria-hidden className="shrink-0 text-ink-soft" />
           <select value={calendarId} onChange={(e) => setCalendarId(e.target.value)} className={`${FIELD} h-8`} aria-label={t("editor.calendar")}>
             {writable.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
+              <option key={c.key} value={c.key}>
+                {c.owner ? `${c.name} (${c.owner})` : c.name}
               </option>
             ))}
           </select>
@@ -143,6 +144,7 @@ export function EventDetails({
   tz,
   locale,
   canEdit,
+  canDelete,
   onClose,
   onEdit,
   onDelete,
@@ -154,6 +156,7 @@ export function EventDetails({
   tz: string;
   locale: string;
   canEdit: boolean;
+  canDelete: boolean;
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -172,9 +175,11 @@ export function EventDetails({
             <Pencil size={16} aria-hidden />
           </button>
         )}
-        <button type="button" className="icon-btn" aria-label={t("details.delete")} title={t("details.delete")} onClick={onDelete}>
-          <Trash2 size={16} aria-hidden />
-        </button>
+        {canDelete && (
+          <button type="button" className="icon-btn" aria-label={t("details.delete")} title={t("details.delete")} onClick={onDelete}>
+            <Trash2 size={16} aria-hidden />
+          </button>
+        )}
         <button type="button" className="icon-btn" aria-label={t("details.close")} title={t("details.close")} onClick={onClose}>
           <X size={16} aria-hidden />
         </button>
@@ -236,7 +241,7 @@ export function EventDetails({
         )}
         {calendar && (
           <Row icon={<CalendarDays size={15} aria-hidden />}>
-            <span>{calendar.name}</span>
+            <span>{calendar.owner ? `${calendar.name} · ${calendar.owner}` : calendar.name}</span>
           </Row>
         )}
         {ev.myStatus !== null && (

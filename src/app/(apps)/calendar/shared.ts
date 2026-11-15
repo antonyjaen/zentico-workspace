@@ -76,9 +76,10 @@ export function chipStyle(color: string, solid = false): CSSProperties {
 
 const split = (local: string) => ({ date: local.slice(0, 10), time: local.slice(11, 16) });
 
-export function slotToInput(slot: Slot, tz: string, calendarId: string): EventInput {
+export function slotToInput(slot: Slot, tz: string, calendar: { id: string; accountId: string } | undefined): EventInput {
   const base = {
-    calendarId,
+    accountId: calendar?.accountId,
+    calendarId: calendar?.id ?? "",
     title: "",
     description: "",
     location: "",
@@ -98,6 +99,7 @@ export function slotToInput(slot: Slot, tz: string, calendarId: string): EventIn
 export function eventToInput(ev: CalEvent, displayTz: string): EventInput {
   const tz = ev.timeZone ?? displayTz;
   const common = {
+    accountId: ev.accountId,
     calendarId: ev.calendarId,
     title: ev.title,
     description: ev.description,
@@ -134,3 +136,51 @@ export const meetCodeOf = (...texts: (string | null | undefined)[]): string | nu
 
 export const BTN_MEET =
   "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium text-white transition-opacity hover:opacity-90";
+
+/** Colors offered when creating / editing a calendar. */
+export const CAL_COLORS = ["#0f9f8f", "#3b6cf6", "#8b5cf6", "#db2777", "#e5484d", "#d97706", "#ca8a04", "#16a34a", "#0891b2", "#64748b"];
+
+/** Colors for colleagues whose availability is overlaid (by position in the list). */
+export const PEOPLE_COLORS = ["#7c3aed", "#0891b2", "#c2410c", "#be185d", "#15803d", "#4f46e5", "#b45309", "#0f766e"];
+export const PEOPLE_MAX = 8;
+export const PEOPLE_COOKIE = "zw_cal_people";
+
+/** A colleague (JMAP principal) whose busy times are shown over the week/day view. */
+export type Person = { id: string; name: string; email: string };
+
+const PERSON_ID = /^[A-Za-z0-9_.:@-]{1,255}$/;
+
+/** Parses the people cookie defensively (it comes back from the browser). */
+export function parsePeople(raw: string | undefined): Person[] {
+  if (!raw) return [];
+  try {
+    const list: unknown = JSON.parse(decodeURIComponent(raw));
+    if (!Array.isArray(list)) return [];
+    return list
+      .filter((p): p is Person => !!p && typeof p.id === "string" && PERSON_ID.test(p.id))
+      .map((p) => ({ id: p.id, name: String(p.name ?? "").slice(0, 200), email: String(p.email ?? "").slice(0, 254) }))
+      .slice(0, PEOPLE_MAX);
+  } catch {
+    return [];
+  }
+}
+
+export function savePeople(people: Person[]) {
+  const value = encodeURIComponent(JSON.stringify(people.slice(0, PEOPLE_MAX)));
+  document.cookie = `${PEOPLE_COOKIE}=${value}; path=/calendar; max-age=31536000; samesite=lax`;
+}
+
+/** Hatched style for someone else's busy block. */
+export function busyStyle(color: string): CSSProperties {
+  return {
+    backgroundImage: `repeating-linear-gradient(135deg, color-mix(in oklab, ${color} 30%, transparent) 0 5px, transparent 5px 10px)`,
+    backgroundColor: `color-mix(in oklab, ${color} 8%, var(--color-sheet))`,
+    borderColor: `color-mix(in oklab, ${color} 60%, transparent)`,
+  };
+}
+
+/** Case-insensitive substring match on a principal / contact's name and email. */
+export const matches = (q: string, ...fields: string[]) => {
+  const needle = q.trim().toLowerCase();
+  return !needle || fields.some((f) => f.toLowerCase().includes(needle));
+};

@@ -9,8 +9,14 @@
     "more": "{count} más",
     "noEvents": "No hay eventos en este periodo.",
     "calendars": "Mis calendarios",
+    "otherCalendars": "Otros calendarios",
     "viewLabel": "Vista",
-    "views": { "day": "Día", "week": "Semana", "month": "Mes", "agenda": "Agenda" },
+    "views": {
+      "day": "Día",
+      "week": "Semana",
+      "month": "Mes",
+      "agenda": "Agenda"
+    },
     "notExpanded": "Mostrando primeras repeticiones",
     "notExpandedHint": "Este servidor aún no expande los eventos periódicos, así que solo se muestra la primera repetición de cada serie.",
     "confirmDelete": "¿Eliminar este evento?",
@@ -100,7 +106,46 @@
       "move": "No pudimos mover el evento.",
       "delete": "No pudimos eliminar el evento.",
       "rsvp": "No pudimos enviar tu respuesta.",
-      "generic": "Algo salió mal. Inténtalo de nuevo."
+      "generic": "Algo salió mal. Inténtalo de nuevo.",
+      "calendar": "No pudimos actualizar el calendario. Inténtalo de nuevo."
+    },
+    "manage": {
+      "newTitle": "Nuevo calendario",
+      "editTitle": "Configuración del calendario",
+      "settings": "Configuración",
+      "settingsFor": "Configuración de {name}",
+      "name": "Nombre",
+      "color": "Color",
+      "create": "Crear",
+      "sharing": "Compartir con personas y grupos",
+      "addPeople": "Añadir personas o grupos",
+      "notShared": "Solo tú puedes ver este calendario.",
+      "role": "Permiso",
+      "removeShare": "Dejar de compartir con {name}",
+      "roles": {
+        "freebusy": "Ver solo libre/ocupado",
+        "read": "Ver todos los detalles",
+        "write": "Hacer cambios en eventos",
+        "manage": "Hacer cambios y gestionar el uso compartido"
+      },
+      "makeDefault": "Usar como predeterminado",
+      "delete": "Eliminar calendario",
+      "confirmDelete": "¿Eliminar este calendario y todos sus eventos?"
+    },
+    "people": {
+      "title": "Personas",
+      "search": "Buscar personas",
+      "unavailable": "El directorio de personas no está disponible",
+      "remove": "Quitar a {name}",
+      "hint": "Sus horas ocupadas se muestran en las vistas Día y Semana.",
+      "busy": "Ocupado",
+      "tentative": "Quizá ocupado"
+    },
+    "findTime": {
+      "toggle": "Buscar un hueco",
+      "you": "Tú",
+      "noInfo": "Sin información de disponibilidad",
+      "pickHint": "Haz clic en un hueco libre para mover el evento allí."
     }
   }
 }
