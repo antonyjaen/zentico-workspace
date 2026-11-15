@@ -7,7 +7,12 @@ const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
   // Composed messages (with quoted originals) can exceed the 1 MB default.
-  experimental: { serverActions: { bodySizeLimit: "10mb" } },
+  experimental: {
+    serverActions: { bodySizeLimit: "10mb" },
+    // Middleware buffers request bodies and truncates them at 10 MB by default, which
+    // silently corrupted Drive uploads and large mail attachments.
+    middlewareClientMaxBodySize: "200mb",
+  },
   async headers() {
     return [
       {
