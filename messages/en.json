@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "title": "Zentico Workspace",
+    "description": "Mail, calendar, files, docs and meetings — private, on your own servers."
+  },
+  "apps": {
+    "mail": "Mail",
+    "calendar": "Calendar",
+    "contacts": "Contacts",
+    "drive": "Drive",
+    "docs": "Docs",
+    "meet": "Meet",
+    "launcher": "Zentico apps"
+  },
+  "signin": {
+    "eyebrow": "Zentico Workspace",
+    "title": "Your work, on your own servers.",
+    "body": "Mail, calendar, files, docs and meetings in one place. Private by design — nothing leaves Zentico infrastructure.",
+    "cta": "Continue with Zentico",
+    "hint": "Use your email address and email password.",
+    "errors": {
+      "invalid_state": "Your sign-in session expired. Please try again.",
+      "login_failed": "We couldn't complete sign-in. Please try again.",
+      "access_denied": "Sign-in was cancelled.",
+      "default": "Something went wrong while signing in."
+    },
+    "footer": "Private · Open source · Self-hosted"
+  },
+  "topbar": {
+    "search": "Search mail",
+    "theme": "Theme",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "themeSystem": "System"
+  },
+  "account": {
+    "menu": "Account",
+    "manage": "Manage your account",
+    "language": "Language",
+    "signout": "Sign out"
+  },
+  "mail": {
+    "compose": "Compose",
+    "folders": {
+      "inbox": "Inbox",
+      "drafts": "Drafts",
+      "sent": "Sent",
+      "archive": "Archive",
+      "junk": "Spam",
+      "trash": "Trash"
+    },
+    "range": "{from}–{to} of {total}",
+    "empty": "Nothing here",
+    "emptyInbox": "You're all caught up.",
+    "noSubject": "(no subject)",
+    "unknownSender": "Unknown sender",
+    "refresh": "Refresh",
+    "error": "We couldn't load your mail. Please refresh in a moment."
+  },
+  "soon": {
+    "title": "{app} is on its way",
+    "body": "This app is part of the Zentico Workspace plan and will appear here as it's built. Your data is already stored on the Zentico mail server.",
+    "back": "Back to Mail"
+  }
+}

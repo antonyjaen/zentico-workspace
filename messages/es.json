@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "title": "Zentico Workspace",
+    "description": "Correo, calendario, archivos, documentos y reuniones — privado, en tus propios servidores."
+  },
+  "apps": {
+    "mail": "Correo",
+    "calendar": "Calendario",
+    "contacts": "Contactos",
+    "drive": "Drive",
+    "docs": "Documentos",
+    "meet": "Reuniones",
+    "launcher": "Apps de Zentico"
+  },
+  "signin": {
+    "eyebrow": "Zentico Workspace",
+    "title": "Tu trabajo, en tus propios servidores.",
+    "body": "Correo, calendario, archivos, documentos y reuniones en un solo lugar. Privado por diseño — nada sale de la infraestructura de Zentico.",
+    "cta": "Continuar con Zentico",
+    "hint": "Usa tu correo y la contraseña de tu correo.",
+    "errors": {
+      "invalid_state": "Tu sesión de inicio expiró. Intenta de nuevo.",
+      "login_failed": "No pudimos completar el inicio de sesión. Intenta de nuevo.",
+      "access_denied": "Se canceló el inicio de sesión.",
+      "default": "Algo salió mal al iniciar sesión."
+    },
+    "footer": "Privado · Código abierto · Auto-hospedado"
+  },
+  "topbar": {
+    "search": "Buscar en el correo",
+    "theme": "Tema",
+    "themeLight": "Claro",
+    "themeDark": "Oscuro",
+    "themeSystem": "Sistema"
+  },
+  "account": {
+    "menu": "Cuenta",
+    "manage": "Administrar tu cuenta",
+    "language": "Idioma",
+    "signout": "Cerrar sesión"
+  },
+  "mail": {
+    "compose": "Redactar",
+    "folders": {
+      "inbox": "Recibidos",
+      "drafts": "Borradores",
+      "sent": "Enviados",
+      "archive": "Archivo",
+      "junk": "Spam",
+      "trash": "Papelera"
+    },
+    "range": "{from}–{to} de {total}",
+    "empty": "No hay nada aquí",
+    "emptyInbox": "Estás al día.",
+    "noSubject": "(sin asunto)",
+    "unknownSender": "Remitente desconocido",
+    "refresh": "Actualizar",
+    "error": "No pudimos cargar tu correo. Actualiza en un momento."
+  },
+  "soon": {
+    "title": "{app} viene en camino",
+    "body": "Esta app es parte del plan de Zentico Workspace y aparecerá aquí cuando esté lista. Tus datos ya están guardados en el servidor de correo de Zentico.",
+    "back": "Volver al Correo"
+  }
+}
