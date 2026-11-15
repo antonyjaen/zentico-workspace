@@ -6,7 +6,6 @@ import { enqueueCommand, recentUtterances, type CommandRow } from "../mcp/agent"
 import { userTokens } from "../mcp/db";
 import type { Session } from "../session";
 import { chatMeetingTitle } from "./chat-link";
-import { mergeOverlap } from "./voice";
 
 const BAD_TEXT = /[\u0000-\u0008\u000b-\u001f\u007f]/g;
 
@@ -51,12 +50,12 @@ export type BridgeCommand = {
 };
 
 export function bridgePayload(c: CommandRow, appUrl: string): BridgeCommand {
-  // Consecutive windows overlap by ~1 s: merge them back into running text where they touch.
+  // Utterances spoken close together are joined back into running text.
   const merged: { at: number; text: string }[] = [];
   for (const u of recentUtterances(c.userEmail, c.room, c.createdAt)) {
     const last = merged[merged.length - 1];
     if (last && u.at - last.at < 8000) {
-      last.text = mergeOverlap(last.text, u.text);
+      last.text = `${last.text} ${u.text}`;
       last.at = u.at;
     } else merged.push({ ...u });
   }

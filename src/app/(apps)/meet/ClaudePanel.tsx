@@ -168,14 +168,31 @@ export function ClaudePanel({
             </span>
           </label>
           {claude.enabled && (
-            <p className="flex items-center gap-2 text-[12.5px] text-ink-soft" role="status">
-              <span
-                className={`h-2 w-2 rounded-full ${claude.hearing ? "animate-pulse" : ""}`}
-                style={{ background: claude.hearing ? "var(--color-app-meet)" : "var(--color-ink-mute, #999)" }}
-                aria-hidden
-              />
-              {claude.capturing ? t("claudeCapturing") : claude.hearing ? t("claudeHearing") : t("claudeListening")}
-            </p>
+            <div className="space-y-1 text-[12.5px] text-ink-soft" role="status" aria-live="polite">
+              <p className="flex items-center gap-2">
+                <span
+                  className={`h-2 w-2 shrink-0 rounded-full ${claude.speaking ? "animate-pulse" : ""}`}
+                  style={{ background: claude.speaking ? "var(--color-app-meet)" : "var(--color-ink-mute, #999)" }}
+                  aria-hidden
+                />
+                {claude.speaking ? t("claudeHearing") : t("claudeListening")}
+              </p>
+              {claude.transcribing > 0 && (
+                <p className="flex items-center gap-2">
+                  <Loader2 size={11} aria-hidden className="shrink-0 animate-spin" />
+                  {claude.transcribing > 1
+                    ? t("claudeTranscribingQueued", { count: claude.transcribing - 1 })
+                    : t("claudeTranscribing")}
+                </p>
+              )}
+              {claude.accepted.size > 0 && (
+                <p className="flex items-center gap-2 text-ink">
+                  <Loader2 size={11} aria-hidden className="shrink-0 animate-spin" />
+                  {t("claudeProcessing")}
+                </p>
+              )}
+              {claude.heard && <p className="break-words text-ink-mute">{t("claudeHeard", { text: claude.heard })}</p>}
+            </div>
           )}
           {noToken && (
             <p className="text-[12.5px] leading-relaxed text-amber">
@@ -218,7 +235,12 @@ export function ClaudePanel({
                 <p className="mt-1 text-[13.5px] break-words text-ink">{c.text}</p>
                 {!isFinalStatus(c.status) && (c.progress || c.status === "queued") && (
                   <p className="mt-1.5 truncate text-[12.5px] text-ink-mute">
-                    {c.progress ?? (data.bridge.connected ? t("claudeWaiting") : t("claudeWaitingBridge"))}
+                    {c.progress ??
+                      (!data.bridge.connected
+                        ? t("claudeWaitingBridge")
+                        : claude.accepted.has(c.id)
+                          ? t("claudeProcessing")
+                          : t("claudeWaiting"))}
                   </p>
                 )}
                 {c.result && (

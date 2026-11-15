@@ -1,8 +1,9 @@
 "use client";
 
-// "Claude commands" for the LOCAL user only: when they opt in, short rolling windows of their own
-// microphone (never other participants' audio) go to /api/meet/voice, which queues "Claude, …"
-// for their own Claude Code bridge. Also polls their commands / pending confirmations in this room.
+// "Claude commands" for the LOCAL user only: when they opt in, each utterance of their own
+// microphone (never other participants' audio), cut by voice activity detection in the browser,
+// goes to /api/meet/voice, which queues "Claude, …" for their own Claude Code bridge. Also polls
+// their commands / pending confirmations in this room.
 // Nothing here is sent over the LiveKit data channel: results stay private to the speaker.
 import { Room, Track } from "livekit-client";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -10,8 +11,7 @@ import {
   CLAUDE_COMMANDS_PREF,
   isFinalStatus,
   VOICE_MAX_BYTES,
-  VOICE_OVERLAP_MS,
-  VOICE_WINDOW_MS,
+  VOICE_MAX_CLIP_MS,
   type CommandsResponse,
   type CommandView,
   type VoiceResponse,
@@ -25,7 +25,52 @@ export type ClaudeNotice =
 
 export type VoiceProblem = "noToken" | "notConfigured" | "unsupported" | null;
 
-const SILENCE_RMS = 0.015;
+/**
+ * Voice activity detection on the local microphone, in 20 ms frames of RMS level.
+ * Thresholds are relative to an adaptive noise floor (≈ minimum tracking: falls fast, rises
+ * slowly), so the same settings work in quiet and noisy rooms.
+ */
+const VAD = {
+  frameMs: 20,
+  /** Speech starts when the level stays this many times above the floor (≈ +10 dB) for onsetMs… */
+  onsetRatio: 3.2,
+  onsetMs: 60,
+  /** …and continues while it stays above this ratio (≈ +6 dB): hysteresis. */
+  releaseRatio: 2,
+  /** Absolute minimum level for speech (≈ −44 dBFS), so a near-silent floor doesn't trigger on hiss. */
+  minRms: 0.006,
+  /** The clip ends after this much continuous silence (hangover)… */
+  hangoverMs: 900,
+  /** …or at this length. */
+  maxClipMs: VOICE_MAX_CLIP_MS,
+  /** Clips with less speech than this are dropped (coughs, clicks, "mm"). */
+  minSpeechMs: 600,
+  /** Minimum audio kept before the detected onset (see `maintainArmed`). */
+  preRollMs: 300,
+  armRotateMs: 700,
+  /** Noise floor time constants. */
+  floorFallMs: 150,
+  floorRiseIdleMs: 2000,
+  floorRiseSpeechMs: 15_000,
+  floorMin: 0.0005,
+  floorInit: 0.003,
+  /** After (re)binding a track the floor calibrates for this long before speech can start. */
+  warmupMs: 500,
+} as const;
+
+/** Runs on the audio thread (not throttled in background tabs): posts one RMS value per frame. */
+const WORKLET = `class ZwVadRms extends AudioWorkletProcessor {
+  constructor() { super(); this.n = Math.max(1, Math.round(sampleRate * ${VAD.frameMs / 1000})); this.sum = 0; this.count = 0; }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (ch) for (let i = 0; i < ch.length; i++) {
+      this.sum += ch[i] * ch[i];
+      if (++this.count >= this.n) { this.port.postMessage(Math.sqrt(this.sum / this.count)); this.sum = 0; this.count = 0; }
+    }
+    return true;
+  }
+}
+registerProcessor("zw-vad-rms", ZwVadRms);`;
 
 function pickMime(): string | null {
   if (typeof MediaRecorder === "undefined") return null;
@@ -43,116 +88,240 @@ const timeZone = () => {
   }
 };
 
+type Rec = { mr: MediaRecorder; startedAt: number; parts: Blob[]; mime: string };
+
 /**
- * Records the local microphone in overlapping windows: a new MediaRecorder starts every
- * (window − overlap) ms and stops after `window` ms, so each window is a standalone file. Silent
- * windows (muted mic, nobody talking) are dropped in the browser and never uploaded.
+ * Cuts the local microphone into utterances: a clip starts at speech onset (with pre-roll) and
+ * ends after `hangoverMs` of silence or at `maxClipMs`; each clip is its own MediaRecorder file.
+ * MediaRecorder can't record the past, so while idle one or two "armed" recorders run and rotate;
+ * at onset the oldest (started ≥ preRollMs ago) becomes the clip and the others are discarded.
  */
 class VoiceCapture {
   private stopped = false;
-  private timer: ReturnType<typeof setInterval> | null = null;
   private ctx: AudioContext | null = null;
-  private analyser: AnalyserNode | null = null;
-  private source: MediaStreamAudioSourceNode | null = null;
-  private sourceTrack: MediaStreamTrack | null = null;
-  private levelTimer: ReturnType<typeof setInterval> | null = null;
-  private voicedAt = 0;
-  private active = new Set<MediaRecorder>();
+  private workletLoad: Promise<boolean> | null = null;
+  private nodes: AudioNode[] = [];
+  private fallbackTimer: ReturnType<typeof setInterval> | null = null;
+  private checkTimer: ReturnType<typeof setInterval>;
+  private track: MediaStreamTrack | null = null;
+  private boundAt = 0;
+  private floor: number = VAD.floorInit;
+  private onsetRun = 0;
+  private armed: Rec[] = [];
+  private clip: { rec: Rec; voicedMs: number; silenceMs: number } | null = null;
+  private readonly mime = pickMime();
 
   constructor(
     private getTrack: () => MediaStreamTrack | null,
-    private onWindow: (blob: Blob, mime: string, durationMs: number) => void,
+    private onClip: (blob: Blob, mime: string, durationMs: number) => void,
+    private onSpeaking: (speaking: boolean) => void,
   ) {
-    this.timer = setInterval(() => this.startWindow(), VOICE_WINDOW_MS - VOICE_OVERLAP_MS);
-    this.levelTimer = setInterval(() => this.sampleLevel(), 100);
-    this.startWindow();
+    this.checkTimer = setInterval(() => this.check(), 500);
+    this.check();
   }
 
-  /** Tracks when the mic last carried sound (RMS over a threshold). Without Web Audio, assume voiced. */
-  private sampleLevel() {
-    const track = this.getTrack();
-    if (!track) return;
-    try {
-      if (!this.ctx) this.ctx = new AudioContext();
-      if (this.ctx.state === "suspended") void this.ctx.resume().catch(() => undefined);
-      if (this.sourceTrack !== track) {
-        this.source?.disconnect();
-        this.source = this.ctx.createMediaStreamSource(new MediaStream([track]));
-        this.analyser = this.ctx.createAnalyser();
-        this.analyser.fftSize = 1024;
-        this.source.connect(this.analyser);
-        this.sourceTrack = track;
-      }
-      const buf = new Float32Array(this.analyser!.fftSize);
-      this.analyser!.getFloatTimeDomainData(buf);
-      let sum = 0;
-      for (const v of buf) sum += v * v;
-      if (Math.sqrt(sum / buf.length) > SILENCE_RMS) this.voicedAt = performance.now();
-    } catch {
-      this.voicedAt = performance.now();
-    }
-  }
-
-  private startWindow() {
+  /** Follows the microphone track (muted, switched device, unpublished). */
+  private check() {
     if (this.stopped) return;
     const track = this.getTrack();
-    const mime = pickMime();
-    if (!track || track.readyState !== "live" || !track.enabled || !mime) return;
-    let mr: MediaRecorder;
-    try {
-      mr = new MediaRecorder(new MediaStream([track]), { mimeType: mime, audioBitsPerSecond: 32_000 });
-    } catch {
+    if (!track || track.readyState !== "live" || !track.enabled || !this.mime) {
+      if (this.track) this.unbind();
       return;
     }
-    const startedAt = performance.now();
-    const parts: Blob[] = [];
-    mr.ondataavailable = (e) => {
-      if (e.data.size) parts.push(e.data);
-    };
-    mr.onstop = () => {
-      this.active.delete(mr);
-      const durationMs = Math.round(performance.now() - startedAt);
-      const voiced = this.voicedAt >= startedAt;
-      if (this.stopped || !voiced || durationMs < 1000) return;
-      const blob = new Blob(parts, { type: (mr.mimeType || mime).split(";")[0] });
-      if (blob.size > 0 && blob.size <= VOICE_MAX_BYTES) this.onWindow(blob, blob.type, durationMs);
-    };
-    try {
-      mr.start();
-    } catch {
-      return;
+    if (track !== this.track) {
+      this.unbind();
+      void this.bind(track);
     }
-    this.active.add(mr);
-    setTimeout(() => {
-      if (mr.state !== "inactive") {
-        try {
-          mr.stop();
-        } catch {
-          // already stopped
-        }
+    if (this.ctx?.state === "suspended") void this.ctx.resume().catch(() => undefined);
+  }
+
+  private loadWorklet(ctx: AudioContext): Promise<boolean> {
+    return (this.workletLoad ??= (async () => {
+      if (!ctx.audioWorklet || typeof AudioWorkletNode === "undefined") return false;
+      const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
+      try {
+        await ctx.audioWorklet.addModule(url);
+        return true;
+      } catch {
+        return false;
+      } finally {
+        URL.revokeObjectURL(url);
       }
-    }, VOICE_WINDOW_MS);
+    })());
+  }
+
+  private async bind(track: MediaStreamTrack) {
+    this.track = track;
+    this.boundAt = performance.now();
+    this.floor = VAD.floorInit;
+    this.onsetRun = 0;
+    try {
+      const ctx = (this.ctx ??= new AudioContext());
+      const worklet = await this.loadWorklet(ctx);
+      if (this.stopped || this.track !== track) return;
+      const source = ctx.createMediaStreamSource(new MediaStream([track]));
+      if (worklet) {
+        const node = new AudioWorkletNode(ctx, "zw-vad-rms", { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
+        // A silent path to the destination keeps the graph pulled in every browser.
+        const sink = ctx.createGain();
+        sink.gain.value = 0;
+        source.connect(node);
+        node.connect(sink);
+        sink.connect(ctx.destination);
+        const frameMs = (Math.max(1, Math.round(ctx.sampleRate * (VAD.frameMs / 1000))) / ctx.sampleRate) * 1000;
+        node.port.onmessage = (e: MessageEvent<number>) => this.onFrame(e.data, frameMs);
+        this.nodes = [source, node, sink];
+      } else {
+        // Fallback: AnalyserNode sampled by a timer (may be throttled in background tabs).
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 1024;
+        source.connect(analyser);
+        this.nodes = [source, analyser];
+        const buf = new Float32Array(analyser.fftSize);
+        let last = performance.now();
+        this.fallbackTimer = setInterval(() => {
+          analyser.getFloatTimeDomainData(buf);
+          let sum = 0;
+          for (const v of buf) sum += v * v;
+          const now = performance.now();
+          this.onFrame(Math.sqrt(sum / buf.length), Math.min(1000, now - last));
+          last = now;
+        }, VAD.frameMs);
+      }
+      if (ctx.state === "suspended") void ctx.resume().catch(() => undefined);
+    } catch {
+      // No Web Audio: nothing is captured (never upload blind).
+    }
+  }
+
+  private unbind() {
+    if (this.clip) this.endClip(performance.now());
+    for (const r of this.armed) this.discard(r);
+    this.armed = [];
+    if (this.fallbackTimer) clearInterval(this.fallbackTimer);
+    this.fallbackTimer = null;
+    for (const n of this.nodes) {
+      if (n instanceof AudioWorkletNode) n.port.onmessage = null;
+      try {
+        n.disconnect();
+      } catch {
+        // already disconnected
+      }
+    }
+    this.nodes = [];
+    this.track = null;
+  }
+
+  private startRecorder(now: number): Rec | null {
+    const track = this.track;
+    if (!track || track.readyState !== "live" || !this.mime) return null;
+    try {
+      const mr = new MediaRecorder(new MediaStream([track]), { mimeType: this.mime, audioBitsPerSecond: 32_000 });
+      const rec: Rec = { mr, startedAt: now, parts: [], mime: this.mime };
+      mr.ondataavailable = (e) => {
+        if (e.data.size) rec.parts.push(e.data);
+      };
+      mr.start();
+      return rec;
+    } catch {
+      return null;
+    }
+  }
+
+  private discard(r: Rec) {
+    r.mr.ondataavailable = null;
+    r.mr.onstop = null;
+    r.parts.length = 0;
+    if (r.mr.state !== "inactive") {
+      try {
+        r.mr.stop();
+      } catch {
+        // already stopped
+      }
+    }
+  }
+
+  /** Keeps armed[0] between preRollMs and preRollMs + armRotateMs old, with at most two recorders live. */
+  private maintainArmed(now: number) {
+    const newest = this.armed[this.armed.length - 1];
+    if (!newest || now - newest.startedAt >= VAD.armRotateMs) {
+      const r = this.startRecorder(now);
+      if (r) this.armed.push(r);
+    }
+    while (this.armed.length > 1 && now - this.armed[1].startedAt >= VAD.preRollMs) this.discard(this.armed.shift()!);
+  }
+
+  private onFrame(rms: number, dt: number) {
+    if (this.stopped || !this.track) return;
+    const now = performance.now();
+    const warm = now - this.boundAt < VAD.warmupMs;
+    const tau = rms < this.floor || warm ? VAD.floorFallMs : this.clip ? VAD.floorRiseSpeechMs : VAD.floorRiseIdleMs;
+    this.floor = Math.max(VAD.floorMin, this.floor + (rms - this.floor) * (1 - Math.exp(-dt / tau)));
+    const onset = Math.max(this.floor * VAD.onsetRatio, VAD.minRms);
+    const release = Math.max(this.floor * VAD.releaseRatio, VAD.minRms * 0.6);
+
+    if (!this.clip) {
+      this.maintainArmed(now);
+      if (warm) return;
+      this.onsetRun = rms > onset ? this.onsetRun + dt : 0;
+      if (this.onsetRun >= VAD.onsetMs) this.startClip(now);
+      return;
+    }
+    const c = this.clip;
+    if (rms > release) {
+      c.voicedMs += dt;
+      c.silenceMs = 0;
+    } else c.silenceMs += dt;
+    if (c.silenceMs >= VAD.hangoverMs || now - c.rec.startedAt >= VAD.maxClipMs) this.endClip(now);
+  }
+
+  private startClip(now: number) {
+    // The oldest armed recorder holds the pre-roll; the others aren't needed.
+    const rec = this.armed.shift() ?? this.startRecorder(now);
+    for (const r of this.armed) this.discard(r);
+    this.armed = [];
+    const voicedMs = this.onsetRun;
+    this.onsetRun = 0;
+    if (!rec) return;
+    this.clip = { rec, voicedMs, silenceMs: 0 };
+    this.onSpeaking(true);
+  }
+
+  private endClip(now: number) {
+    const c = this.clip;
+    if (!c) return;
+    this.clip = null;
+    this.onSpeaking(false);
+    const { rec } = c;
+    if (this.stopped || c.voicedMs < VAD.minSpeechMs) return this.discard(rec);
+    const durationMs = Math.round(now - rec.startedAt);
+    rec.mr.onstop = () => {
+      const type = (rec.mr.mimeType || rec.mime).split(";")[0];
+      const blob = new Blob(rec.parts, { type });
+      rec.parts.length = 0;
+      if (!this.stopped && blob.size > 0 && blob.size <= VOICE_MAX_BYTES) this.onClip(blob, type, durationMs);
+    };
+    try {
+      rec.mr.stop();
+    } catch {
+      this.discard(rec);
+    }
   }
 
   stop() {
     this.stopped = true;
-    if (this.timer) clearInterval(this.timer);
-    if (this.levelTimer) clearInterval(this.levelTimer);
-    for (const mr of this.active) {
-      try {
-        mr.stop();
-      } catch {
-        // ignore
-      }
+    clearInterval(this.checkTimer);
+    if (this.clip) {
+      this.discard(this.clip.rec);
+      this.clip = null;
     }
-    this.active.clear();
-    this.source?.disconnect();
+    this.unbind();
     void this.ctx?.close().catch(() => undefined);
   }
 }
 
 export function voiceSupported(): boolean {
-  return typeof window !== "undefined" && !!pickMime() && !!navigator.mediaDevices;
+  return typeof window !== "undefined" && !!pickMime() && !!navigator.mediaDevices && typeof AudioContext !== "undefined";
 }
 
 function readPref(): boolean {
@@ -163,12 +332,20 @@ function readPref(): boolean {
   }
 }
 
+/** How long the last transcription stays visible as "Heard: …". */
+const HEARD_VISIBLE_MS = 15_000;
+
 export function useClaudeCommands(room: Room, roomName: string, opts: { panelOpen: boolean; notify: (n: ClaudeNotice) => void }) {
   const [enabled, setEnabledState] = useState(false);
   const [data, setData] = useState<CommandsResponse | null>(null);
   const [problem, setProblem] = useState<VoiceProblem>(null);
-  const [heardAt, setHeardAt] = useState(0);
-  const [capturing, setCapturing] = useState(false);
+  /** The VAD is inside an utterance right now. */
+  const [speaking, setSpeaking] = useState(false);
+  /** Clips uploaded and not answered yet (one transcribing, the rest queued on the server). */
+  const [transcribing, setTranscribing] = useState(0);
+  const [heard, setHeard] = useState<{ text: string; at: number } | null>(null);
+  /** Voice commands just accepted, shown as "Claude is processing…" until the bridge picks them up. */
+  const [accepted, setAccepted] = useState<ReadonlySet<string>>(new Set());
   const notifyRef = useRef(opts.notify);
   notifyRef.current = opts.notify;
   const seen = useRef(new Map<string, CommandView["status"]>());
@@ -201,6 +378,12 @@ export function useClaudeCommands(room: Room, roomName: string, opts: { panelOpe
       }
       first.current = false;
       setData(next);
+      // The real status takes over once the command left the queue (or is gone).
+      setAccepted((prev) => {
+        if (!prev.size) return prev;
+        const still = new Set([...prev].filter((id) => next.commands.some((c) => c.id === id && c.status === "queued" && !c.progress)));
+        return still.size === prev.size ? prev : still;
+      });
     } catch {
       // offline: next poll
     }
@@ -221,7 +404,8 @@ export function useClaudeCommands(room: Room, roomName: string, opts: { panelOpe
       form.set("mime", mime);
       form.set("duration", String(durationMs));
       form.set("timeZone", timeZone());
-      form.set("file", blob, "window");
+      form.set("file", blob, "clip");
+      setTranscribing((n) => n + 1);
       try {
         const res = await fetch("/api/meet/voice", { method: "POST", body: form });
         if (res.status === 412) {
@@ -234,18 +418,26 @@ export function useClaudeCommands(room: Room, roomName: string, opts: { panelOpe
           setEnabledState(false);
           return notifyRef.current({ kind: "notConfigured" });
         }
+        // 429: superseded by newer clips (the server keeps the newest speech) or rate limited.
         if (!res.ok || res.redirected) return;
         const body = (await res.json()) as VoiceResponse;
-        if (body.heard) setHeardAt(Date.now());
-        setCapturing(!!body.capturing);
+        if (body.heard) setHeard({ text: body.heard.slice(0, 200), at: Date.now() });
         if (body.action) notifyRef.current({ kind: body.action });
-        if (body.command) {
-          if (!seen.current.has(body.command.id)) notifyRef.current({ kind: "queued", command: body.command });
-          seen.current.set(body.command.id, body.command.status);
+        const command = body.command;
+        if (command) {
+          if (!seen.current.has(command.id)) notifyRef.current({ kind: "queued", command });
+          seen.current.set(command.id, command.status);
+          // Optimistic: show it right away, before the next poll.
+          if (command.status === "queued") setAccepted((prev) => new Set(prev).add(command.id));
+          setData((prev) =>
+            prev && !prev.commands.some((c) => c.id === command.id) ? { ...prev, commands: [command, ...prev.commands] } : prev,
+          );
         }
-        if (body.command || body.action) void refresh();
+        if (command || body.action) void refresh();
       } catch {
-        // dropped window: the next one follows in a few seconds
+        // dropped clip (offline): nothing to retry, the speaker can repeat
+      } finally {
+        setTranscribing((n) => Math.max(0, n - 1));
       }
     },
     [roomName, refresh],
@@ -260,14 +452,18 @@ export function useClaudeCommands(room: Room, roomName: string, opts: { panelOpe
       notifyRef.current({ kind: "unsupported" });
       return;
     }
-    const capture = new VoiceCapture(() => {
-      const lp = room.localParticipant;
-      if (!lp.isMicrophoneEnabled) return null;
-      return lp.getTrackPublication(Track.Source.Microphone)?.track?.mediaStreamTrack ?? null;
-    }, (blob, mime, ms) => void upload(blob, mime, ms));
+    const capture = new VoiceCapture(
+      () => {
+        const lp = room.localParticipant;
+        if (!lp.isMicrophoneEnabled) return null;
+        return lp.getTrackPublication(Track.Source.Microphone)?.track?.mediaStreamTrack ?? null;
+      },
+      (blob, mime, ms) => void upload(blob, mime, ms),
+      setSpeaking,
+    );
     return () => {
       capture.stop();
-      setCapturing(false);
+      setSpeaking(false);
     };
   }, [enabled, room, upload]);
 
@@ -336,14 +532,25 @@ export function useClaudeCommands(room: Room, roomName: string, opts: { panelOpe
     [post],
   );
 
-  // "Listening" indicator: something was heard in the last few seconds.
-  const [, tick] = useState(0);
+  // "Heard: …" fades out after a while.
   useEffect(() => {
-    if (!enabled) return;
-    const id = setInterval(() => tick((n) => n + 1), 1000);
-    return () => clearInterval(id);
-  }, [enabled]);
-  const hearing = enabled && Date.now() - heardAt < 7000;
+    if (!heard) return;
+    const id = setTimeout(() => setHeard(null), Math.max(0, heard.at + HEARD_VISIBLE_MS - Date.now()));
+    return () => clearTimeout(id);
+  }, [heard]);
 
-  return { enabled, setEnabled, data, problem, hearing, capturing, ask, decide, cancel, share };
+  return {
+    enabled,
+    setEnabled,
+    data,
+    problem,
+    speaking: enabled && speaking,
+    transcribing,
+    heard: heard?.text ?? null,
+    accepted,
+    ask,
+    decide,
+    cancel,
+    share,
+  };
 }

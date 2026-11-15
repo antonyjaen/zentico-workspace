@@ -1,6 +1,6 @@
-// "Claude, …" detection in short transcribed windows of one user's own microphone. Server-only,
-// pure functions plus a small per-user in-memory state (rate limit and a command that continues
-// into the next window). Single instance.
+// "Claude, …" detection in transcribed utterances of one user's own microphone. Server-only:
+// pure functions plus small in-memory state (per-user rate limit and the transcription queue).
+// Single instance.
 import type { TranscriptSegment } from "@/app/(apps)/meet/recording";
 
 /** Wake phrase at the start of an utterance (English/Spanish, common Whisper misspellings). */
@@ -23,7 +23,7 @@ function units(segments: TranscriptSegment[]): string[] {
   );
 }
 
-/** The command after the first wake phrase in the window, or null. */
+/** The command after the first wake phrase in the utterance, or null. */
 export function findCommand(segments: TranscriptSegment[]): string | null {
   const list = units(segments);
   for (let i = 0; i < list.length; i++) {
@@ -51,62 +51,101 @@ export function controlOf(rest: string): "confirm" | "cancel" | null {
   return null;
 }
 
-/**
- * Joins the text of two consecutive windows that overlap by ~1 s: the longest run of words that
- * ends `prev` and starts `next` (up to 8 words) is kept once.
- */
-export function mergeOverlap(prev: string, next: string): string {
-  const a = prev.trim().split(/\s+/).filter(Boolean);
-  const b = next.trim().split(/\s+/).filter(Boolean);
-  if (!a.length) return b.join(" ");
-  if (!b.length) return a.join(" ");
-  const key = (w: string) => fold(w).replace(/[^\p{L}\p{N}]/gu, "");
-  for (let k = Math.min(8, a.length, b.length); k >= 1; k--) {
-    let same = true;
-    for (let i = 0; i < k && same; i++) same = key(a[a.length - k + i]) === key(b[i]);
-    if (same && a.slice(a.length - k).some((w) => key(w))) return [...a, ...b.slice(k)].join(" ");
-  }
-  return [...a, ...b].join(" ");
-}
-
-/** True when speech runs into the end of the window, i.e. the command probably continues. */
-export function speechReachesEnd(segments: TranscriptSegment[], durationSeconds: number): boolean {
-  const last = segments[segments.length - 1];
-  return !!last && durationSeconds > 0 && last.end >= durationSeconds - 0.8;
-}
-
 /* ------------------------------------------------------------- user state */
 
-export type PendingCapture = {
-  room: string;
-  text: string;
-  windows: number;
-  timeZone: string | null;
-  timer: ReturnType<typeof setTimeout>;
+type VoiceState = { lastClip: number };
+
+const g = globalThis as typeof globalThis & {
+  __zwVoiceState?: Map<string, VoiceState>;
+  __zwVoiceQueue?: { running: Set<string>; waiting: Waiter[] };
 };
-
-type VoiceState = { lastWindow: number; pending: PendingCapture | null };
-
-const g = globalThis as typeof globalThis & { __zwVoiceState?: Map<string, VoiceState> };
 const states = (g.__zwVoiceState ??= new Map());
 
-export function voiceState(email: string): VoiceState {
+function voiceState(email: string): VoiceState {
   const key = email.toLowerCase();
   let st = states.get(key);
   if (!st) {
     if (states.size > 5000) states.clear();
-    st = { lastWindow: 0, pending: null };
+    st = { lastClip: 0 };
     states.set(key, st);
   }
   return st;
 }
 
-/** ≤ 1 window per `minIntervalMs` per user. Returns false when over the limit. */
-export function takeWindowSlot(email: string, minIntervalMs: number): boolean {
+/** ≤ 1 clip per `minIntervalMs` per user. Returns false when over the limit. */
+export function takeClipSlot(email: string, minIntervalMs: number): boolean {
   const st = voiceState(email);
   const now = Date.now();
   // Small tolerance for timer jitter in the browser.
-  if (now - st.lastWindow < minIntervalMs - 250) return false;
-  st.lastWindow = now;
+  if (now - st.lastClip < minIntervalMs - 250) return false;
+  st.lastClip = now;
   return true;
+}
+
+/* ------------------------------------------------------------- clip queue */
+// Whisper on CPU is slow (~20 s per clip whatever its length) and keeps working on requests we
+// abandon, so clips are queued instead of dropped: each user's clips are transcribed one at a
+// time in order (a later "Claude, confirm" never overtakes the command it confirms), and at most
+// MAX_CONCURRENT clips are transcribed at once across users (others wait, in arrival order).
+// A user has at most MAX_WAITING clips waiting; one more drops their OLDEST waiting clip, so the
+// newest speech wins.
+
+const MAX_CONCURRENT = 2;
+const MAX_WAITING = 4;
+
+type Waiter = { user: string; admit: (ok: boolean) => void };
+
+const queue = (g.__zwVoiceQueue ??= { running: new Set<string>(), waiting: [] });
+
+function pump() {
+  for (let i = 0; i < queue.waiting.length && queue.running.size < MAX_CONCURRENT; ) {
+    const w = queue.waiting[i];
+    if (queue.running.has(w.user)) {
+      i++;
+      continue;
+    }
+    queue.waiting.splice(i, 1);
+    queue.running.add(w.user);
+    w.admit(true);
+  }
+}
+
+function remove(w: Waiter): boolean {
+  const i = queue.waiting.indexOf(w);
+  if (i < 0) return false;
+  queue.waiting.splice(i, 1);
+  return true;
+}
+
+/**
+ * Waits for this user's turn to transcribe a clip. Resolves to a `release` function (call it
+ * exactly once when done), or null when the clip was superseded by newer ones or the client left.
+ */
+export function enterClipQueue(email: string, signal?: AbortSignal): Promise<(() => void) | null> {
+  const user = email.toLowerCase();
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve(null);
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      queue.running.delete(user);
+      pump();
+    };
+    const onAbort = () => {
+      if (remove(w)) w.admit(false);
+    };
+    const w: Waiter = {
+      user,
+      admit: (ok) => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve(ok ? release : null);
+      },
+    };
+    const mine = queue.waiting.filter((x) => x.user === user);
+    if (mine.length >= MAX_WAITING && remove(mine[0])) mine[0].admit(false);
+    queue.waiting.push(w);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    pump();
+  });
 }

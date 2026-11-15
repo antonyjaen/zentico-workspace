@@ -45,20 +45,19 @@ export type CommandsResponse = {
 
 export type VoiceResponse = {
   ok: true;
-  /** What was heard in the window (for the "listening" indicator; not stored on the client). */
+  /** What was heard in the clip (shown to the speaker only; not stored on the client). */
   heard: string;
   command?: CommandView;
-  /** The command continues in the next window. */
-  capturing?: boolean;
   /** "Claude confirm" / "Claude cancel" handled. */
   action?: "approved" | "rejected" | "cancelled";
 };
 
-/** Rolling capture windows of the local microphone. */
-export const VOICE_WINDOW_MS = 6000;
-export const VOICE_OVERLAP_MS = 1000;
-export const VOICE_MAX_BYTES = 1024 * 1024;
-export const VOICE_MIN_INTERVAL_MS = 2000;
+/** One clip = one utterance of the local microphone (voice activity detection in the browser). */
+export const VOICE_MAX_CLIP_MS = 20_000;
+/** ~32 kbit/s Opus for 20 s is ~80 KB; headroom for browsers that ignore the requested bitrate. */
+export const VOICE_MAX_BYTES = 2 * 1024 * 1024;
+/** A clip needs ≥ 600 ms of speech + 900 ms of trailing silence, so real clips are ≥ 1.5 s apart. */
+export const VOICE_MIN_INTERVAL_MS = 1000;
 export const COMMAND_MAX_CHARS = 2000;
 /** How long a write tool waits for Approve / Reject. */
 export const CONFIRM_TIMEOUT_MS = 120_000;
