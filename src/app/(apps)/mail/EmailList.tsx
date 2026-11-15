@@ -1,8 +1,9 @@
 import { getLocale, getTranslations } from "next-intl/server";
 import { cookies } from "next/headers";
 import type { Mailbox, ThreadSummary } from "@/lib/mail";
+import type { Label } from "@/lib/mail-labels";
 import { DENSITY_COOKIE, parseDensity } from "./listShared";
-import { MailListClient, type MailRow } from "./MailListClient";
+import { MailListClient, type ListView, type MailRow } from "./MailListClient";
 
 export const PAGE_SIZE = 50;
 
@@ -25,15 +26,29 @@ export async function EmailList({
   emptyText,
   mailboxId,
   mailboxes,
+  labels = [],
+  view = "mailbox",
+  account,
+  accountNames,
+  title,
 }: {
   emails: ThreadSummary[];
   total: number;
   page: number;
   basePath: string;
   emptyText: string;
-  /** The listed mailbox id, or "search". */
+  /** The listed mailbox id, or a virtual list id ("search", "label:<id>", "unified"). */
   mailboxId: string;
+  /** Folders of the listed account (move targets, role detection). */
   mailboxes: Mailbox[];
+  labels?: Label[];
+  view?: ListView;
+  /** Shared (non-primary) account the list belongs to. */
+  account?: string;
+  /** Account id -> display name, for rows of the unified inbox. */
+  accountNames?: Record<string, string>;
+  /** Heading shown above the list (labels, shared inboxes, unified inbox). */
+  title?: string;
 }) {
   const t = await getTranslations("mail");
   const locale = await getLocale();
@@ -45,10 +60,15 @@ export async function EmailList({
   const draftsId = mailboxes.find((m) => m.role === "drafts")?.id;
   const full = new Intl.DateTimeFormat(locale, { dateStyle: "full", timeStyle: "short" });
 
+  // Rows from another (shared) account carry its id so actions and links target that account.
+  const shared = (e: ThreadSummary) => !!account || !!accountNames?.[e.accountId];
   const rows: MailRow[] = emails.map((e) => {
     const sender = e.from?.[0];
     return {
-      key: e.threadId,
+      key: shared(e) ? `${e.accountId}:${e.threadId}` : e.threadId,
+      accountId: shared(e) ? e.accountId : undefined,
+      accountName: accountNames?.[e.accountId],
+      labels: e.labels,
       emailId: e.id,
       threadId: e.threadId,
       emailIds: e.emailIds,
@@ -71,6 +91,10 @@ export async function EmailList({
     <MailListClient
       rows={rows}
       mailboxId={mailboxId}
+      view={view}
+      labels={labels}
+      account={account}
+      title={title}
       role={mailboxes.find((m) => m.id === mailboxId)?.role ?? null}
       mailboxes={mailboxes.map(({ id, name, role, parentId }) => ({ id, name, role, parentId }))}
       currentPath={pageHref(page)}

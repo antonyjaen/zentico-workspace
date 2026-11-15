@@ -85,6 +85,7 @@
       "toggle": "Expand or collapse message",
       "toggleAll": "Expand or collapse all",
       "compose": "New message"
-    }
+    },
+    "filterLike": "Filter messages like this"
   }
 }

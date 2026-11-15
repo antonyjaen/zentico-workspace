@@ -24,7 +24,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useOptimistic, useRef, useState, useTransition } from "react";
 import { usePopover } from "@/components/usePopover";
-import { destroyEmails, moveTo, moveToRole, setFlagged, setSeen } from "./actions";
+import type { Label } from "@/lib/mail-labels";
+import { destroyEmails, moveTo, moveToRole, setFlagged, setLabel, setSeen } from "./actions";
 import { composeHref, threadHref } from "./hrefs";
 import {
   DENSITY_COOKIE,
@@ -36,6 +37,7 @@ import {
   type MailboxLite,
   type MailboxRole,
 } from "./listShared";
+import { LabelChip, LabelPicker } from "./LabelPicker";
 import { MailLive } from "./MailLive";
 import { useShortcuts } from "./useShortcuts";
 
@@ -57,15 +59,30 @@ export type MailRow = {
   threadSize: number;
   unread: boolean;
   flagged: boolean;
+  /** Label ids on the conversation. */
+  labels: string[];
+  /** Shared account the conversation belongs to (undefined: the user's own account). */
+  accountId?: string;
+  accountName?: string;
 };
+
+/** What the list shows: a folder, search results, a label, or the unified inbox. */
+export type ListView = "mailbox" | "search" | "label" | "unified";
 
 type Op =
   | { type: "remove"; keys: string[] }
-  | { type: "patch"; keys: string[]; unread?: boolean; flagged?: boolean };
+  | { type: "patch"; keys: string[]; unread?: boolean; flagged?: boolean }
+  | { type: "label"; keys: string[]; id: string; on: boolean };
 
 function reduce(rows: MailRow[], op: Op): MailRow[] {
   const keys = new Set(op.keys);
   if (op.type === "remove") return rows.filter((r) => !keys.has(r.key));
+  if (op.type === "label")
+    return rows.map((r) =>
+      keys.has(r.key)
+        ? { ...r, labels: op.on ? [...new Set([...r.labels, op.id])] : r.labels.filter((l) => l !== op.id) }
+        : r,
+    );
   return rows.map((r) =>
     keys.has(r.key)
       ? { ...r, unread: op.unread ?? r.unread, flagged: op.flagged ?? r.flagged }
@@ -73,11 +90,26 @@ function reduce(rows: MailRow[], op: Op): MailRow[] {
   );
 }
 
-type Kind = "archive" | "delete" | "spam" | "notSpam" | "read" | "unread" | "star" | "unstar" | "move";
+type Kind =
+  | "archive"
+  | "delete"
+  | "spam"
+  | "notSpam"
+  | "read"
+  | "unread"
+  | "star"
+  | "unstar"
+  | "move"
+  | "label"
+  | "unlabel";
 
 export function MailListClient({
   rows: serverRows,
   mailboxId,
+  view = "mailbox",
+  labels = [],
+  account,
+  title,
   role,
   mailboxes,
   currentPath,
@@ -88,8 +120,13 @@ export function MailListClient({
   initialDensity,
 }: {
   rows: MailRow[];
-  /** Mailbox id, or "search". */
+  /** Mailbox id, or a virtual list id ("search", "label:<id>", "unified"). */
   mailboxId: string;
+  view?: ListView;
+  labels?: Label[];
+  /** Shared account the whole list belongs to. */
+  account?: string;
+  title?: string;
   role: MailboxRole;
   mailboxes: MailboxLite[];
   currentPath: string;
@@ -111,15 +148,26 @@ export function MailListClient({
   const [error, setError] = useState<string | null>(null);
   const help = useRef<HTMLDialogElement>(null);
 
-  const isSearch = mailboxId === "search";
+  // Search and label views span folders, so a moved conversation still matches: keep it shown.
+  const spansFolders = view === "search" || view === "label";
+  const viewedLabel = view === "label" ? mailboxId.slice("label:".length) : null;
+  const labelById = useMemo(() => new Map(labels.map((l) => [l.id, l])), [labels]);
   const trashLike = role === "trash" || role === "junk";
   const selectedKeys = useMemo(() => rows.filter((r) => selected.has(r.key)).map((r) => r.key), [rows, selected]);
   const focusedIndex = rows.findIndex((r) => r.key === focusedKey);
   const focused = focusedIndex >= 0 ? rows[focusedIndex] : null;
 
   const folderLabel = (m: MailboxLite) => (m.role && tm.has(`folders.${m.role}`) ? tm(`folders.${m.role}`) : m.name);
-  const rowHref = (r: MailRow) =>
-    r.isDraft ? composeHref(currentPath, "draft", r.emailId) : threadHref(mailboxId, r.threadId);
+  const rowHref = (r: MailRow) => {
+    if (r.isDraft && !r.accountId) return composeHref(currentPath, "draft", r.emailId);
+    const href = threadHref(view === "mailbox" ? mailboxId : "search", r.threadId);
+    return r.accountId ? `${href}?account=${encodeURIComponent(r.accountId)}` : href;
+  };
+  const labelState = (id: string): "all" | "some" | "none" => {
+    const sel = rows.filter((r) => selected.has(r.key));
+    const n = sel.filter((r) => r.labels.includes(id)).length;
+    return n === 0 ? "none" : n === sel.length ? "all" : "some";
+  };
 
   useEffect(() => {
     if (!error) return;
@@ -135,49 +183,59 @@ export function MailListClient({
   function act(kind: Kind, keys: string[], target?: string) {
     const targets = rows.filter((r) => keys.includes(r.key));
     if (!targets.length) return;
-    const ids = targets.flatMap((r) => r.emailIds);
     keys = targets.map((r) => r.key);
+    // Rows can come from several accounts (unified inbox): one call per account.
+    const groups = new Map<string | undefined, string[]>();
+    for (const r of targets) groups.set(r.accountId, [...(groups.get(r.accountId) ?? []), ...r.emailIds]);
     const remove: Op = { type: "remove", keys };
     let op: Op;
-    let call: () => Promise<void>;
+    let each: (ids: string[], account?: string) => Promise<void>;
     switch (kind) {
       case "archive":
         op = remove;
-        call = () => moveToRole(ids, "archive");
+        each = (ids, acc) => moveToRole(ids, "archive", acc);
         break;
       case "delete":
         op = remove;
         if (trashLike) {
           if (!window.confirm(t("confirmDestroy", { count: keys.length }))) return;
-          call = () => destroyEmails(ids);
-        } else call = () => moveToRole(ids, "trash");
+          each = (ids, acc) => destroyEmails(ids, acc);
+        } else each = (ids, acc) => moveToRole(ids, "trash", acc);
         break;
       case "spam":
         op = remove;
-        call = () => moveToRole(ids, "junk");
+        each = (ids, acc) => moveToRole(ids, "junk", acc);
         break;
       case "notSpam":
         op = remove;
-        call = () => moveToRole(ids, "inbox");
+        each = (ids, acc) => moveToRole(ids, "inbox", acc);
         break;
       case "move":
         if (!target || target === mailboxId) return;
         op = remove;
-        call = () => moveTo(ids, target);
+        each = (ids, acc) => moveTo(ids, target, acc);
         break;
       case "read":
       case "unread":
         op = { type: "patch", keys, unread: kind === "unread" };
-        call = () => setSeen(ids, kind === "read");
+        each = (ids, acc) => setSeen(ids, kind === "read", acc);
         break;
       case "star":
       case "unstar":
         op = { type: "patch", keys, flagged: kind === "star" };
-        call = () => setFlagged(ids, kind === "star");
+        each = (ids, acc) => setFlagged(ids, kind === "star", acc);
+        break;
+      case "label":
+      case "unlabel":
+        if (!target) return;
+        op = kind === "unlabel" && target === viewedLabel ? remove : { type: "label", keys, id: target, on: kind === "label" };
+        each = (ids, acc) => setLabel(ids, target, kind === "label", acc);
         break;
     }
-    // Search spans every folder, so a moved conversation still matches: don't hide it.
-    if (op.type === "remove" && isSearch && kind !== "delete") op = { type: "patch", keys };
+    const call = async () => {
+      for (const [acc, ids] of groups) await each(ids, acc);
+    };
+    if (op.type === "remove" && spansFolders && kind !== "delete" && kind !== "unlabel") op = { type: "patch", keys };
 
     if (op.type === "remove") {
       const gone = new Set(keys);
@@ -367,11 +425,20 @@ export function MailListClient({
             >
               <Star size={17} aria-hidden />
             </ToolButton>
-            <MovePicker
-              mailboxes={mailboxes.filter((m) => m.id !== mailboxId)}
-              label={folderLabel}
-              onPick={(id) => act("move", selectedKeys, id)}
-            />
+            {!account && (
+              <LabelPicker
+                labels={labels}
+                stateOf={labelState}
+                onToggle={(id, on) => act(on ? "label" : "unlabel", selectedKeys, id)}
+              />
+            )}
+            {view !== "unified" && (
+              <MovePicker
+                mailboxes={mailboxes.filter((m) => m.id !== mailboxId)}
+                label={folderLabel}
+                onPick={(id) => act("move", selectedKeys, id)}
+              />
+            )}
             <button
               type="button"
               className="icon-btn ml-auto h-9 w-9"
@@ -412,6 +479,7 @@ export function MailListClient({
               <Keyboard size={17} aria-hidden />
             </button>
             <MailLive pending={pending} />
+            {title && <h1 className="ml-2 min-w-0 truncate text-[14px] font-medium text-ink">{title}</h1>}
             {error && (
               <span role="alert" className="ml-2 truncate text-[13px] text-danger">
                 {error}
@@ -452,6 +520,10 @@ export function MailListClient({
               dragKeys={() => (selected.has(r.key) ? selectedKeys : [r.key])}
               archiveable={role !== "archive"}
               trashLike={trashLike}
+              labels={r.labels
+                .filter((id) => id !== viewedLabel)
+                .map((id) => labelById.get(id))
+                .filter((l): l is Label => !!l)}
             />
           ))}
         </ul>
@@ -636,6 +708,7 @@ function Row({
   dragKeys,
   archiveable,
   trashLike,
+  labels,
 }: {
   row: MailRow;
   index: number;
@@ -649,6 +722,7 @@ function Row({
   dragKeys: () => string[];
   archiveable: boolean;
   trashLike: boolean;
+  labels: Label[];
 }) {
   const t = useTranslations("mailActions");
   const tm = useTranslations("mail");
@@ -706,6 +780,22 @@ function Row({
           )}
           {r.isDraft && <span className="text-[12px] font-normal text-danger">{t("draft")}</span>}
         </span>
+        {r.accountName && (
+          <span
+            className="hidden max-w-[140px] shrink-0 truncate rounded-md bg-primary-soft px-1.5 font-mono text-[11px] leading-[20px] text-ink-soft md:inline"
+            title={r.accountName}
+          >
+            {r.accountName}
+          </span>
+        )}
+        {labels.length > 0 && (
+          <span className="-mr-2 hidden shrink-0 items-center gap-1 md:flex">
+            {labels.slice(0, 3).map((l) => (
+              <LabelChip key={l.id} label={l} />
+            ))}
+            {labels.length > 3 && <span className="font-mono text-[11px] text-ink-mute">+{labels.length - 3}</span>}
+          </span>
+        )}
         <span className="min-w-0 flex-1 truncate">
           <span className={strong}>{r.subject || tm("noSubject")}</span>
           {r.preview && <span className="text-ink-mute"> — {r.preview}</span>}

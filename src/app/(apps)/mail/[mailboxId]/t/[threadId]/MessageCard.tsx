@@ -7,6 +7,7 @@ import {
   Ellipsis,
   EllipsisVertical,
   Forward,
+  ListFilter,
   Lock,
   MailOpen,
   Paperclip,
@@ -403,6 +404,14 @@ function MessageMenu({
           <MenuLink icon={Forward} label={t("forward")} href={composeHref(currentPath, "forward", m.id)} onClick={() => setOpen(false)} />
           <hr className="my-1.5 border-line" />
           <MenuButton icon={MailOpen} label={t("markUnreadFromHere")} onClick={() => pick("markUnreadFromHere")} />
+          {m.from[0]?.email && (
+            <MenuLink
+              icon={ListFilter}
+              label={t("filterLike")}
+              href={`/mail/settings?tab=filters&from=${encodeURIComponent(m.from[0].email)}`}
+              onClick={() => setOpen(false)}
+            />
+          )}
           <MenuButton icon={Trash2} label={inTrash ? t("deleteMessageForever") : t("deleteMessage")} onClick={() => pick("delete")} danger />
           {m.emlHref && (
             <>

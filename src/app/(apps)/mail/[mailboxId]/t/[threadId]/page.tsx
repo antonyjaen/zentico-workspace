@@ -3,7 +3,10 @@ import { notFound, unstable_rethrow } from "next/navigation";
 import { threadHref } from "../../../hrefs";
 import { ThreadView } from "./ThreadClient";
 import { getSession } from "@/lib/auth";
-import { getMailboxes, type Mailbox } from "@/lib/mail";
+import { CAP, primaryAccount } from "@/lib/jmap";
+import { getMailboxes, resolveAccount, type Mailbox } from "@/lib/mail";
+import type { Label } from "@/lib/mail-labels";
+import { getLabels } from "@/lib/mail-settings";
 import { getThread, type ReadMessage } from "@/lib/mail-read";
 
 export default async function ThreadPage({
@@ -11,17 +14,27 @@ export default async function ThreadPage({
   searchParams,
 }: {
   params: Promise<{ mailboxId: string; threadId: string }>;
-  searchParams: Promise<{ images?: string }>;
+  searchParams: Promise<{ images?: string; account?: string }>;
 }) {
   const { mailboxId, threadId } = await params;
-  const allowImages = (await searchParams).images === "1";
+  const sp = await searchParams;
+  const allowImages = sp.images === "1";
   const t = await getTranslations("mailRead");
   const tf = await getTranslations("mail.folders");
 
   let messages: ReadMessage[] | null;
   let mailboxes: Mailbox[];
+  let allLabels: Label[];
+  // `?account=` opens a conversation from a shared mailbox (another JMAP account).
+  let account: string | undefined;
   try {
-    [messages, mailboxes] = await Promise.all([getThread(threadId, { allowRemoteImages: allowImages }), getMailboxes()]);
+    const accountId = await resolveAccount(sp.account);
+    account = accountId === (await primaryAccount(CAP.mail)) ? undefined : accountId;
+    [messages, mailboxes, allLabels] = await Promise.all([
+      getThread(threadId, { allowRemoteImages: allowImages, accountId }),
+      getMailboxes(accountId),
+      getLabels(),
+    ]);
   } catch (e) {
     unstable_rethrow(e);
     return <p className="p-8 text-[15px] text-ink-soft">{t("error")}</p>;
@@ -41,8 +54,10 @@ export default async function ThreadPage({
   const actionIds = (inScope.length ? inScope : messages).map((m) => m.id);
   const unreadIds = messages.filter((m) => !m.keywords.$seen && !m.keywords.$draft).map((m) => m.id);
   const latest = messages[messages.length - 1];
-  const basePath = threadHref(mailboxId, threadId);
-  const currentPath = allowImages ? `${basePath}?images=1` : basePath;
+  const acc = account ? `account=${encodeURIComponent(account)}` : "";
+  const basePath = threadHref(mailboxId, threadId) + (acc ? `?${acc}` : "");
+  const withImages = `${basePath}${acc ? "&" : "?"}images=1`;
+  const currentPath = allowImages ? withImages : basePath;
   const anyRemote = !allowImages && messages.some((m) => m.hasRemoteImages);
   const subject = latest.subject || messages.find((m) => m.subject)?.subject || t("noSubject");
 
@@ -59,14 +74,16 @@ export default async function ThreadPage({
       key={threadId}
       messages={messages}
       me={me}
-      backHref={mailbox ? `/mail/${mailbox.id}` : mailboxId === "search" ? null : "/mail"}
+      backHref={mailbox ? `/mail/${mailbox.id}${acc ? `?${acc}` : ""}` : mailboxId === "search" ? null : "/mail"}
       role={mailbox?.role ?? null}
       actionIds={actionIds}
       unreadIds={unreadIds}
       currentPath={currentPath}
-      imagesHref={anyRemote ? `${basePath}?images=1` : null}
+      imagesHref={anyRemote ? withImages : null}
       subject={subject}
       labels={labels}
+      account={account}
+      allLabels={allLabels}
     />
   );
 }

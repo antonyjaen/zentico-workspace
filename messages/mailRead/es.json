@@ -85,6 +85,7 @@
       "toggle": "Expandir o contraer mensaje",
       "toggleAll": "Expandir o contraer todo",
       "compose": "Mensaje nuevo"
-    }
+    },
+    "filterLike": "Filtrar mensajes como este"
   }
 }

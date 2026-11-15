@@ -221,10 +221,11 @@ const BODY_PROPERTIES = ["partId", "blobId", "size", "name", "type", "charset", 
 /** Loads every message of a thread (oldest first), with sanitized bodies. Null if not found. */
 export async function getThread(
   threadId: string,
-  { allowRemoteImages = false }: { allowRemoteImages?: boolean } = {},
+  { allowRemoteImages = false, accountId: account }: { allowRemoteImages?: boolean; accountId?: string } = {},
 ): Promise<ReadMessage[] | null> {
   if (!ID.test(threadId)) return null;
-  const accountId = await primaryAccount(CAP.mail);
+  // `accountId` (validated by the caller) reads a thread from a shared mailbox.
+  const accountId = account ?? (await primaryAccount(CAP.mail));
   const load = (properties: string[]) =>
     jmap([
       ["Thread/get", { accountId, ids: [threadId] }, "t"],

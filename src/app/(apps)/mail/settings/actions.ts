@@ -8,21 +8,18 @@ import { getMailboxes } from "@/lib/mail";
 import {
   DENSITIES,
   DENSITY_COOKIE,
-  FILTER_SCRIPT_NAME,
   ID,
   PANES,
   PANE_COOKIE,
   SETTINGS_CAP,
   accountFor,
-  buildSieve,
-  getSieveScripts,
   isEmail,
   line,
   sanitizeHtml,
-  sieveCall,
   text,
-  uploadBlob,
+  readConfigForUpdate,
   validateRules,
+  writeConfig,
   type Density,
   type FilterRule,
   type ReadingPane,
@@ -46,7 +43,7 @@ async function guard(fn: () => Promise<ActionResult>): Promise<ActionResult> {
   } catch (e) {
     unstable_rethrow(e);
     const msg = e instanceof Error ? e.message : "";
-    if (["invalid", "invalidEmail", "invalidFolder", "invalidDates"].includes(msg)) return fail(msg);
+    if (["invalid", "invalidEmail", "invalidFolder", "invalidLabel", "invalidDates", "unavailable"].includes(msg)) return fail(msg);
     console.error("mail settings action failed", e);
     return fail("server");
   }
@@ -168,24 +165,22 @@ export async function saveFilters(input: FilterRule[]): Promise<ActionResult> {
     const accountId = await accountFor(SETTINGS_CAP.sieve);
     if (!accountId) return fail("unavailable");
     const mailboxes = await getMailboxes();
-    const rules = validateRules(input, new Set(mailboxes.map((m) => m.id)));
-    const script = buildSieve(rules, mailboxes);
-
-    const blobId = await uploadBlob(accountId, script, "application/sieve");
-    const existing = (await getSieveScripts(accountId)).find((s) => s.name === FILTER_SCRIPT_NAME);
-    const r = await sieveCall([
-      [
-        "SieveScript/set",
-        existing
-          ? { accountId, update: { [existing.id]: { blobId } }, onSuccessActivateScript: existing.id }
-          : { accountId, create: { z: { name: FILTER_SCRIPT_NAME, blobId } }, onSuccessActivateScript: "#z" },
-        "s",
-      ],
-    ]);
-    const errs = (existing ? r.s.notUpdated : r.s.notCreated) as Record<string, Record<string, unknown>> | undefined;
-    const err = errs?.[existing ? existing.id : "z"];
+    // Keep the label definitions stored in the same script (a script edited elsewhere is replaced).
+    const labels = await readConfigForUpdate().then(
+      (c) => c.labels,
+      (e) => {
+        if (e instanceof Error && e.message === "unreadable") return [];
+        throw e;
+      },
+    );
+    const rules = validateRules(input, {
+      mailboxIds: new Set(mailboxes.map((m) => m.id)),
+      labelIds: new Set(labels.map((l) => l.id)),
+    });
+    const err = await writeConfig({ rules, labels }, mailboxes, { activate: true });
     if (err) return setError(err);
     revalidatePath(PATH);
+    revalidatePath("/mail", "layout");
     return { ok: true };
   });
 }

@@ -3,15 +3,23 @@ import { unstable_rethrow } from "next/navigation";
 import { Suspense } from "react";
 import { ComposeButton, ComposeButtonFallback } from "./compose/ComposeButton";
 import { Composer } from "./compose/Composer";
-import { MailboxNav } from "./MailboxNav";
-import { getMailboxes } from "@/lib/mail";
+import { MailboxNav, type SharedInbox } from "./MailboxNav";
+import { getMailboxes, getSharedMailboxes } from "@/lib/mail";
+import { SETTINGS_CAP, accountFor, getLabels } from "@/lib/mail-settings";
 
 export default async function MailLayout({ children }: { children: React.ReactNode }) {
   const t = await getTranslations("mail");
-  const mailboxes = await getMailboxes().catch((e) => {
-    unstable_rethrow(e);
-    return [];
-  });
+  const soft = <T,>(p: Promise<T>, fallback: T) =>
+    p.catch((e) => {
+      unstable_rethrow(e);
+      return fallback;
+    });
+  const [mailboxes, labels, sieve, shared] = await Promise.all([
+    soft(getMailboxes(), []),
+    getLabels(),
+    soft(accountFor(SETTINGS_CAP.sieve), null),
+    soft(getSharedMailboxes(), [] as SharedInbox[]),
+  ]);
 
   return (
     <>
@@ -19,7 +27,9 @@ export default async function MailLayout({ children }: { children: React.ReactNo
         <Suspense fallback={<ComposeButtonFallback label={t("compose")} />}>
           <ComposeButton label={t("compose")} />
         </Suspense>
-        <MailboxNav mailboxes={mailboxes} />
+        <Suspense fallback={null}>
+          <MailboxNav mailboxes={mailboxes} labels={labels} labelsAvailable={!!sieve} shared={shared} />
+        </Suspense>
       </aside>
       <main className="sheet flex min-w-0 flex-1 flex-col overflow-hidden">{children}</main>
       <Suspense fallback={null}>

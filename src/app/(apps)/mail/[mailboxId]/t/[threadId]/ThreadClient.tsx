@@ -21,24 +21,26 @@ import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { destroyEmails, moveToRole, setFlagged, setSeen } from "../../../actions";
+import * as mail from "../../../actions";
+import { LabelChip, LabelPicker } from "../../../LabelPicker";
 import { composeHref, type ComposeMode } from "../../../hrefs";
 import { useShortcuts } from "../../../useShortcuts";
 import type { MailboxRole } from "@/lib/mail";
+import { labelsOf, type Label } from "@/lib/mail-labels";
 import type { ReadMessage } from "@/lib/mail-read";
 import { Lightbox, SourceViewer } from "./Attachments";
 import { MessageCard, type MessageAction } from "./MessageCard";
 import { useAppTheme } from "./MessageFrame";
 
 /** Marks the thread's unread messages as read once, when it is opened. */
-export function MarkSeen({ ids }: { ids: string[] }) {
+export function MarkSeen({ ids, account }: { ids: string[]; account?: string }) {
   const done = useRef(new Set<string>());
   const key = ids.join(",");
   useEffect(() => {
     const pending = ids.filter((id) => !done.current.has(id));
     if (!pending.length) return;
     pending.forEach((id) => done.current.add(id));
-    setSeen(pending, true).catch(() => {});
+    mail.setSeen(pending, true, account).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   return null;
@@ -58,6 +60,8 @@ export function ThreadView({
   imagesHref,
   subject,
   labels,
+  account,
+  allLabels = [],
 }: {
   messages: ReadMessage[];
   /** Signed-in user's email (lowercase). */
@@ -73,8 +77,17 @@ export function ThreadView({
   imagesHref: string | null;
   subject: string;
   labels: string[];
+  /** Shared account the thread belongs to (undefined: the user's own). */
+  account?: string;
+  /** The user's label definitions (for chips and the Label menu). */
+  allLabels?: Label[];
 }) {
   const t = useTranslations("mailRead");
+  // Mail actions bound to the thread's account.
+  const setSeen = (ids: string[], seen: boolean) => mail.setSeen(ids, seen, account);
+  const setFlagged = (ids: string[], flagged: boolean) => mail.setFlagged(ids, flagged, account);
+  const moveToRole = (ids: string[], role: Parameters<typeof mail.moveToRole>[1]) => mail.moveToRole(ids, role, account);
+  const destroyEmails = (ids: string[]) => mail.destroyEmails(ids, account);
   const router = useRouter();
   const theme = useAppTheme();
   const [pending, startTransition] = useTransition();
@@ -153,6 +166,24 @@ export function ThreadView({
   };
   // Starring the thread flags the latest message; unstarring clears every flag.
   const toggleThreadStar = () => (threadStarred ? setStar(allIds, false) : setStar([latest.id], true));
+
+  // Labels apply to every message of the thread (optimistic; server refresh reconciles).
+  const [tagIds, setTagIds] = useState<string[]>(() => [...new Set(messages.flatMap((m) => labelsOf(m.keywords)))]);
+  useEffect(() => setTagIds([...new Set(messages.flatMap((m) => labelsOf(m.keywords)))]), [messages]);
+  const tags = tagIds.map((id) => allLabels.find((l) => l.id === id)).filter((l): l is Label => !!l);
+  const toggleLabel = (id: string, on: boolean) => {
+    const prev = tagIds;
+    setTagIds((ts) => (on ? [...new Set([...ts, id])] : ts.filter((x) => x !== id)));
+    startTransition(async () => {
+      try {
+        await mail.setLabel(allIds, id, on, account);
+        router.refresh();
+      } catch {
+        setTagIds(prev);
+        setError(true);
+      }
+    });
+  };
 
   const onMessageAction = (m: ReadMessage, action: MessageAction) => {
     switch (action) {
@@ -287,7 +318,7 @@ export function ThreadView({
 
   return (
     <>
-      <MarkSeen ids={unreadIds} />
+      <MarkSeen ids={unreadIds} account={account} />
       <div className="flex h-12 shrink-0 items-center gap-0.5 border-b border-line px-2 sm:px-3 print:hidden">
         {backHref ? (
           <Link href={backHref} className="icon-btn h-9 w-9" aria-label={t("back")} title={`${t("back")} (u)`}>
@@ -316,6 +347,9 @@ export function ThreadView({
         >
           <Star size={17} aria-hidden className={threadStarred ? "fill-amber text-amber" : ""} />
         </button>
+        {!account && (
+          <LabelPicker labels={allLabels} stateOf={(id) => (tagIds.includes(id) ? "all" : "none")} onToggle={toggleLabel} />
+        )}
 
         {error && (
           <span role="alert" className="ml-2 hidden truncate text-[12.5px] text-danger sm:inline">
@@ -343,6 +377,9 @@ export function ThreadView({
                   <span key={l} className="inline-flex h-[22px] items-center rounded-md border border-line bg-sheet-muted px-2 text-[11.5px] font-medium text-ink-soft">
                     {l}
                   </span>
+                ))}
+                {tags.map((l) => (
+                  <LabelChip key={l.id} label={l} />
                 ))}
                 <span className="font-mono text-[11.5px] text-ink-mute">{t("messages", { count: visible.length })}</span>
               </div>

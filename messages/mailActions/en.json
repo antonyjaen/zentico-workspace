@@ -57,6 +57,98 @@
       "search": "Search mail",
       "clear": "Clear selection",
       "help": "Show shortcuts"
+    },
+    "nav": {
+      "unified": "All inboxes",
+      "newFolder": "New folder",
+      "newSubfolder": "New subfolder",
+      "folderName": "Folder name",
+      "folderOptions": "Options for {name}",
+      "rename": "Rename",
+      "moveFolder": "Move to…",
+      "moveInto": "Move into",
+      "topLevel": "Top level",
+      "deleteFolder": "Delete folder",
+      "confirmDeleteFolder": "Delete “{name}”? Its messages move to Trash.",
+      "cancel": "Cancel",
+      "delete": "Delete",
+      "labels": "Labels",
+      "newLabel": "New label",
+      "labelName": "Label name",
+      "labelOptions": "Options for label {name}",
+      "color": "Color",
+      "colors": {
+        "gray": "Gray",
+        "red": "Red",
+        "orange": "Orange",
+        "amber": "Amber",
+        "green": "Green",
+        "teal": "Teal",
+        "blue": "Blue",
+        "violet": "Violet",
+        "pink": "Pink"
+      },
+      "deleteLabel": "Delete label",
+      "confirmDeleteLabel": "Delete the label “{name}”? It's removed from every message; the messages stay.",
+      "noLabels": "No labels yet. Select messages and use the label button, or add one here.",
+      "labelsUnavailable": "Labels need server-side filters (Sieve), which this server doesn't offer.",
+      "shared": "Shared inboxes",
+      "noShared": "No shared inboxes. An administrator can share a mailbox (like soporte@ or facturas@) with you in Stalwart, and it will appear here.",
+      "sharedEmpty": "No folders you can read.",
+      "expand": "Show folders",
+      "collapse": "Hide folders",
+      "errors": {
+        "exists": "A folder with that name already exists here.",
+        "system": "System folders can't be changed.",
+        "cycle": "A folder can't be moved into itself.",
+        "hasChildren": "Delete or move its subfolders first.",
+        "notEmpty": "Some messages couldn't be moved out, so the folder wasn't deleted.",
+        "invalidName": "Folder names can't contain / or \\.",
+        "invalid": "That name isn't valid.",
+        "unavailable": "Labels aren't available on this server.",
+        "unreadable": "Your filter script was edited outside Zentico; open Settings › Filters and save it first.",
+        "tooMany": "You've reached the label limit.",
+        "forbidden": "You don't have permission to do that.",
+        "generic": "That didn't work. Please try again."
+      }
+    },
+    "labels": {
+      "label": "Label",
+      "labelAs": "Label as",
+      "searchOrCreate": "Search or create a label",
+      "create": "Create “{name}”",
+      "none": "No labels yet.",
+      "createFailed": "Couldn't create the label.",
+      "unavailable": "Labels aren't available on this server.",
+      "emptyLabel": "No conversations with this label."
+    },
+    "search": {
+      "options": "Search options",
+      "fields": {
+        "from": "From",
+        "to": "To",
+        "subject": "Subject",
+        "q": "Has the words",
+        "not": "Doesn't have",
+        "within": "Date within",
+        "in": "Search in",
+        "att": "Has attachment"
+      },
+      "anyTime": "Any time",
+      "within": {
+        "1d": "1 day",
+        "3d": "3 days",
+        "1w": "1 week",
+        "2w": "2 weeks",
+        "1m": "1 month",
+        "6m": "6 months",
+        "1y": "1 year"
+      },
+      "allMail": "All mail",
+      "folders": "Folders",
+      "labels": "Labels",
+      "clear": "Clear",
+      "submit": "Search"
     }
   }
 }

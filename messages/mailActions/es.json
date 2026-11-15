@@ -57,6 +57,98 @@
       "search": "Buscar en el correo",
       "clear": "Quitar selección",
       "help": "Mostrar atajos"
+    },
+    "nav": {
+      "unified": "Todas las bandejas",
+      "newFolder": "Nueva carpeta",
+      "newSubfolder": "Nueva subcarpeta",
+      "folderName": "Nombre de la carpeta",
+      "folderOptions": "Opciones de {name}",
+      "rename": "Cambiar nombre",
+      "moveFolder": "Mover a…",
+      "moveInto": "Mover dentro de",
+      "topLevel": "Nivel superior",
+      "deleteFolder": "Eliminar carpeta",
+      "confirmDeleteFolder": "¿Eliminar «{name}»? Sus mensajes se moverán a la papelera.",
+      "cancel": "Cancelar",
+      "delete": "Eliminar",
+      "labels": "Etiquetas",
+      "newLabel": "Nueva etiqueta",
+      "labelName": "Nombre de la etiqueta",
+      "labelOptions": "Opciones de la etiqueta {name}",
+      "color": "Color",
+      "colors": {
+        "gray": "Gris",
+        "red": "Rojo",
+        "orange": "Naranja",
+        "amber": "Ámbar",
+        "green": "Verde",
+        "teal": "Turquesa",
+        "blue": "Azul",
+        "violet": "Violeta",
+        "pink": "Rosa"
+      },
+      "deleteLabel": "Eliminar etiqueta",
+      "confirmDeleteLabel": "¿Eliminar la etiqueta «{name}»? Se quitará de todos los mensajes; los mensajes se conservan.",
+      "noLabels": "Aún no hay etiquetas. Selecciona mensajes y usa el botón de etiqueta, o crea una aquí.",
+      "labelsUnavailable": "Las etiquetas necesitan filtros en el servidor (Sieve), que este servidor no ofrece.",
+      "shared": "Bandejas compartidas",
+      "noShared": "No hay bandejas compartidas. Un administrador puede compartir contigo un buzón (como soporte@ o facturas@) en Stalwart y aparecerá aquí.",
+      "sharedEmpty": "No hay carpetas que puedas leer.",
+      "expand": "Mostrar carpetas",
+      "collapse": "Ocultar carpetas",
+      "errors": {
+        "exists": "Ya existe una carpeta con ese nombre aquí.",
+        "system": "Las carpetas del sistema no se pueden cambiar.",
+        "cycle": "Una carpeta no se puede mover dentro de sí misma.",
+        "hasChildren": "Elimina o mueve primero sus subcarpetas.",
+        "notEmpty": "Algunos mensajes no se pudieron mover, así que la carpeta no se eliminó.",
+        "invalidName": "El nombre de la carpeta no puede contener / ni \\.",
+        "invalid": "Ese nombre no es válido.",
+        "unavailable": "Las etiquetas no están disponibles en este servidor.",
+        "unreadable": "Tu script de filtros se editó fuera de Zentico; abre Ajustes › Filtros y guárdalo primero.",
+        "tooMany": "Has alcanzado el límite de etiquetas.",
+        "forbidden": "No tienes permiso para hacer eso.",
+        "generic": "No ha funcionado. Inténtalo de nuevo."
+      }
+    },
+    "labels": {
+      "label": "Etiquetar",
+      "labelAs": "Etiquetar como",
+      "searchOrCreate": "Busca o crea una etiqueta",
+      "create": "Crear «{name}»",
+      "none": "Aún no hay etiquetas.",
+      "createFailed": "No se pudo crear la etiqueta.",
+      "unavailable": "Las etiquetas no están disponibles en este servidor.",
+      "emptyLabel": "No hay conversaciones con esta etiqueta."
+    },
+    "search": {
+      "options": "Opciones de búsqueda",
+      "fields": {
+        "from": "De",
+        "to": "Para",
+        "subject": "Asunto",
+        "q": "Contiene las palabras",
+        "not": "No contiene",
+        "within": "Fecha en",
+        "in": "Buscar en",
+        "att": "Tiene adjunto"
+      },
+      "anyTime": "Cualquier fecha",
+      "within": {
+        "1d": "1 día",
+        "3d": "3 días",
+        "1w": "1 semana",
+        "2w": "2 semanas",
+        "1m": "1 mes",
+        "6m": "6 meses",
+        "1y": "1 año"
+      },
+      "allMail": "Todo el correo",
+      "folders": "Carpetas",
+      "labels": "Etiquetas",
+      "clear": "Borrar",
+      "submit": "Buscar"
     }
   }
 }
