@@ -1,1 +1,36 @@
-{}
+{
+  "mailRead": {
+    "back": "Back",
+    "archive": "Archive",
+    "spam": "Report spam",
+    "notSpam": "Not spam",
+    "delete": "Delete",
+    "deleteForever": "Delete forever",
+    "deleteForeverConfirm": "Permanently delete this conversation? This can't be undone.",
+    "markUnread": "Mark as unread",
+    "star": "Star",
+    "unstar": "Remove star",
+    "starred": "Starred",
+    "reply": "Reply",
+    "replyAll": "Reply all",
+    "forward": "Forward",
+    "actionFailed": "That didn't work. Please try again.",
+    "messages": "{count, plural, one {# message} other {# messages}}",
+    "imagesBlocked": "Remote images are hidden to protect your privacy.",
+    "showImages": "Show images",
+    "to": "to",
+    "cc": "cc",
+    "bcc": "bcc",
+    "replyTo": "reply to",
+    "me": "me",
+    "noRecipients": "no recipients",
+    "noSubject": "(no subject)",
+    "unknownSender": "Unknown sender",
+    "messageFrom": "Message from {sender}",
+    "attachments": "Has attachments",
+    "attachmentCount": "{count, plural, one {# attachment} other {# attachments}}",
+    "download": "Download",
+    "truncated": "This message is very large and was cut short.",
+    "error": "We couldn't load this conversation. Please refresh in a moment."
+  }
+}

@@ -1,1 +1,36 @@
-{}
+{
+  "mailRead": {
+    "back": "Volver",
+    "archive": "Archivar",
+    "spam": "Marcar como spam",
+    "notSpam": "No es spam",
+    "delete": "Eliminar",
+    "deleteForever": "Eliminar definitivamente",
+    "deleteForeverConfirm": "¿Eliminar definitivamente esta conversación? No se puede deshacer.",
+    "markUnread": "Marcar como no leído",
+    "star": "Destacar",
+    "unstar": "Quitar destacado",
+    "starred": "Destacado",
+    "reply": "Responder",
+    "replyAll": "Responder a todos",
+    "forward": "Reenviar",
+    "actionFailed": "No se pudo completar. Inténtalo de nuevo.",
+    "messages": "{count, plural, one {# mensaje} other {# mensajes}}",
+    "imagesBlocked": "Las imágenes remotas están ocultas para proteger tu privacidad.",
+    "showImages": "Mostrar imágenes",
+    "to": "para",
+    "cc": "cc",
+    "bcc": "cco",
+    "replyTo": "responder a",
+    "me": "mí",
+    "noRecipients": "sin destinatarios",
+    "noSubject": "(sin asunto)",
+    "unknownSender": "Remitente desconocido",
+    "messageFrom": "Mensaje de {sender}",
+    "attachments": "Tiene adjuntos",
+    "attachmentCount": "{count, plural, one {# adjunto} other {# adjuntos}}",
+    "download": "Descargar",
+    "truncated": "Este mensaje es muy grande y se ha recortado.",
+    "error": "No pudimos cargar esta conversación. Actualiza en un momento."
+  }
+}
