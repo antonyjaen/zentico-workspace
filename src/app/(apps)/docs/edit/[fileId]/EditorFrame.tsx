@@ -9,7 +9,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { renameDocumentAction } from "../../actions";
-import { downloadHref, folderHref, splitName, type DocKind } from "../../shared";
+import { AccessChip, DocShareDialog, ReadOnlyBadge, ShareButton, useDocShare } from "../../ShareControls";
+import { downloadHref, folderHref, splitName, type DocAccess, type DocKind } from "../../shared";
 import { DocIcon } from "../../ui";
 
 const FRAME = "collabora-editor";
@@ -24,6 +25,7 @@ export function EditorWorkspace({
   back,
   readOnly,
   frame,
+  access,
   children,
 }: {
   file: { id: string; name: string; kind: DocKind } | null;
@@ -31,6 +33,8 @@ export function EditorWorkspace({
   back: { href: string; label: string };
   readOnly: boolean;
   frame?: Frame;
+  /** Viewer's rights and share count; null/undefined hides the Share controls. */
+  access?: DocAccess | null;
   children?: React.ReactNode;
 }) {
   const t = useTranslations("docs");
@@ -38,6 +42,7 @@ export function EditorWorkspace({
   const [name, setName] = useState(file?.name ?? "");
   const [status, setStatus] = useState<Status | null>(frame ? "loading" : null);
   const [error, setError] = useState<string | null>(null);
+  const share = useDocShare(access);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const saveWaiters = useRef<((ok: boolean) => void)[]>([]);
@@ -164,10 +169,15 @@ export function EditorWorkspace({
           <>
             <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-line" />
             <DocIcon kind={file.kind} size={17} />
-            <NameField name={name} onRename={rename} />
-            {readOnly && (
-              <span className="shrink-0 rounded-md border border-line px-1.5 py-0.5 text-[11.5px] text-ink-mute">{t("readOnly")}</span>
+            {access?.canEdit === false ? (
+              <h1 className="min-w-0 truncate px-1.5 text-[14px] font-medium text-ink" title={name}>
+                {name}
+              </h1>
+            ) : (
+              <NameField name={name} onRename={rename} />
             )}
+            {readOnly && <ReadOnlyBadge share={share} />}
+            <AccessChip share={share} />
             {status && <SaveStatus status={status} readOnly={readOnly} onSave={() => void saveNow()} />}
             <span className="flex-1" />
             <Link
@@ -188,6 +198,7 @@ export function EditorWorkspace({
               <Download size={15} aria-hidden />
               <span className="hidden sm:inline">{t("download")}</span>
             </a>
+            <ShareButton share={share} />
           </>
         )}
       </div>
@@ -218,6 +229,8 @@ export function EditorWorkspace({
       ) : (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</div>
       )}
+
+      {file && <DocShareDialog share={share} file={{ id: file.id, name }} />}
 
       {error && (
         <div role="alert" className="pop absolute bottom-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 px-3.5 py-2.5 text-[13px] text-ink">

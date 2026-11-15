@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, Search, User, Users, X } from "lucide-react";
+import { Check, Link as LinkIcon, Loader2, Search, User, Users, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { shareAction, sharingAction, type SharingData } from "./actions";
@@ -12,8 +12,24 @@ const ROLES: ShareRole[] = ["viewer", "editor", "manager"];
 const fold = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 /** Share a file or folder with people and groups (RFC 9670 shareWith grants). */
-export function ShareDialog({ item, onClose, onChanged }: { item: Item; onClose: () => void; onChanged: () => void }) {
+export function ShareDialog({
+  item,
+  onClose,
+  onChanged,
+  onLoaded,
+  link,
+}: {
+  item: Pick<Item, "id" | "accountId" | "name" | "isFolder" | "type">;
+  onClose: () => void;
+  onChanged: () => void;
+  /** Called with the sharing data after every (re)load. */
+  onLoaded?: (data: SharingData) => void;
+  /** App path (e.g. /docs/md/<id>) offered as "Copy link" in the footer. */
+  link?: string;
+}) {
   const t = useTranslations("drive");
+  const loadedRef = useRef(onLoaded);
+  loadedRef.current = onLoaded;
   const [data, setData] = useState<SharingData | null>(null);
   const [failed, setFailed] = useState(false);
   const [query, setQuery] = useState("");
@@ -25,8 +41,10 @@ export function ShareDialog({ item, onClose, onChanged }: { item: Item; onClose:
 
   const load = useCallback(async () => {
     const r = await sharingAction(item.id, item.accountId);
-    if (r.ok) setData(r.data);
-    else setFailed(true);
+    if (r.ok) {
+      setData(r.data);
+      loadedRef.current?.(r.data);
+    } else setFailed(true);
   }, [item.id, item.accountId]);
 
   useEffect(() => {
@@ -225,8 +243,15 @@ export function ShareDialog({ item, onClose, onChanged }: { item: Item; onClose:
         )}
 
         <div className="flex shrink-0 items-center gap-2 border-t border-line px-4 py-3">
+          {link && <CopyLink path={link} />}
           <span className="mr-auto min-w-0 truncate text-[12.5px]" role={error ? "alert" : undefined}>
-            {error ? <span className="text-danger">{error}</span> : busy ? <Loader2 size={14} className="animate-spin text-ink-mute" aria-label={t("working")} /> : null}
+            {error ? (
+              <span className="text-danger">{error}</span>
+            ) : busy ? (
+              <Loader2 size={14} className="animate-spin text-ink-mute" aria-label={t("working")} />
+            ) : link ? (
+              <CopyLinkNote />
+            ) : null}
           </span>
           <button type="button" onClick={onClose} className="h-8 rounded-md border border-line px-3 text-[13px] font-medium text-ink-soft hover:border-line-strong hover:bg-hover hover:text-ink">
             {t("done")}
@@ -234,6 +259,48 @@ export function ShareDialog({ item, onClose, onChanged }: { item: Item; onClose:
         </div>
       </div>
     </div>
+  );
+}
+
+/** Copies the absolute URL of an app path; strings live in the Docs messages. */
+function CopyLink({ path }: { path: string }) {
+  const t = useTranslations("docs");
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+
+  useEffect(() => {
+    if (state === "idle") return;
+    const timer = setTimeout(() => setState("idle"), 2500);
+    return () => clearTimeout(timer);
+  }, [state]);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(new URL(path, window.location.origin).toString());
+      setState("copied");
+    } catch {
+      setState("failed");
+    }
+  };
+
+  const label = state === "copied" ? t("share.linkCopied") : state === "failed" ? t("share.copyFailed") : t("share.copyLink");
+  return (
+    <button
+      type="button"
+      onClick={() => void copy()}
+      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-line px-3 text-[13px] font-medium text-ink-soft hover:border-line-strong hover:bg-hover hover:text-ink"
+    >
+      {state === "copied" ? <Check size={14} aria-hidden /> : <LinkIcon size={14} aria-hidden />}
+      <span aria-live="polite">{label}</span>
+    </button>
+  );
+}
+
+function CopyLinkNote() {
+  const t = useTranslations("docs");
+  return (
+    <span className="text-ink-mute" title={t("share.linkNote")}>
+      {t("share.linkNote")}
+    </span>
   );
 }
 

@@ -212,6 +212,7 @@ export function MarkdownEditor({
       onError={setError}
       onSave={() => void saver.saveNow()}
       tools={doc ? viewSwitch : undefined}
+      access={doc?.access}
     >
       {notice || !doc ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">

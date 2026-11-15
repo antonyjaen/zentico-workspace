@@ -127,6 +127,18 @@
       "forbidden": "That request was blocked.",
       "unsupported_type": "Only documents can be uploaded here (Word, Excel, PowerPoint, OpenDocument, RTF, CSV, TXT, Markdown, Excalidraw)."
     },
+    "share": {
+      "button": "Share",
+      "manage": "Share and manage access",
+      "onlyYou": "Only you",
+      "sharedWith": "Shared with {count}",
+      "viewOnly": "View only",
+      "viewOnlyHint": "You can view this file but not edit it.",
+      "copyLink": "Copy link",
+      "linkCopied": "Link copied",
+      "copyFailed": "Couldn't copy the link",
+      "linkNote": "Only people with access can open this link."
+    },
     "nativeTooLarge": "This file is too large to open in the editor (over 10 MB).",
     "draw": {
       "downloadFile": "Whiteboard file (.excalidraw)",

@@ -8,7 +8,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { renameDocumentAction } from "./actions";
 import { NameField, SaveStatus, type Status } from "./edit/[fileId]/EditorFrame";
-import { downloadHref, folderHref, splitName, type NativeKind } from "./shared";
+import { AccessChip, DocShareDialog, ReadOnlyBadge, ShareButton, useDocShare } from "./ShareControls";
+import { downloadHref, folderHref, splitName, type DocAccess, type NativeKind } from "./shared";
 import { DocIcon } from "./ui";
 
 const saveUrl = (id: string) => `/api/docs/content/${encodeURIComponent(id)}`;
@@ -170,6 +171,7 @@ export function NativeShell({
   tools,
   download,
   onRenamed,
+  access,
   children,
 }: {
   file: { id: string; name: string } | null;
@@ -186,10 +188,13 @@ export function NativeShell({
   /** Replaces the default Download link (e.g. a menu with export formats). */
   download?: React.ReactNode;
   onRenamed?: (name: string) => void;
+  /** Viewer's rights and share count; null/undefined hides the Share controls. */
+  access?: DocAccess | null;
   children: React.ReactNode;
 }) {
   const t = useTranslations("docs");
   const [name, setName] = useState(file?.name ?? "");
+  const share = useDocShare(access);
 
   useEffect(() => setName(file?.name ?? ""), [file?.name]);
 
@@ -244,9 +249,8 @@ export function NativeShell({
             ) : (
               <NameField name={name} onRename={rename} />
             )}
-            {readOnly && (
-              <span className="shrink-0 rounded-md border border-line px-1.5 py-0.5 text-[11.5px] text-ink-mute">{t("readOnly")}</span>
-            )}
+            {readOnly && <ReadOnlyBadge share={share} />}
+            <AccessChip share={share} />
             {status && <SaveStatus status={status} readOnly={readOnly} onSave={() => onSave?.()} />}
             <span className="flex-1" />
             {tools}
@@ -269,11 +273,14 @@ export function NativeShell({
                 <span className="hidden sm:inline">{t("download")}</span>
               </a>
             )}
+            <ShareButton share={share} />
           </>
         )}
       </div>
 
       {children}
+
+      {file && <DocShareDialog share={share} file={{ id: file.id, name }} />}
 
       {error && (
         <div role="alert" className="pop absolute bottom-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 px-3.5 py-2.5 text-[13px] text-ink">

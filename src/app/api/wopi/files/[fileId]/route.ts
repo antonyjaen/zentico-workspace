@@ -33,9 +33,11 @@ export async function GET(req: Request, { params }: Ctx) {
 
   try {
     const client = clientFor(token);
-    const node = await client.getNode(fileId);
+    const [node, rights] = await Promise.all([client.getNode(fileId), client.myRights(fileId)]);
     if (!node || !node.blobId) return wopiError(404);
     const ownerId = await client.accountId();
+    // Unknown rights (server without myRights) keep the previous behavior: the owner may write.
+    const canWrite = rights?.mayModifyContent !== false;
     return Response.json(
       {
         BaseFileName: node.name,
@@ -45,9 +47,10 @@ export async function GET(req: Request, { params }: Ctx) {
         UserFriendlyName: token.name || token.email,
         Version: node.blobId,
         LastModifiedTime: isoTime(node.modified),
-        UserCanWrite: true,
+        UserCanWrite: canWrite,
         UserCanNotWriteRelative: true,
-        UserCanRename: true,
+        UserCanRename: canWrite && rights?.mayRename !== false,
+        ReadOnly: !canWrite,
         SupportsUpdate: true,
         SupportsLocks: true,
         SupportsGetLock: true,

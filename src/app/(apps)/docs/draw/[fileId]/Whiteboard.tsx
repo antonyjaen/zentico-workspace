@@ -112,6 +112,7 @@ export function Whiteboard({
       onSave={() => void saver.saveNow()}
       onRenamed={setName}
       download={doc ? <DownloadMenu onPick={exportAs} /> : undefined}
+      access={doc?.access}
     >
       {notice || !doc ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">

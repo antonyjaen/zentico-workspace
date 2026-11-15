@@ -201,6 +201,23 @@ export class FilesClient {
     return list.find((n) => n.id === id) ?? null;
   }
 
+  /**
+   * The user's RFC 9670 myRights on a node, or null when the server doesn't report them (an
+   * optional property: asked for separately so a server without it can't break getNode).
+   */
+  async myRights(id: string): Promise<Partial<Record<"mayModifyContent" | "mayRename", boolean>> | null> {
+    try {
+      const accountId = await this.accountId();
+      const r = await this.call([["FileNode/get", { accountId, ids: [id], properties: ["id", "myRights"] }, "g"]]);
+      const raw = ((r.g?.list as { id?: string; myRights?: unknown }[] | undefined) ?? []).find((n) => n.id === id);
+      const m = raw?.myRights;
+      return m && typeof m === "object" ? (m as Record<string, boolean>) : null;
+    } catch (e) {
+      if (e instanceof FilesError && e.status === 401) throw e;
+      return null;
+    }
+  }
+
   /** Every node in the account (files and folders). */
   async listNodes(): Promise<FileNode[]> {
     const accountId = await this.accountId();

@@ -42,6 +42,16 @@ export type DocItem = {
   size: number;
 };
 
+/** The viewer's access to an open document (RFC 9670 myRights + shareWith). */
+export type DocAccess = {
+  /** myRights.mayShare: may open the Share dialog and change grants. */
+  canShare: boolean;
+  /** myRights.mayModifyContent: false = view only. */
+  canEdit: boolean;
+  /** Number of grants in shareWith; null when the server doesn't report it. */
+  sharedWith: number | null;
+};
+
 export type ViewMode = "list" | "grid";
 export const VIEW_COOKIE = "zw_docs_view";
 

@@ -1,6 +1,7 @@
 import { getLocale, getTranslations } from "next-intl/server";
 import { unstable_rethrow } from "next/navigation";
 import { EditorWorkspace } from "./EditorFrame";
+import { getDocAccess } from "../../native";
 import { Notice } from "../../ui";
 import { getRootId } from "@/lib/drive";
 import { env } from "@/lib/env";
@@ -68,6 +69,9 @@ export default async function EditDocPage({
   }
   if (!node || !node.blobId) return shell(null, <Notice title={t("notFound")} />);
 
+  // Viewer's rights + share count for the Share controls (null hides them).
+  const accessP = getDocAccess(fileId).catch(() => null);
+
   // Drive folder for "Open in Drive": the top-level/home folder maps to /drive itself.
   let folderId = node.parentId;
   try {
@@ -76,15 +80,16 @@ export default async function EditDocPage({
   } catch (e) {
     unstable_rethrow(e);
   }
+  const access = await accessP;
 
   let editor: Awaited<ReturnType<typeof editorUrlFor>> = null;
   try {
     editor = await editorUrlFor(base, node.name);
   } catch (e) {
     unstable_rethrow(e);
-    return shell(node, <Notice title={t("editorError")} />, { folderId });
+    return shell(node, <Notice title={t("editorError")} />, { folderId, access });
   }
-  if (!editor) return shell(node, <Notice title={t("unsupported")} hint={t("unsupportedHint")} />, { folderId });
+  if (!editor) return shell(node, <Notice title={t("unsupported")} hint={t("unsupportedHint")} />, { folderId, access });
 
   // Collabora calls WOPISrc server-to-server: a loopback host can never be reached from it.
   if (wopiIsLocal()) {
@@ -104,7 +109,7 @@ export default async function EditDocPage({
           </a>
         )}
       </Notice>,
-      { folderId },
+      { folderId, access },
     );
   }
 
@@ -115,7 +120,9 @@ export default async function EditDocPage({
 
   return shell(node, null, {
     folderId,
-    readOnly: !editor.canEdit,
+    access,
+    // Collabora also gets UserCanWrite from myRights in CheckFileInfo; this only drives the bar.
+    readOnly: !editor.canEdit || access?.canEdit === false,
     frame: { action, origin: new URL(base).origin, token, ttl, title: t("editorTitle", { name: node.name }) },
   });
 }
