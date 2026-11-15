@@ -153,8 +153,13 @@ function withTitle(m: JobMeeting): JobMeeting {
 
 function fileName(m: JobMeeting): string {
   const { date, time } = formatWhen(m.summary.startedAt, m.timeZone);
-  const title = m.summary.title.replace(/[\u0000-\u001f\u007f/\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 150);
-  return `${date} ${time} ${title || m.summary.room}.md`;
+  // Stalwart rejects ':' (and other reserved characters) in FileNode names: "14:05" → "14.05".
+  const title = m.summary.title
+    .replace(/[\u0000-\u001f\u007f/\\:*?"<>|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 150);
+  return `${date} ${time.replace(/:/g, ".")} ${title || m.summary.room}.md`;
 }
 
 /** The starter's stored session, refreshed through OIDC when its access token has expired. */

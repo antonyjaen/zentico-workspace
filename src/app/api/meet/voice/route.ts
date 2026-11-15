@@ -32,7 +32,11 @@ import { ROOM_PATTERN } from "@/app/(apps)/meet/shared";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const WHISPER_TIMEOUT_MS = 20_000;
+const WHISPER_TIMEOUT_MS = 30_000;
+/** Whisper (CPU) works one request at a time and keeps working on requests we've abandoned, so
+ * windows that pile up snowball into timeouts. Allow one window in flight per user, few overall. */
+const MAX_IN_FLIGHT = 3;
+const inFlight = new Set<string>();
 /** A command that runs into the window's end waits for at most this many more windows. */
 const MAX_CONTINUATIONS = 2;
 const CONTINUE_WAIT_MS = 8000;
@@ -93,9 +97,18 @@ export async function POST(req: NextRequest) {
   if (Number.isFinite(length) && length > VOICE_MAX_BYTES + 16 * 1024) return jsonError("too_large", 413);
   if (!takeWindowSlot(session.email, VOICE_MIN_INTERVAL_MS)) return jsonError("rate_limited", 429);
   if (!hasWriteToken(session.sub)) return jsonError("no_token", 412);
+  if (inFlight.has(session.email) || inFlight.size >= MAX_IN_FLIGHT) return respond({ ok: true, heard: "", busy: true } as VoiceResponse);
+  inFlight.add(session.email);
+  try {
+    return await handleWindow(req, session);
+  } finally {
+    inFlight.delete(session.email);
+  }
+}
+
+async function handleWindow(req: NextRequest, session: Session) {
   const cfg = whisperConfig();
   if (!cfg) return jsonError("not_configured", 503);
-
   let form: FormData;
   try {
     form = await req.formData();
