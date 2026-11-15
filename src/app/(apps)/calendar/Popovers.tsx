@@ -1,10 +1,12 @@
 "use client";
 
-import { AlignLeft, Bell, CalendarDays, Clock, MapPin, Pencil, Repeat, Trash2, Users, X } from "lucide-react";
+import { AlignLeft, Bell, CalendarDays, Clock, MapPin, Pencil, Repeat, Trash2, Users, Video, X } from "lucide-react";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CalEvent, Calendar, ParticipationStatus } from "@/lib/calendar";
-import { BTN, BTN_PRIMARY, eventTimeLabel, FIELD, fmt, fmtDay, type Anchor, type Slot } from "./shared";
+import { meetHref } from "../meet/shared";
+import { BTN, BTN_MEET, BTN_PRIMARY, eventTimeLabel, FIELD, fmt, fmtDay, meetCodeOf, type Anchor, type Slot } from "./shared";
 import { addDays } from "./time";
 
 /** A fixed-position card near `anchor`, clamped to the viewport; closes on outside press / Escape. */
@@ -160,6 +162,7 @@ export function EventDetails({
   const t = useTranslations("calendar");
   const guests = ev.participants;
   const color = calendar?.color ?? "var(--color-app-calendar)";
+  const meetCode = meetCodeOf(ev.location, ev.description);
 
   return (
     <Floating anchor={anchor} onClose={onClose} width={380} label={ev.title || t("untitled")}>
@@ -190,6 +193,13 @@ export function EventDetails({
             )}
           </div>
         </div>
+        {meetCode && (
+          <Row icon={<Video size={15} aria-hidden />}>
+            <Link href={meetHref(meetCode)} className={BTN_MEET} style={{ background: "var(--color-app-meet)" }}>
+              {t("details.joinMeeting")}
+            </Link>
+          </Row>
+        )}
         {ev.location && (
           <Row icon={<MapPin size={15} aria-hidden />}>
             <span className="break-words">{ev.location}</span>

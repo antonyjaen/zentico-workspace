@@ -54,7 +54,10 @@
       "endBeforeStart": "El evento debe terminar después de empezar.",
       "save": "Guardar",
       "saving": "Guardando…",
-      "cancel": "Cancelar"
+      "cancel": "Cancelar",
+      "addVideo": "Añadir videollamada",
+      "videoAdded": "Videollamada añadida",
+      "removeVideo": "Quitar videollamada"
     },
     "repeat": {
       "none": "No se repite",
@@ -76,7 +79,8 @@
       "delete": "Eliminar",
       "close": "Cerrar",
       "guests": "{count, plural, one {# invitado} other {# invitados}}",
-      "organizer": "Organizador"
+      "organizer": "Organizador",
+      "joinMeeting": "Unirse a la reunión"
     },
     "status": {
       "accepted": "Asistirá",

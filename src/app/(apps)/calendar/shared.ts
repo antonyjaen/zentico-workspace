@@ -120,3 +120,17 @@ export function defaultSlot(tz: string, now = Date.now()): Slot {
   const start = Math.ceil(now / 3_600_000) * 3_600_000;
   return { allDay: false, start, end: start + 3_600_000 };
 }
+
+const MEET_LINK = /\/meet\/([a-z0-9-]{3,64})/;
+
+/** Meet room code linked from the event's location or description, if any. */
+export const meetCodeOf = (...texts: (string | null | undefined)[]): string | null => {
+  for (const s of texts) {
+    const m = s?.match(MEET_LINK);
+    if (m) return m[1];
+  }
+  return null;
+};
+
+export const BTN_MEET =
+  "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium text-white transition-opacity hover:opacity-90";

@@ -1,9 +1,11 @@
 "use client";
 
 import { MapPin, Repeat } from "lucide-react";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
 import type { CalEvent } from "@/lib/calendar";
-import { eventDays, fmtDay, fmtTime, isBand, type Anchor } from "./shared";
+import { meetHref } from "../meet/shared";
+import { BTN_MEET, eventDays, fmtDay, fmtTime, isBand, meetCodeOf, type Anchor } from "./shared";
 import { addDays } from "./time";
 
 type Props = {
@@ -60,15 +62,16 @@ export function Agenda({ days, events, tz, locale, todayKey, colorOf, onOpen, on
                 const band = isBand(ev);
                 const r = eventDays(ev, tz);
                 const last = addDays(r.end, -1);
+                const meetCode = meetCodeOf(ev.location, ev.description);
                 return (
-                  <li key={ev.id}>
+                  <li key={ev.id} className="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={(e) => {
                         const rect = e.currentTarget.getBoundingClientRect();
                         onOpen(ev, { x: Math.min(rect.left + 360, rect.right), y: rect.top });
                       }}
-                      className={`flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left text-[14px] transition-colors hover:bg-hover ${ev.myStatus === "declined" ? "line-through opacity-60" : ""}`}
+                      className={`flex min-w-0 flex-1 items-center gap-3 rounded-md px-2 py-1.5 text-left text-[14px] transition-colors hover:bg-hover ${ev.myStatus === "declined" ? "line-through opacity-60" : ""}`}
                     >
                       <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: colorOf(ev) }} />
                       <span className="w-36 shrink-0 text-[13px] text-ink-soft tabular-nums">
@@ -89,6 +92,11 @@ export function Agenda({ days, events, tz, locale, todayKey, colorOf, onOpen, on
                         </span>
                       )}
                     </button>
+                    {meetCode && (
+                      <Link href={meetHref(meetCode)} className={BTN_MEET} style={{ background: "var(--color-app-meet)" }}>
+                        {t("details.joinMeeting")}
+                      </Link>
+                    )}
                   </li>
                 );
               })}

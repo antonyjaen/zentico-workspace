@@ -1,12 +1,13 @@
 "use client";
 
-import { AlignLeft, Bell, CalendarDays, Clock, Globe, MapPin, Plus, Repeat, Trash2, Users, X } from "lucide-react";
+import { AlignLeft, Bell, CalendarDays, Clock, Globe, MapPin, Plus, Repeat, Trash2, Users, Video, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import type { Calendar, Participant } from "@/lib/calendar";
 import type { EventInput } from "./actions";
 import { reminderLabel } from "./Popovers";
-import { BTN, BTN_PRIMARY, FIELD } from "./shared";
+import { generateRoomCode } from "../meet/shared";
+import { BTN, BTN_PRIMARY, FIELD, meetCodeOf } from "./shared";
 import { addDays, diffDays, keyToUtc, minutesToHHMM, utcToKey } from "./time";
 
 export type EditorState = {
@@ -257,7 +258,28 @@ export function EventEditor({
           </Field>
 
           <Field icon={<MapPin size={16} aria-hidden />}>
-            <input value={v.location} onChange={(e) => set("location", e.target.value)} placeholder={t("editor.location")} aria-label={t("editor.location")} maxLength={500} className={FIELD} />
+            <div className="flex gap-2">
+              <input value={v.location} onChange={(e) => set("location", e.target.value)} placeholder={t("editor.location")} aria-label={t("editor.location")} maxLength={500} className={FIELD} />
+              {meetCodeOf(v.location) ? (
+                <span className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-sheet-muted pr-1 pl-3 text-[13px] text-ink-soft">
+                  <Video size={14} aria-hidden style={{ color: "var(--color-app-meet)" }} />
+                  {t("editor.videoAdded")}
+                  <button
+                    type="button"
+                    className="icon-btn !h-7 !w-7"
+                    aria-label={t("editor.removeVideo")}
+                    onClick={() => set("location", v.location.replace(/\S*\/meet\/[a-z0-9-]{3,64}\S*/, "").trim())}
+                  >
+                    <X size={14} aria-hidden />
+                  </button>
+                </span>
+              ) : (
+                <button type="button" className={`${BTN} h-9 shrink-0`} onClick={() => set("location", `${window.location.origin}/meet/${generateRoomCode()}`)}>
+                  <Video size={14} aria-hidden />
+                  {t("editor.addVideo")}
+                </button>
+              )}
+            </div>
           </Field>
 
           <Field icon={<CalendarDays size={16} aria-hidden />}>

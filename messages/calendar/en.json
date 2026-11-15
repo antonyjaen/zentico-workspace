@@ -54,7 +54,10 @@
       "endBeforeStart": "The event must end after it starts.",
       "save": "Save",
       "saving": "Saving…",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "addVideo": "Add video meeting",
+      "videoAdded": "Video meeting added",
+      "removeVideo": "Remove video meeting"
     },
     "repeat": {
       "none": "Does not repeat",
@@ -76,7 +79,8 @@
       "delete": "Delete",
       "close": "Close",
       "guests": "{count, plural, one {# guest} other {# guests}}",
-      "organizer": "Organizer"
+      "organizer": "Organizer",
+      "joinMeeting": "Join meeting"
     },
     "status": {
       "accepted": "Going",
