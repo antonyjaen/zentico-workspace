@@ -1,5 +1,4 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { setRecordingHint } from "@/lib/meetings/language";
 import { getSession } from "@/lib/auth";
 import { isValidRoom } from "@/lib/livekit";
 import { enqueue } from "@/lib/meetings/jobs";
@@ -38,8 +37,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const ui = (req.cookies.get("zw_locale")?.value ?? req.headers.get("accept-language") ?? "").toLowerCase().match(/^(es|en)/);
-  setRecordingHint(room, ui ? ui[1] : null);
   try {
     const { id, startedAt, replaced } = await startRecording({ room, title, timeZone, session });
     if (replaced) enqueue(replaced);

@@ -6,7 +6,6 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getSession } from "@/lib/auth";
 import { createCommand, cleanTimeZone, hasWriteToken } from "@/lib/meetings/claude-commands";
 import { jsonError, NO_STORE, sameOrigin } from "@/lib/meetings/http";
-import { meetingLanguage } from "@/lib/meetings/language";
 import { transcribeAudio, whisperConfig } from "@/lib/meetings/transcribe";
 import {
   controlOf,
@@ -32,7 +31,7 @@ import { ROOM_PATTERN } from "@/app/(apps)/meet/shared";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const WHISPER_TIMEOUT_MS = 30_000;
+const WHISPER_TIMEOUT_MS = 60_000;
 /** Whisper (CPU) works one request at a time and keeps working on requests we've abandoned, so
  * windows that pile up snowball into timeouts. Allow one window in flight per user, few overall. */
 const MAX_IN_FLIGHT = 3;
@@ -140,15 +139,9 @@ async function handleWindow(req: NextRequest, session: Session) {
   let audio: Uint8Array | null = new Uint8Array(await file.arrayBuffer());
   let result;
   try {
-    // Detect the meeting's language first, then transcribe every window in it (see language.ts).
-    // Auto-detection on short windows proved unreliable live (Spanish heard as English), so the
-    // user's own UI language is used; a locked meeting language (or WHISPER_LANGUAGE) overrides it.
-    const language = cfg.language ?? meetingLanguage(room) ?? localeHint(req);
-    result = await transcribeAudio(cfg, audio, mime, {
-      timeoutMs: WHISPER_TIMEOUT_MS,
-      prompt: "Claude,",
-      language,
-    });
+    // Language is auto-detected per clip (large-v3-turbo detects reliably and people switch
+    // between Spanish and English); WHISPER_LANGUAGE pins it when set.
+    result = await transcribeAudio(cfg, audio, mime, { timeoutMs: WHISPER_TIMEOUT_MS, prompt: "Claude," });
   } catch (e) {
     // Only the status/summary, never the audio.
     console.error("[voice] transcription:", e instanceof Error ? e.message.slice(0, 200) : "failed");
@@ -158,7 +151,7 @@ async function handleWindow(req: NextRequest, session: Session) {
   }
 
   const segments = result.segments;
-  console.info(`[voice] lang=${meetingLanguage(room) ?? `detecting(${result.language ?? "?"})`} heard=${segments.reduce((n, x) => n + x.text.length, 0)}ch`);
+  console.info(`[voice] lang=${result.language ?? "?"} heard=${segments.reduce((n, x) => n + x.text.length, 0)}ch`);
   const heard = segments.map((s) => s.text).join(" ").trim();
   const duration = result.duration ?? durationMs / 1000;
   if (heard) addUtterance(session.email, room, heard);
@@ -194,9 +187,3 @@ async function handleWindow(req: NextRequest, session: Session) {
   }
 }
 
-/** The user's UI language (zw_locale cookie, else Accept-Language), as a Whisper language hint. */
-function localeHint(req: NextRequest): string | null {
-  const c = req.cookies.get("zw_locale")?.value ?? req.headers.get("accept-language") ?? "";
-  const m = c.toLowerCase().match(/^(es|en)/);
-  return m ? m[1] : null;
-}
