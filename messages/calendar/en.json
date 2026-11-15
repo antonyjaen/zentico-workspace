@@ -1,1 +1,102 @@
-{}
+{
+  "calendar": {
+    "create": "Create",
+    "today": "Today",
+    "prev": "Previous",
+    "next": "Next",
+    "allDay": "All day",
+    "untitled": "(No title)",
+    "more": "{count} more",
+    "noEvents": "No events in this period.",
+    "calendars": "My calendars",
+    "viewLabel": "View",
+    "views": { "day": "Day", "week": "Week", "month": "Month", "agenda": "Agenda" },
+    "notExpanded": "Showing first occurrences",
+    "notExpandedHint": "This server doesn't expand repeating events yet, so only the first occurrence of each series is shown.",
+    "confirmDelete": "Delete this event?",
+    "confirmDeleteSeries": "Delete every event in this series?",
+    "unavailable": {
+      "title": "Calendar isn't available on this server yet",
+      "body": "We couldn't reach a calendar on your Zentico mail server. It may not be enabled for your account yet — your other apps keep working.",
+      "back": "Back to Mail"
+    },
+    "quick": {
+      "label": "New event",
+      "titlePlaceholder": "Add title",
+      "moreOptions": "More options"
+    },
+    "editor": {
+      "newTitle": "New event",
+      "editTitle": "Edit event",
+      "title": "Title",
+      "start": "Start date",
+      "startTime": "Start time",
+      "end": "End date",
+      "endTime": "End time",
+      "timeZone": "Time zone",
+      "repeat": "Repeat",
+      "location": "Add location",
+      "description": "Add description",
+      "calendar": "Calendar",
+      "guests": "Guests",
+      "guestPlaceholder": "Add guests by email",
+      "addGuest": "Add",
+      "removeGuest": "Remove {email}",
+      "role": "Role",
+      "required": "Required",
+      "optional": "Optional",
+      "invitesNote": "Guests receive an email invitation when you save.",
+      "reminders": "Reminder",
+      "addReminder": "Add reminder",
+      "removeReminder": "Remove reminder",
+      "seriesNote": "Changes apply to every event in this series.",
+      "invalidEmail": "“{email}” isn't a valid email address.",
+      "endBeforeStart": "The event must end after it starts.",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel"
+    },
+    "repeat": {
+      "none": "Does not repeat",
+      "daily": "Every day",
+      "weekly": "Every week",
+      "monthly": "Every month",
+      "yearly": "Every year",
+      "custom": "Custom repeat"
+    },
+    "reminders": {
+      "atStart": "At start time",
+      "minutes": "{count, plural, one {# minute before} other {# minutes before}}",
+      "hours": "{count, plural, one {# hour before} other {# hours before}}",
+      "days": "{count, plural, one {# day before} other {# days before}}",
+      "weeks": "{count, plural, one {# week before} other {# weeks before}}"
+    },
+    "details": {
+      "edit": "Edit event",
+      "delete": "Delete",
+      "close": "Close",
+      "guests": "{count, plural, one {# guest} other {# guests}}",
+      "organizer": "Organizer"
+    },
+    "status": {
+      "accepted": "Going",
+      "tentative": "Maybe",
+      "declined": "Declined",
+      "needs-action": "Awaiting",
+      "delegated": "Delegated"
+    },
+    "rsvp": {
+      "prompt": "Going?",
+      "accepted": "Yes",
+      "tentative": "Maybe",
+      "declined": "No"
+    },
+    "errors": {
+      "save": "We couldn't save the event. Please try again.",
+      "move": "We couldn't move the event.",
+      "delete": "We couldn't delete the event.",
+      "rsvp": "We couldn't send your response.",
+      "generic": "Something went wrong. Please try again."
+    }
+  }
+}

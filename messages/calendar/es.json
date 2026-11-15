@@ -1,1 +1,102 @@
-{}
+{
+  "calendar": {
+    "create": "Crear",
+    "today": "Hoy",
+    "prev": "Anterior",
+    "next": "Siguiente",
+    "allDay": "Todo el día",
+    "untitled": "(Sin título)",
+    "more": "{count} más",
+    "noEvents": "No hay eventos en este periodo.",
+    "calendars": "Mis calendarios",
+    "viewLabel": "Vista",
+    "views": { "day": "Día", "week": "Semana", "month": "Mes", "agenda": "Agenda" },
+    "notExpanded": "Mostrando primeras repeticiones",
+    "notExpandedHint": "Este servidor aún no expande los eventos periódicos, así que solo se muestra la primera repetición de cada serie.",
+    "confirmDelete": "¿Eliminar este evento?",
+    "confirmDeleteSeries": "¿Eliminar todos los eventos de esta serie?",
+    "unavailable": {
+      "title": "El calendario aún no está disponible en este servidor",
+      "body": "No pudimos acceder a un calendario en tu servidor de correo de Zentico. Puede que aún no esté activado para tu cuenta; el resto de tus apps sigue funcionando.",
+      "back": "Volver al correo"
+    },
+    "quick": {
+      "label": "Nuevo evento",
+      "titlePlaceholder": "Añade un título",
+      "moreOptions": "Más opciones"
+    },
+    "editor": {
+      "newTitle": "Nuevo evento",
+      "editTitle": "Editar evento",
+      "title": "Título",
+      "start": "Fecha de inicio",
+      "startTime": "Hora de inicio",
+      "end": "Fecha de fin",
+      "endTime": "Hora de fin",
+      "timeZone": "Zona horaria",
+      "repeat": "Repetir",
+      "location": "Añadir ubicación",
+      "description": "Añadir descripción",
+      "calendar": "Calendario",
+      "guests": "Invitados",
+      "guestPlaceholder": "Añade invitados por correo",
+      "addGuest": "Añadir",
+      "removeGuest": "Quitar a {email}",
+      "role": "Rol",
+      "required": "Obligatorio",
+      "optional": "Opcional",
+      "invitesNote": "Los invitados recibirán una invitación por correo al guardar.",
+      "reminders": "Recordatorio",
+      "addReminder": "Añadir recordatorio",
+      "removeReminder": "Quitar recordatorio",
+      "seriesNote": "Los cambios se aplican a todos los eventos de esta serie.",
+      "invalidEmail": "«{email}» no es una dirección de correo válida.",
+      "endBeforeStart": "El evento debe terminar después de empezar.",
+      "save": "Guardar",
+      "saving": "Guardando…",
+      "cancel": "Cancelar"
+    },
+    "repeat": {
+      "none": "No se repite",
+      "daily": "Cada día",
+      "weekly": "Cada semana",
+      "monthly": "Cada mes",
+      "yearly": "Cada año",
+      "custom": "Repetición personalizada"
+    },
+    "reminders": {
+      "atStart": "A la hora de inicio",
+      "minutes": "{count, plural, one {# minuto antes} other {# minutos antes}}",
+      "hours": "{count, plural, one {# hora antes} other {# horas antes}}",
+      "days": "{count, plural, one {# día antes} other {# días antes}}",
+      "weeks": "{count, plural, one {# semana antes} other {# semanas antes}}"
+    },
+    "details": {
+      "edit": "Editar evento",
+      "delete": "Eliminar",
+      "close": "Cerrar",
+      "guests": "{count, plural, one {# invitado} other {# invitados}}",
+      "organizer": "Organizador"
+    },
+    "status": {
+      "accepted": "Asistirá",
+      "tentative": "Quizás",
+      "declined": "Rechazado",
+      "needs-action": "Pendiente",
+      "delegated": "Delegado"
+    },
+    "rsvp": {
+      "prompt": "¿Asistirás?",
+      "accepted": "Sí",
+      "tentative": "Quizás",
+      "declined": "No"
+    },
+    "errors": {
+      "save": "No pudimos guardar el evento. Inténtalo de nuevo.",
+      "move": "No pudimos mover el evento.",
+      "delete": "No pudimos eliminar el evento.",
+      "rsvp": "No pudimos enviar tu respuesta.",
+      "generic": "Algo salió mal. Inténtalo de nuevo."
+    }
+  }
+}
