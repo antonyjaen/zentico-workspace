@@ -16,10 +16,10 @@ export default async function UpcomingApp({ params }: { params: Promise<{ app: s
     <main className="sheet grid flex-1 place-items-center p-8">
       <div className="rise max-w-md text-center">
         <span
-          className="mx-auto grid h-16 w-16 place-items-center rounded-3xl"
-          style={{ background: `color-mix(in oklab, ${meta.color} 14%, transparent)`, color: meta.color }}
+          className="mx-auto grid h-14 w-14 place-items-center rounded-xl border border-line bg-sheet-muted"
+          style={{ color: meta.color }}
         >
-          <Icon size={30} aria-hidden />
+          <Icon size={26} aria-hidden />
         </span>
         <h1 className="mt-6 text-[24px] font-semibold tracking-tight text-ink">
           {t("title", { app: tApps(app as AppId) })}
@@ -27,7 +27,7 @@ export default async function UpcomingApp({ params }: { params: Promise<{ app: s
         <p className="mt-3 text-[15px] leading-relaxed text-ink-soft">{t("body")}</p>
         <Link
           href="/mail"
-          className="mt-8 inline-flex items-center gap-2 rounded-full border border-line-strong px-5 py-2.5 text-[14px] font-medium text-ink-soft transition-colors hover:bg-hover hover:text-ink"
+          className="mt-8 inline-flex h-10 items-center gap-2 rounded-lg border border-line px-4 text-[14px] font-medium text-ink-soft transition-colors hover:border-line-strong hover:bg-hover hover:text-ink"
         >
           <ArrowLeft size={16} aria-hidden />
           {t("back")}

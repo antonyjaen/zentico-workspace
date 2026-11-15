@@ -34,13 +34,13 @@ export function AppLauncher() {
                 role="menuitem"
                 href={href}
                 onClick={() => setOpen(false)}
-                className="flex flex-col items-center gap-2 rounded-xl px-2 py-3 text-[12.5px] text-ink-soft transition-colors hover:bg-hover hover:text-ink"
+                className="flex flex-col items-center gap-2 rounded-lg px-2 py-3 text-[12.5px] text-ink-soft transition-colors hover:bg-hover hover:text-ink"
               >
                 <span
-                  className="grid h-11 w-11 place-items-center rounded-2xl"
-                  style={{ background: `color-mix(in oklab, ${color} 14%, transparent)`, color }}
+                  className="grid h-10 w-10 place-items-center rounded-lg border border-line bg-sheet-muted"
+                  style={{ color }}
                 >
-                  <Icon size={22} aria-hidden />
+                  <Icon size={19} aria-hidden />
                 </span>
                 {t(id)}
               </Link>

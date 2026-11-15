@@ -32,12 +32,12 @@ export function MailboxNav({ mailboxes }: { mailboxes: Mailbox[] }) {
             key={m.id}
             href={href}
             aria-current={active ? "page" : undefined}
-            className="flex h-9 items-center gap-4 rounded-r-full rounded-l-full pl-4 pr-4 text-[14px] text-ink-soft transition-colors hover:bg-hover aria-[current=page]:bg-primary-soft aria-[current=page]:font-semibold aria-[current=page]:text-primary-soft-ink"
+            className="flex h-8 items-center gap-3 rounded-md px-3 text-[14px] text-ink-soft transition-colors hover:bg-hover hover:text-ink aria-[current=page]:bg-primary-soft aria-[current=page]:font-medium aria-[current=page]:text-ink"
           >
-            <Icon size={17} aria-hidden className="shrink-0" />
+            <Icon size={16} aria-hidden className="shrink-0" />
             <span className="flex-1 truncate">{label}</span>
             {showCount && (
-              <span className={`text-[12.5px] tabular-nums ${active ? "" : "font-semibold text-ink"}`}>
+              <span className="font-mono text-[12px] tabular-nums text-ink-mute">
                 {m.unreadEmails}
               </span>
             )}

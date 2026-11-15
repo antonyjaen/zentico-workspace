@@ -1,8 +1,9 @@
 # Zentico Workspace — Plan
 
 A private, self-hosted workspace (mail, calendar, contacts, drive, docs, meetings) with a
-familiar Google-Workspace-style layout and a calm, privacy-first tone inspired by Proton —
-in Zentico's own visual identity (no Google/Proton logos, colors, fonts or icons).
+familiar Google-Workspace-style layout, a privacy-first tone inspired by Proton, and a
+Vercel-style visual system (monochrome, Geist, 1px hairlines, tight radii) — in Zentico's own
+identity (no Google/Proton/Vercel logos or trade dress).
 
 Lives at **team.zentico.dev**, linked from the zentico.dev header.
 
@@ -13,8 +14,9 @@ Lives at **team.zentico.dev**, linked from the zentico.dev header.
 - **One login.** Sign in with the email address and email password (OIDC via Stalwart).
 - **Private by default.** Tokens never reach the browser; remote images blocked; HTML mail
   sanitized and isolated; everything stays on Zentico infrastructure.
-- **Familiar, not copied.** Launcher, search bar, app rail, floating sheet, keyboard shortcuts —
-  with Zentico colors, Onest + IBM Plex Mono, and its own icon language.
+- **Familiar, not copied.** Launcher, search bar, app rail, keyboard shortcuts — in a
+  monochrome "Monochrome Grid" system: Geist + Geist Mono, hairline borders instead of shadows,
+  solid-ink primary actions, Zentico cobalt only for focus/links, gradient avatars, dark mode first.
 - **Each module replaces its Nextcloud counterpart only when it's better.**
 
 ## Architecture
@@ -36,7 +38,8 @@ team.zentico.dev (Next.js · React · Tailwind v4 · next-intl)
 
 ### 0. Foundation — done
 - [x] Project scaffold (Next.js 15, React 19, Tailwind v4, TypeScript strict, ES/EN)
-- [x] "Quiet Cobalt" design tokens, light + dark (system-aware, no flash)
+- [x] Vercel-style design tokens (Geist, monochrome, hairlines), light + dark (system-aware, no flash)
+- [x] "/" to focus search
 - [x] OIDC sign-in with Stalwart (PKCE, encrypted session, token refresh, logout)
 - [x] Workspace shell: app rail, search bar, app launcher, theme menu, account menu
 - [x] Mail: folder list with unread counts, message list, pagination, full-text search

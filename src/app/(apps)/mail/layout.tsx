@@ -18,9 +18,9 @@ export default async function MailLayout({ children }: { children: React.ReactNo
           type="button"
           disabled
           title="Coming soon"
-          className="mb-4 ml-1 inline-flex h-14 w-fit items-center gap-3 rounded-2xl bg-primary-soft px-5 text-[15px] font-medium text-primary-soft-ink shadow-[var(--shadow-sheet)] transition-all duration-200 hover:shadow-[var(--shadow-pop)] disabled:cursor-not-allowed disabled:opacity-70"
+          className="mb-4 ml-1 inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-[14px] font-medium text-primary-ink transition-colors duration-150 hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
         >
-          <Pencil size={18} aria-hidden />
+          <Pencil size={15} aria-hidden />
           {t("compose")}
         </button>
         <MailboxNav mailboxes={mailboxes} />

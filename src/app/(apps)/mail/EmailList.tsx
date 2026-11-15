@@ -80,7 +80,7 @@ export async function EmailList({
             return (
               <li
                 key={e.id}
-                className="rise group flex h-11 cursor-default items-center gap-4 border-b border-line/70 px-5 text-[14px] transition-colors hover:bg-hover hover:shadow-[inset_3px_0_0_var(--color-primary)]"
+                className="rise group flex h-11 cursor-default items-center gap-4 border-b border-line/70 px-5 text-[14px] transition-colors hover:bg-hover"
                 style={{ animationDelay: `${Math.min(i, 12) * 18}ms` }}
               >
                 <span

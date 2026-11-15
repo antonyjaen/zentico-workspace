@@ -1,18 +1,13 @@
 import type { Metadata } from "next";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getTranslations } from "next-intl/server";
-import { IBM_Plex_Mono, Onest } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import { cookies } from "next/headers";
 import { THEME_COOKIE, type Theme } from "@/lib/theme";
 import "./globals.css";
 
-const onest = Onest({ subsets: ["latin"], variable: "--font-onest", display: "swap" });
-const plexMono = IBM_Plex_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500"],
-  variable: "--font-plex-mono",
-  display: "swap",
-});
+const geist = Geist({ subsets: ["latin"], variable: "--font-geist", display: "swap" });
+const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono", display: "swap" });
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations("meta");
@@ -31,7 +26,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       lang={locale}
       data-theme={theme}
       data-theme-pref={theme}
-      className={`${onest.variable} ${plexMono.variable}`}
+      className={`${geist.variable} ${geistMono.variable}`}
       suppressHydrationWarning
     >
       <head>
