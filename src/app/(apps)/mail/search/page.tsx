@@ -1,7 +1,7 @@
 import { getTranslations } from "next-intl/server";
 import { redirect, unstable_rethrow } from "next/navigation";
 import { EmailList, PAGE_SIZE } from "../EmailList";
-import { getEmails } from "@/lib/mail";
+import { getEmails, getMailboxes } from "@/lib/mail";
 
 export default async function SearchPage({
   searchParams,
@@ -15,7 +15,10 @@ export default async function SearchPage({
   const t = await getTranslations("mail");
 
   try {
-    const { emails, total } = await getEmails({ text: query }, { limit: PAGE_SIZE, position: page * PAGE_SIZE });
+    const [{ emails, total }, mailboxes] = await Promise.all([
+      getEmails({ text: query }, { limit: PAGE_SIZE, position: page * PAGE_SIZE }),
+      getMailboxes(),
+    ]);
     return (
       <EmailList
         emails={emails}
@@ -23,6 +26,8 @@ export default async function SearchPage({
         page={page}
         basePath={`/mail/search?q=${encodeURIComponent(query)}`}
         emptyText={t("empty")}
+        mailboxId="search"
+        mailboxes={mailboxes}
       />
     );
   } catch (e) {

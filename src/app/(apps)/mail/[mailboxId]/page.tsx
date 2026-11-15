@@ -27,6 +27,8 @@ export default async function MailboxPage({
         page={page}
         basePath={`/mail/${mailboxId}`}
         emptyText={isInbox ? t("emptyInbox") : t("empty")}
+        mailboxId={mailboxId}
+        mailboxes={mailboxes}
       />
     );
   } catch (e) {

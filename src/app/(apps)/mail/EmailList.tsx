@@ -1,7 +1,8 @@
-import { ChevronLeft, ChevronRight, Paperclip, RotateCw } from "lucide-react";
 import { getLocale, getTranslations } from "next-intl/server";
-import Link from "next/link";
-import type { EmailSummary } from "@/lib/mail";
+import { cookies } from "next/headers";
+import type { Mailbox, ThreadSummary } from "@/lib/mail";
+import { DENSITY_COOKIE, parseDensity } from "./listShared";
+import { MailListClient, type MailRow } from "./MailListClient";
 
 export const PAGE_SIZE = 50;
 
@@ -15,98 +16,69 @@ function formatDate(iso: string, locale: string) {
   return new Intl.DateTimeFormat(locale, { dateStyle: "short" }).format(d);
 }
 
+/** Server shell for a conversation list: formats rows, then hands off to the interactive client. */
 export async function EmailList({
   emails,
   total,
   page,
   basePath,
   emptyText,
+  mailboxId,
+  mailboxes,
 }: {
-  emails: EmailSummary[];
+  emails: ThreadSummary[];
   total: number;
   page: number;
   basePath: string;
   emptyText: string;
+  /** The listed mailbox id, or "search". */
+  mailboxId: string;
+  mailboxes: Mailbox[];
 }) {
   const t = await getTranslations("mail");
   const locale = await getLocale();
+  const density = parseDensity((await cookies()).get(DENSITY_COOKIE)?.value);
   const from = total === 0 ? 0 : page * PAGE_SIZE + 1;
   const to = Math.min(total, (page + 1) * PAGE_SIZE);
   const sep = basePath.includes("?") ? "&" : "?";
   const pageHref = (p: number) => (p === 0 ? basePath : `${basePath}${sep}page=${p}`);
+  const draftsId = mailboxes.find((m) => m.role === "drafts")?.id;
+  const full = new Intl.DateTimeFormat(locale, { dateStyle: "full", timeStyle: "short" });
+
+  const rows: MailRow[] = emails.map((e) => {
+    const sender = e.from?.[0];
+    return {
+      key: e.threadId,
+      emailId: e.id,
+      threadId: e.threadId,
+      emailIds: e.emailIds,
+      isDraft: !!e.keywords?.["$draft"] || (!!draftsId && !!e.mailboxIds[draftsId]),
+      sender: sender?.name || sender?.email || t("unknownSender"),
+      senderEmail: sender?.email,
+      subject: e.subject ?? "",
+      preview: e.preview ?? "",
+      receivedAt: e.receivedAt,
+      dateLabel: formatDate(e.receivedAt, locale),
+      dateTitle: full.format(new Date(e.receivedAt)),
+      hasAttachment: e.hasAttachment,
+      threadSize: e.threadSize,
+      unread: e.unread,
+      flagged: e.flagged,
+    };
+  });
 
   return (
-    <>
-      <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-3">
-        <Link href={pageHref(page)} className="icon-btn h-9 w-9" aria-label={t("refresh")} title={t("refresh")}>
-          <RotateCw size={17} aria-hidden />
-        </Link>
-        <span className="ml-auto font-mono text-[12px] tabular-nums text-ink-mute">
-          {t("range", { from, to, total })}
-        </span>
-        <Link
-          href={pageHref(page - 1)}
-          aria-disabled={page === 0}
-          className="icon-btn h-9 w-9 aria-disabled:pointer-events-none aria-disabled:opacity-35"
-          aria-label="Previous page"
-        >
-          <ChevronLeft size={18} aria-hidden />
-        </Link>
-        <Link
-          href={pageHref(page + 1)}
-          aria-disabled={to >= total}
-          className="icon-btn h-9 w-9 aria-disabled:pointer-events-none aria-disabled:opacity-35"
-          aria-label="Next page"
-        >
-          <ChevronRight size={18} aria-hidden />
-        </Link>
-      </div>
-
-      {emails.length === 0 ? (
-        <div className="grid flex-1 place-items-center p-10 text-center">
-          <div className="rise">
-            <p className="text-[17px] font-medium text-ink">{emptyText}</p>
-            <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.2em] text-ink-mute">
-              {t("empty")}
-            </p>
-          </div>
-        </div>
-      ) : (
-        <ul className="flex-1 overflow-y-auto">
-          {emails.map((e, i) => {
-            const unread = !e.keywords?.["$seen"];
-            const sender = e.from?.[0];
-            const senderLabel = sender?.name || sender?.email || t("unknownSender");
-            return (
-              <li
-                key={e.id}
-                className="rise group flex h-11 cursor-default items-center gap-4 border-b border-line/70 px-5 text-[14px] transition-colors hover:bg-hover"
-                style={{ animationDelay: `${Math.min(i, 12) * 18}ms` }}
-              >
-                <span
-                  className={`w-[200px] shrink-0 truncate ${unread ? "font-semibold text-ink" : "text-ink-soft"}`}
-                  title={sender?.email}
-                >
-                  {senderLabel}
-                </span>
-                <span className="min-w-0 flex-1 truncate">
-                  <span className={unread ? "font-semibold text-ink" : "text-ink-soft"}>
-                    {e.subject || t("noSubject")}
-                  </span>
-                  {e.preview && <span className="text-ink-mute"> — {e.preview}</span>}
-                </span>
-                {e.hasAttachment && <Paperclip size={15} className="shrink-0 text-ink-mute" aria-label="Attachment" />}
-                <time
-                  dateTime={e.receivedAt}
-                  className={`w-16 shrink-0 text-right text-[12.5px] tabular-nums ${unread ? "font-semibold text-ink" : "text-ink-mute"}`}
-                >
-                  {formatDate(e.receivedAt, locale)}
-                </time>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </>
+    <MailListClient
+      rows={rows}
+      mailboxId={mailboxId}
+      role={mailboxes.find((m) => m.id === mailboxId)?.role ?? null}
+      mailboxes={mailboxes.map(({ id, name, role, parentId }) => ({ id, name, role, parentId }))}
+      currentPath={pageHref(page)}
+      prevHref={page > 0 ? pageHref(page - 1) : null}
+      nextHref={to < total ? pageHref(page + 1) : null}
+      rangeLabel={t("range", { from, to, total })}
+      emptyText={emptyText}
+      initialDensity={density}
+    />
   );
 }
