@@ -44,7 +44,7 @@ function describeError(e: unknown, tool: string): string {
   return "Unexpected server error";
 }
 
-function buildServer(row: TokenRow): Server {
+function buildServer(row: TokenRow, commandId: string | null): Server {
   const server = new Server(
     { name: "zentico-workspace", version: "1.0.0" },
     { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
@@ -60,7 +60,7 @@ function buildServer(row: TokenRow): Server {
     try {
       const session = await sessionForToken(row);
       const outcome = await runWithSession(session, () =>
-        runTool(name, args, { session, scope: row.scope, tokenName: row.name, tokenExpires: row.expires }),
+        runTool(name, args, { session, scope: row.scope, tokenName: row.name, tokenExpires: row.expires, commandId }),
       );
       ok = outcome.ok;
       text = outcome.ok ? JSON.stringify(outcome.value ?? null) : outcome.error;
@@ -92,7 +92,11 @@ export async function POST(req: Request) {
   if (length > MAX_BODY_BYTES) return jsonRpcError(413, -32600, "Request too large");
   noteUse(row.id);
 
-  const server = buildServer(row);
+  // Requests from tools/zentico-bridge.mjs carry the meeting command they run for: write tools then
+  // need the speaker's confirmation. Any value (even a malformed one) turns that on — fail closed.
+  const commandHeader = req.headers.get("x-zentico-command");
+  const commandId = commandHeader == null ? null : commandHeader.trim().slice(0, 100) || "invalid";
+  const server = buildServer(row, commandId);
   // Stateless: a fresh transport per request, JSON responses instead of SSE streams.
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   await server.connect(transport);

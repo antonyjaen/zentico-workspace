@@ -34,6 +34,7 @@ import {
   truncate,
   type Args,
 } from "./args";
+import { awaitConfirmation } from "./agent";
 import type { Scope } from "./db";
 import {
   chatError,
@@ -46,7 +47,17 @@ import {
 } from "./optional";
 import { htmlToText, mailDocument, markdownToHtml, textToHtml } from "./text";
 
-export type ToolContext = { session: Session; scope: Scope; tokenName: string; tokenExpires: number | null };
+export type ToolContext = {
+  session: Session;
+  scope: Scope;
+  tokenName: string;
+  tokenExpires: number | null;
+  /**
+   * Set when the request carries X-Zentico-Command (sent by tools/zentico-bridge.mjs for a meeting
+   * command): write tools then wait for the user's Approve / Reject in the call. null = normal MCP use.
+   */
+  commandId?: string | null;
+};
 
 type JsonSchema = Record<string, unknown>;
 type Tool = {
@@ -1247,6 +1258,64 @@ export function listTools(scope: Scope) {
   }));
 }
 
+/* ------------------------------------------------------ write confirmations */
+
+const clip = (v: unknown, max: number): string => {
+  const text = typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "";
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+};
+const people = (v: unknown, max = 5): string => {
+  const list = Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").map((x) => clip(x, 80)) : [];
+  return list.length > max ? `${list.slice(0, max).join(", ")} +${list.length - max}` : list.join(", ");
+};
+const count = (v: unknown) => (Array.isArray(v) ? v.length : 0);
+
+/** One line describing what a write tool is about to do, shown on the in-call Approve / Reject card. */
+export function describeWrite(name: string, args: Args): string {
+  const parts: string[] = [];
+  const add = (label: string, value: string) => value && parts.push(label ? `${label} ${value}` : value);
+  switch (name) {
+    case "mail_send":
+    case "mail_create_draft":
+      add("to", people(args.to) || (args.replyToEmailId ? "(reply to the original sender)" : ""));
+      add("cc", people(args.cc));
+      add("bcc", people(args.bcc));
+      add("", args.subject ? `"${clip(args.subject, 120)}"` : "");
+      add("", clip(args.body, 200));
+      break;
+    case "mail_move":
+      add("", args.threadId ? "a whole conversation" : `${count(args.emailIds)} message(s)`);
+      add("to", clip(args.folder, 80));
+      break;
+    case "mail_set_keywords":
+      add("", args.threadId ? "a whole conversation" : `${count(args.emailIds)} message(s)`);
+      if (typeof args.read === "boolean") add("", args.read ? "mark read" : "mark unread");
+      if (typeof args.flagged === "boolean") add("", args.flagged ? "star" : "unstar");
+      add("add labels", people(args.addLabels));
+      add("remove labels", people(args.removeLabels));
+      break;
+    case "calendar_create_event":
+      add("", `"${clip(args.title, 120)}"`);
+      add("at", `${clip(args.start, 40)}${args.timeZone ? ` (${clip(args.timeZone, 40)})` : ""}`);
+      add("inviting", people(args.attendees));
+      break;
+    case "drive_write_text":
+      add("", args.fileId ? `overwrite file ${clip(args.fileId, 60)}` : `create "${clip(args.name, 120)}"`);
+      add("", clip(args.content, 160));
+      break;
+    case "docs_create_markdown":
+      add("", `"${clip(args.title, 120)}"`);
+      add("", clip(args.content, 160));
+      break;
+    case "chat_post_message":
+      add("", `"${clip(args.body, 240)}"`);
+      break;
+    default:
+      add("", clip(JSON.stringify(args), 300));
+  }
+  return parts.join(" · ").slice(0, 600);
+}
+
 export type ToolOutcome = { ok: true; value: unknown } | { ok: false; error: string };
 
 /** Runs a tool by name. Throws only for unexpected failures; user-facing problems come back as errors. */
@@ -1255,6 +1324,19 @@ export async function runTool(name: string, args: Args, ctx: ToolContext): Promi
   if (!tool) return { ok: false, error: `Unknown tool "${name}"` };
   if (tool.write && ctx.scope !== "write") {
     return { ok: false, error: "This token is read-only; create a read+write token in Settings → Integrations." };
+  }
+  // Meeting commands: reads run immediately, writes wait for the speaker's confirmation in the call.
+  if (tool.write && ctx.commandId != null) {
+    const confirmed = await awaitConfirmation(ctx.commandId, ctx.session.email, name, describeWrite(name, args ?? {}));
+    if (!confirmed.ok) {
+      return {
+        ok: false,
+        error:
+          confirmed.reason === "unknown_command"
+            ? "Not confirmed by the user (this meeting command is unknown or already finished)."
+            : "Not confirmed by the user",
+      };
+    }
   }
   try {
     return { ok: true, value: await tool.run(args ?? {}, ctx) };

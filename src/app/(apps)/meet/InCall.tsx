@@ -22,6 +22,7 @@ import {
   PhoneOff,
   Send,
   Settings2,
+  Sparkles,
   Square,
   Users,
   Video,
@@ -31,10 +32,12 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { ClaudeConfirmations, ClaudePanel } from "./ClaudePanel";
 import { AudioView, Avatar, displayName, Tile, type TileSource } from "./media";
 import { SELECT, useDevices } from "./PreJoin";
 import { clock } from "./recording";
 import { CHAT_MAX_LENGTH, CHAT_TOPIC, meetHref, type ChatMessage } from "./shared";
+import { useClaudeCommands, type ClaudeNotice } from "./useClaudeCommands";
 import { recordingSupported, useRecording, type ActiveRecording, type RecordingNotice } from "./useRecording";
 
 const ROOM_EVENTS = [
@@ -69,7 +72,7 @@ function useRoomVersion(room: Room) {
 }
 
 type TileInfo = { key: string; participant: Participant; source: TileSource; isLocal: boolean };
-type Panel = "chat" | "people" | "settings" | null;
+type Panel = "chat" | "people" | "settings" | "claude" | null;
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
@@ -122,6 +125,21 @@ export function InCall({ room, roomName }: { room: Room; roomName: string }) {
   const recording = useRecording(room, roomName, onRecordingNotice);
   const [canRecord, setCanRecord] = useState(false);
   useEffect(() => setCanRecord(recordingSupported()), []);
+
+  // "Claude commands": the local user's own voice/typed requests for their own Claude Code.
+  const onClaudeNotice = useCallback(
+    (n: ClaudeNotice) => {
+      if (n.kind === "done") flash(t("claudeDone", { text: n.command.text.slice(0, 60) }));
+      else if (n.kind === "failed") flash(t("claudeFailed", { text: n.command.text.slice(0, 60) }));
+      else if (n.kind === "queued") flash(t("claudeQueued", { text: n.command.text.slice(0, 60) }));
+      else if (n.kind === "noToken") flash(t("claudeNeedToken"));
+      else if (n.kind === "notConfigured") flash(t("claudeNotConfigured"));
+      else if (n.kind === "unsupported") flash(t("claudeUnsupported"));
+      else if (n.kind !== "error") flash(t(`claudeAction_${n.kind}`));
+    },
+    [flash, t],
+  );
+  const claude = useClaudeCommands(room, roomName, { panelOpen: panel === "claude", notify: onClaudeNotice });
 
   // Device failures raised by LiveKit while (re)publishing.
   useEffect(() => {
@@ -301,7 +319,8 @@ export function InCall({ room, roomName }: { room: Room; roomName: string }) {
 
       <div className="flex min-h-0 flex-1">
         {/* Stage */}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col p-2 md:p-3">
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col p-2 md:p-3">
+          <ClaudeConfirmations claude={claude} />
           {effectiveLayout === "grid" ? (
             <div
               className="grid min-h-0 flex-1 auto-rows-fr gap-2 [grid-template-columns:repeat(var(--cols-sm),minmax(0,1fr))] md:[grid-template-columns:repeat(var(--cols),minmax(0,1fr))]"
@@ -354,7 +373,9 @@ export function InCall({ room, roomName }: { room: Room; roomName: string }) {
                   ? t("chat")
                   : panel === "people"
                     ? t("peopleCount", { count: participants.length })
-                    : t("settings")}
+                    : panel === "claude"
+                      ? t("myClaude")
+                      : t("settings")}
               </h2>
               <button type="button" className="icon-btn" onClick={() => setPanel(null)} aria-label={t("closePanel")}>
                 <X size={16} aria-hidden />
@@ -363,6 +384,7 @@ export function InCall({ room, roomName }: { room: Room; roomName: string }) {
             {panel === "chat" && <ChatPanel messages={messages} onSend={sendChat} />}
             {panel === "people" && <PeoplePanel participants={participants} local={lp} />}
             {panel === "settings" && <SettingsPanel room={room} />}
+            {panel === "claude" && <ClaudePanel claude={claude} onShareInCall={sendChat} flash={flash} />}
           </aside>
         )}
       </div>
@@ -490,6 +512,24 @@ export function InCall({ room, roomName }: { room: Room; roomName: string }) {
               <MessageSquare size={18} aria-hidden />
               {unread > 0 && (
                 <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full border-2 border-sheet" style={{ background: "var(--color-app-meet)" }} />
+              )}
+            </span>
+          </button>
+          <button
+            type="button"
+            className={`icon-btn ${panel === "claude" ? "!bg-primary-soft !text-ink" : ""}`}
+            onClick={() => togglePanel("claude")}
+            aria-pressed={panel === "claude"}
+            aria-label={claude.enabled ? t("myClaudeListening") : t("myClaude")}
+            title={claude.enabled ? t("myClaudeListening") : t("myClaude")}
+          >
+            <span className="relative">
+              <Sparkles size={18} aria-hidden />
+              {(claude.enabled || !!claude.data?.confirmations.length) && (
+                <span
+                  className={`absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full border-2 border-sheet ${claude.data?.confirmations.length ? "animate-pulse bg-amber" : ""}`}
+                  style={claude.data?.confirmations.length ? undefined : { background: "var(--color-app-meet)" }}
+                />
               )}
             </span>
           </button>

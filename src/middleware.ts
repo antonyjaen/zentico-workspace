@@ -90,6 +90,6 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   // Everything except sign-in, auth endpoints, WOPI (Collabora, token-authenticated), MCP (personal
-  // access tokens), Next internals and static files.
-  matcher: ["/((?!signin|api/auth|api/wopi|api/mcp|_next/|favicon|icon|.*\\.(?:svg|png|jpg|ico|webp|woff2?)$).*)"],
+  // access tokens), the Claude bridge endpoints (/api/agent, same tokens), Next internals and static files.
+  matcher: ["/((?!signin|api/auth|api/wopi|api/mcp|api/agent/|_next/|favicon|icon|.*\\.(?:svg|png|jpg|ico|webp|woff2?)$).*)"],
 };

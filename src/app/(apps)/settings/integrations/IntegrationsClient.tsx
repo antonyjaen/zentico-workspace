@@ -19,6 +19,64 @@ export type TokenView = {
 
 export type AuditView = { id: number; tokenName: string; tool: string; at: number; ok: boolean; error: string | null };
 
+export type ToolView = { name: string; write: boolean };
+
+const GROUP_ORDER = ["account", "mail", "calendar", "contacts", "drive", "chat", "meetings"] as const;
+const groupOf = (tool: string) => {
+  const prefix = tool.split("_")[0];
+  if (prefix === "docs" || prefix === "drive") return "drive";
+  return (GROUP_ORDER as readonly string[]).includes(prefix) ? prefix : "account";
+};
+
+/** Everything a token of `scope` can do, grouped by app, plus what it never has access to. */
+function Capabilities({ scope, tools, c }: { scope: "read" | "write"; tools: ToolView[]; c: ReturnType<typeof copyFor> }) {
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        {GROUP_ORDER.map((g) => {
+          const all = tools.filter((t) => groupOf(t.name) === g);
+          if (!all.length) return null;
+          const shown = all.filter((t) => scope === "write" || !t.write);
+          const missing = all.filter((t) => scope === "read" && t.write);
+          return (
+            <div key={g}>
+              <p className="mb-1.5 text-[13px] font-semibold text-ink">{c.groups[g] ?? g}</p>
+              <ul className="space-y-1.5">
+                {shown.map((t) => (
+                  <li key={t.name} className="text-[12.5px] leading-snug">
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <code className="font-mono text-[12px] text-ink">{t.name}</code>
+                      {t.write && (
+                        <span className="rounded border border-amber/50 px-1 text-[10.5px] leading-4 font-medium text-amber uppercase">
+                          {c.writeBadge}
+                        </span>
+                      )}
+                    </span>
+                    <span className="block text-ink-mute">{c.tools[t.name] ?? ""}</span>
+                  </li>
+                ))}
+              </ul>
+              {missing.length > 0 && (
+                <p className="mt-1.5 text-[12px] text-ink-mute">
+                  {c.capsNotIncluded} <span className="font-mono">{missing.map((t) => t.name).join(", ")}</span>
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="rounded-md border border-line bg-sheet-muted p-3">
+        <p className="text-[13px] font-semibold text-ink">{c.neverTitle}</p>
+        <ul className="mt-1 list-disc space-y-0.5 pl-5 text-[12.5px] text-ink-soft">
+          {c.neverList.map((x) => (
+            <li key={x}>{x}</li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 const inputCls =
   "h-9 w-full rounded-md border border-line-strong bg-sheet px-3 text-[14px] text-ink outline-none transition-colors placeholder:text-ink-mute focus:border-ink disabled:opacity-60";
 const primaryBtn =
@@ -69,12 +127,18 @@ function Snippet({ code, copyLabel, copiedLabel }: { code: string; copyLabel: st
 export function IntegrationsClient({
   locale,
   endpoint,
+  appUrl,
+  tools,
+  bridge,
   tokens,
   audit,
   now,
 }: {
   locale: string;
   endpoint: string;
+  appUrl: string;
+  tools: ToolView[];
+  bridge: { connected: boolean; lastSeen: number | null };
   tokens: TokenView[];
   audit: AuditView[];
   now: number;
@@ -106,6 +170,10 @@ export function IntegrationsClient({
     null,
     2,
   );
+
+  const [capsScope, setCapsScope] = useState<"read" | "write">("read");
+  const bridgeCmd = `node zentico-bridge.mjs --url ${appUrl} --token ${token} --cwd .`;
+  const hasWrite = tokens.some((t) => t.scope === "write" && !t.needsReauth && (t.expires == null || t.expires > now));
 
   const create = (e: React.FormEvent) => {
     e.preventDefault();
@@ -210,19 +278,53 @@ export function IntegrationsClient({
                     </p>
                     <p className="mt-0.5 text-[12.5px] text-ink-mute">
                       <span className="font-mono">{t.prefix}…</span> · {c.created} <When ms={t.created} fmt={date} /> · {c.lastUsed}{" "}
-                      {t.lastUsed ? <When ms={t.lastUsed} fmt={dateTime} /> : c.neverUsed} · {c.expires}{" "}
-                      {t.expires ? <When ms={t.expires} fmt={date} /> : c.never}
+                      {t.lastUsed ? <When ms={t.lastUsed} fmt={dateTime} /> : c.neverUsed} ·{" "}
+                      {t.expires ? (
+                        <>
+                          {c.expires} <When ms={t.expires} fmt={date} />
+                        </>
+                      ) : (
+                        c.neverExpires
+                      )}
                     </p>
                     {t.needsReauth && <p className="mt-1 text-[12.5px] text-amber">{c.reauth}</p>}
                   </div>
                   <button type="button" className={`${secondaryBtn} h-8 text-[13px]`} onClick={() => revoke(t)} disabled={pending}>
                     {c.revoke}
                   </button>
+                  <details className="w-full">
+                    <summary className="cursor-pointer text-[12.5px] text-ink-soft select-none hover:text-ink">{c.showAccess}</summary>
+                    <div className="mt-3">
+                      <Capabilities scope={t.scope} tools={tools} c={c} />
+                    </div>
+                  </details>
                 </li>
               );
             })}
           </ul>
         )}
+      </section>
+
+      <section aria-labelledby="caps-title" className="space-y-4">
+        <div>
+          <h3 id="caps-title" className="text-[16px] font-semibold text-ink">{c.capsTitle}</h3>
+          <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">{c.capsIntro}</p>
+        </div>
+        <div role="radiogroup" aria-label={c.capsFor} className="inline-flex rounded-md border border-line p-0.5 text-[13px]">
+          {(["read", "write"] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              role="radio"
+              aria-checked={capsScope === s}
+              onClick={() => setCapsScope(s)}
+              className={`rounded px-3 py-1 transition-colors ${capsScope === s ? "bg-primary-soft font-medium text-ink" : "text-ink-soft hover:bg-hover"}`}
+            >
+              {s === "write" ? c.scopeWrite : c.scopeRead}
+            </button>
+          ))}
+        </div>
+        <Capabilities scope={capsScope} tools={tools} c={c} />
       </section>
 
       <section aria-labelledby="connect-title" className="space-y-5">
@@ -241,6 +343,38 @@ export function IntegrationsClient({
           <p className="text-[14px] font-medium text-ink">{c.claudeAi}</p>
           <p className="text-[13px] leading-relaxed text-ink-mute">{c.claudeAiHint}</p>
         </div>
+      </section>
+
+      <section id="bridge" aria-labelledby="bridge-title" className="scroll-mt-4 space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h3 id="bridge-title" className="text-[16px] font-semibold text-ink">{c.bridgeTitle}</h3>
+          <span role="status" className={`text-[12.5px] ${bridge.connected ? "text-signal" : "text-ink-mute"}`}>
+            {bridge.connected ? (
+              c.bridgeConnected
+            ) : bridge.lastSeen ? (
+              <>
+                {c.bridgeLastSeen} <When ms={bridge.lastSeen} fmt={dateTime} />
+              </>
+            ) : (
+              c.bridgeNever
+            )}
+          </span>
+        </div>
+        <p className="text-[13px] leading-relaxed text-ink-mute">{c.bridgeIntro}</p>
+        {!hasWrite && <p className="text-[13px] text-amber">{c.bridgeNeedsWrite}</p>}
+        <ol className="list-decimal space-y-2 pl-5 text-[13px] text-ink-soft">
+          {c.bridgeSteps.map((step, i) => (
+            <li key={i}>
+              {step}
+              {i === 2 && (
+                <div className="mt-2 space-y-1.5">
+                  <Snippet code={bridgeCmd} copyLabel={c.copy} copiedLabel={c.copied} />
+                  <p className="text-[12px] text-ink-mute">{c.bridgeTokenHint}</p>
+                </div>
+              )}
+            </li>
+          ))}
+        </ol>
       </section>
 
       <section aria-labelledby="activity-title" className="space-y-3">

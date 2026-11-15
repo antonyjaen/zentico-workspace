@@ -24,7 +24,9 @@ export async function createTokenAction(input: { name: unknown; scope: unknown; 
     revalidatePath("/settings/integrations");
     return { ok: true, token };
   } catch (e) {
-    if (e instanceof TokenError && (e.message === "no_refresh" || e.message === "too_many")) return { ok: false, error: e.message };
+    if (e instanceof TokenError && (e.message === "no_refresh" || e.message === "too_many" || e.message === "invalid_expiry")) {
+      return { ok: false, error: e.message };
+    }
     console.error("[mcp] create token failed:", e instanceof Error ? e.message : e);
     return { ok: false, error: "failed" };
   }

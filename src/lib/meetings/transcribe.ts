@@ -35,25 +35,44 @@ const filename = (mime: string) => (mime === "audio/ogg" ? "audio.ogg" : mime ==
 /** Transcribes one audio file; returns segments relative to the start of that file. */
 export async function transcribeFile(cfg: WhisperConfig, path: string, mime: string): Promise<TranscriptSegment[]> {
   const audio = await readFile(path);
+  return (await transcribeAudio(cfg, audio, mime, { timeoutMs: REQUEST_TIMEOUT_MS })).segments;
+}
+
+/**
+ * Transcribes audio held in memory (nothing is written to disk). `prompt` biases recognition
+ * towards expected words (e.g. "Claude"); `duration` is the audio length in seconds when known.
+ */
+export async function transcribeAudio(
+  cfg: WhisperConfig,
+  audio: Uint8Array,
+  mime: string,
+  opts: { timeoutMs: number; prompt?: string },
+): Promise<{ segments: TranscriptSegment[]; duration: number | null }> {
   const form = new FormData();
   form.set("file", new Blob([new Uint8Array(audio)], { type: mime }), filename(mime));
   form.set("model", cfg.model);
   form.set("response_format", "verbose_json");
   form.set("temperature", "0");
   if (cfg.language) form.set("language", cfg.language);
+  if (opts.prompt) form.set("prompt", opts.prompt);
 
   const res = await fetch(`${cfg.url}/v1/audio/transcriptions`, {
     method: "POST",
     body: form,
     cache: "no-store",
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    signal: AbortSignal.timeout(opts.timeoutMs),
   });
   if (!res.ok) {
     const detail = (await res.text().catch(() => "")).slice(0, 200);
     throw new Error(`Whisper ${res.status}${detail ? `: ${detail}` : ""}`);
   }
-  const body = (await res.json()) as { segments?: WhisperSegment[]; text?: string };
+  const body = (await res.json()) as { segments?: WhisperSegment[]; text?: string; duration?: number };
   const segments = Array.isArray(body.segments) ? body.segments : [];
+  const duration = typeof body.duration === "number" && Number.isFinite(body.duration) ? body.duration : null;
+  return { segments: cleanSegments(segments), duration };
+}
+
+function cleanSegments(segments: WhisperSegment[]): TranscriptSegment[] {
   return segments
     .filter(
       (s) =>

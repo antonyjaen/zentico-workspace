@@ -102,6 +102,46 @@ team.zentico.dev (Next.js · React · Tailwind v4 · next-intl)
 - [ ] OAuth 2.1 authorization server (needed for claude.ai / Claude Desktop "custom connector" dialogs)
 - [ ] Verify live with Claude Code against production
 
+### 6b. Claude in meetings ("Claude, do X") — built, not yet verified live (2026-11-15)
+Say "Claude, …" in a call and the speaker's OWN Claude Code does it. Executor = the user's own Claude
+Code on their machine (no server-side agent). Isolation: a command only ever reaches the bridge of the
+person who said/typed it, whoever is recording. Writes need the speaker's confirmation; reads run directly.
+- [x] Opt-in per participant: "My Claude" panel (✦) in the call → "Claude commands" toggle (off by default,
+  remembered in localStorage). Only the local user's own mic track is captured: a new MediaRecorder every
+  5 s, each 6 s long (1 s overlap); silent/muted windows are dropped in the browser. Fallback "Ask my Claude" box
+- [x] `POST /api/meet/voice` (session; multipart `room`, `file` ≤ 1 MB, `mime`, `duration`, `timeZone`; ≤ 1 window
+  per 2 s per user; needs an active read+write token → else 412 `no_token`). Whisper in memory (20 s timeout,
+  prompt "Claude,"); audio is never written to disk or logged. Wake phrase at the start of an utterance:
+  `(hey|oye|ok)? (claude|cloud|clod|claud|cloth)[,:]? <command>`; a command that runs into the window's end is
+  continued from the next window(s) (overlap-merged); duplicates (same/contained text within 15 s) are merged.
+  "Claude confirm / cancel" (EN/ES variants) approve/reject the user's newest pending confirmation, or cancel
+  their latest running command
+- [x] Store `${DATA_DIR}/agent.sqlite` (src/lib/mcp/agent.ts): commands {id, user_email, room, text, source,
+  status queued|dispatched|needs_confirmation|done|failed|cancelled, progress, result}, confirmations, the user's
+  own transcribed windows (context, pruned after 1 h), bridge heartbeats. Every query is scoped by user email.
+  Queued commands expire after 10 min (no stale voice commands run later); silent runs fail after 20 min
+- [x] Browser endpoints (session): `GET/POST /api/meet/voice/commands` (list for a room incl. pending
+  confirmations + bridge status / typed command ≤ 2,000 chars), `POST /api/meet/voice/commands/<id>`
+  `{action: cancel|share}` ("Share to chat" posts to the room's Chat meeting thread; without one the result
+  goes to the in-call chat — only on click), `POST /api/meet/voice/confirmations/<id>` `{decision}`
+- [x] Bridge endpoints (MCP bearer token, excluded from the session middleware): `GET /api/agent/stream` (SSE:
+  `hello`, `command` {id, text, source, room, title, meetingUrl, speaker, createdAt, timeZone, transcript[]},
+  `cancel` {id}, ping every 15 s; commands are claimed atomically) and `POST /api/agent/commands/<id>/events`
+  (`started` | `progress` {text ≤ 500} | `done` {result ≤ 8,000} | `failed` {error}) → {status, cancelled}
+- [x] `tools/zentico-bridge.mjs` (Node 18+, no deps): `node zentico-bridge.mjs --url https://team.zentico.dev
+  --token <token> --cwd <dir> [--claude claude]` (or `ZENTICO_TOKEN`). One command at a time; runs
+  `claude -p --output-format stream-json --verbose --mcp-config <temp> --strict-mcp-config --allowedTools
+  mcp__zentico,Read,Glob,Grep` with the prompt on stdin (instruction + meeting, speaker, date/time zone, the
+  speaker's last ~2 min) and a temp MCP config (0600, deleted after the run) with `Authorization` and
+  `X-Zentico-Command: <id>`; MCP_TOOL_TIMEOUT=180 s. Reconnects with backoff; Cancel kills the run
+- [x] Confirmation: `/api/mcp` passes `X-Zentico-Command` to runTool; a write tool then records a pending
+  confirmation (tool + one-line summary), waits up to 120 s (polling every 500 ms) for Approve / Reject on the
+  speaker's in-call card (or "Claude confirm/cancel"), else returns "Not confirmed by the user". Fails closed for
+  unknown/foreign/finished commands. Calls without the header are unchanged
+- [x] Settings → Integrations: bridge command, "Bridge connected / last seen", per-scope capability lists
+- [ ] The bridge script isn't downloadable from the server yet (get it from the repo)
+- [ ] Verify live: Whisper latency on the server for 6 s windows; Claude Code `--allowedTools mcp__zentico`
+
 ## Open decisions
 
 - Product scope: internal for the team, or a multi-tenant Zentico product later

@@ -26,6 +26,24 @@ function chatMeeting(room: string): ChatMeeting | null {
 /** Title of the Chat meeting card that uses this room code, if any. */
 export const chatMeetingTitle = (room: string): string | null => chatMeeting(room)?.title.trim() || null;
 
+/**
+ * Posts a reply as `email` in the thread of the room's Chat meeting card (Chat checks that the
+ * user may write there). Used when someone shares their Claude result with the meeting.
+ */
+export function postToMeetingChat(room: string, email: string, body: string): "ok" | "no_chat" | "failed" {
+  const m = chatMeeting(room);
+  if (!m) return "no_chat";
+  try {
+    const user = get("SELECT id FROM users WHERE lower(email) = lower(?)", email);
+    if (!user || user.id == null) return "failed";
+    postMessage(m.conversationId, Number(user.id), { body, threadRoot: m.messageId });
+    return "ok";
+  } catch (e) {
+    console.error("[meetings] chat share:", e instanceof Error ? e.message : e);
+    return "failed";
+  }
+}
+
 /** Replies "Transcript ready" (as the starter) in the thread of the room's Chat meeting card. */
 export function postTranscriptReady(room: string, starterEmail: string, title: string, link: string): void {
   const m = chatMeeting(room);

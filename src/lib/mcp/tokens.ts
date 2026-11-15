@@ -39,6 +39,9 @@ export async function createToken(
   session: Session,
   input: { name: string; scope: Scope; expiresInDays: number | null },
 ): Promise<{ id: string; token: string }> {
+  // null (or 0) = never expires; otherwise 1…MAX_EXPIRY_DAYS whole days.
+  const days = input.expiresInDays || null;
+  if (days != null && (!Number.isInteger(days) || days < 1 || days > MAX_EXPIRY_DAYS)) throw new TokenError("invalid_expiry");
   if (!session.refreshToken) throw new TokenError("no_refresh");
   if (countUserTokens(session.sub) >= MAX_TOKENS_PER_USER) throw new TokenError("too_many");
 
@@ -62,7 +65,7 @@ export async function createToken(
     tokenHash: hashToken(token),
     tokenPrefix: token.slice(0, TOKEN_PREFIX.length + 6),
     refreshSealed: await seal(refreshToken),
-    expires: input.expiresInDays ? Date.now() + input.expiresInDays * 86_400_000 : null,
+    expires: days ? Date.now() + days * 86_400_000 : null,
   });
   return { id, token };
 }
@@ -79,6 +82,13 @@ export function verifyToken(bearer: string | null | undefined): TokenRow | null 
   const row = tokenByHash(hashToken(bearer));
   if (!row || row.revoked || (row.expires != null && row.expires <= Date.now())) return null;
   return row;
+}
+
+/** The token from an "Authorization: Bearer <token>" header, or null. */
+export function bearerOf(req: Request): string | null {
+  const h = req.headers.get("authorization");
+  const m = h ? /^Bearer\s+(\S+)\s*$/i.exec(h) : null;
+  return m ? m[1] : null;
 }
 
 /* --------------------------------------------------------- offline sessions */
