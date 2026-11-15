@@ -63,16 +63,17 @@ team.zentico.dev (Next.js · React · Tailwind v4 · next-intl)
 - [ ] Shared calendars, availability view
 - [x] Contacts: list, groups, search, quick-compose, autocomplete in mail
 
-### 3. Drive & Docs
-- Files and folders (Stalwart file storage), upload with progress, previews
-- Sharing with people and links, permissions
-- Documents, spreadsheets and presentations edited in the browser via Collabora (WOPI host)
-- "New document" from the launcher and from Drive
+### 3. Drive & Docs — Drive verified live; Docs built, waiting for a Collabora server (2026-11-15)
+- [x] Files and folders (Stalwart JMAP FileNode), upload with progress, previews
+- [ ] Sharing with people and links, permissions
+- [x] Documents, spreadsheets and presentations via Collabora (WOPI host) — needs COLLABORA_URL + Collabora aliasgroup
+- [x] "New document" from Docs and from Drive
 
-### 4. Meet
-- Self-hosted LiveKit server; meeting rooms with shareable links
-- Camera, mic, screen share, grid/speaker layouts, chat
-- "Join meeting" from calendar events; auto-generated links on new events
+### 4. Meet — built, waiting for a LiveKit server (2026-11-15)
+- [ ] Self-hosted LiveKit server (LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET); [x] rooms with shareable links
+- [x] Camera, mic, screen share, grid/speaker layouts, chat
+- [x] "Join meeting" from calendar events; [x] opt-in "Add video meeting" on events
+- [ ] Guest access for people without a Zentico account
 
 ### 5. Admin & polish
 - Users, domains, passwords and quotas via Stalwart's management API

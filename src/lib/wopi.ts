@@ -67,7 +67,9 @@ export type FileNode = {
   modified: string | null;
 };
 
-const NODE_PROPS = ["id", "parentId", "name", "blobId", "type", "size", "modified"];
+// Stalwart names the MIME type `mediaType`; it is exposed as `type` on FileNode below.
+const NODE_PROPS = ["id", "parentId", "name", "blobId", "mediaType", "size", "modified"];
+const fromRaw = (n: FileNode & { mediaType?: string | null }): FileNode => ({ ...n, type: n.mediaType ?? n.type ?? null });
 
 export type Creds = {
   accessToken: string;
@@ -195,7 +197,7 @@ export class FilesClient {
   async getNode(id: string): Promise<FileNode | null> {
     const accountId = await this.accountId();
     const r = await this.call([["FileNode/get", { accountId, ids: [id], properties: NODE_PROPS }, "g"]]);
-    const list = (r.g?.list as FileNode[] | undefined) ?? [];
+    const list = ((r.g?.list as FileNode[] | undefined) ?? []).map(fromRaw);
     return list.find((n) => n.id === id) ?? null;
   }
 
@@ -206,7 +208,7 @@ export class FilesClient {
       ["FileNode/query", { accountId }, "q"],
       ["FileNode/get", { accountId, "#ids": { resultOf: "q", name: "FileNode/query", path: "/ids" }, properties: NODE_PROPS }, "g"],
     ]);
-    return (r.g?.list as FileNode[] | undefined) ?? [];
+    return ((r.g?.list as FileNode[] | undefined) ?? []).map(fromRaw);
   }
 
   async upload(body: ArrayBuffer | Uint8Array, type: string): Promise<{ blobId: string; size: number }> {
@@ -279,7 +281,7 @@ export class FilesClient {
     for (let i = 2; taken.has(name.toLowerCase()) && i < 1000; i++) name = `${baseName} (${i}).${ext}`;
     const { blobId } = await this.upload(new Uint8Array(0), type);
     // Root folder: parentId omitted (Stalwart rejects explicit nulls on create).
-    const r = await this.call([["FileNode/set", { accountId, create: { n: { name, blobId, type } } }, "s"]]);
+    const r = await this.call([["FileNode/set", { accountId, create: { n: { "@type": "File", name, blobId, mediaType: type } } }, "s"]]);
     const created = (r.s?.created as Record<string, { id: string }> | undefined)?.n;
     if (!created?.id) throw new FilesError("Could not create the file");
     return created.id;

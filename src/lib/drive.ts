@@ -36,7 +36,9 @@ type RawNode = {
   parentId?: string | null;
   name?: string | null;
   blobId?: string | null;
+  "@type"?: string | null;
   type?: string | null;
+  mediaType?: string | null;
   size?: number | null;
   created?: string | null;
   modified?: string | null;
@@ -121,7 +123,8 @@ export const validId = (v: unknown): v is string => typeof v === "string" && ID.
 /* -------------------------------------------------------------- normalize */
 
 function isFolderRaw(n: RawNode): boolean {
-  const type = (n.type ?? "").toLowerCase();
+  if (n["@type"]) return n["@type"] === "Directory";
+  const type = (n.mediaType ?? n.type ?? "").toLowerCase();
   return n.blobId == null || type === "inode/directory" || type === "httpd/unix-directory";
 }
 
@@ -134,7 +137,7 @@ function normalize(n: RawNode): DriveNode | null {
     name: n.name ?? "",
     isFolder,
     blobId: isFolder ? null : (n.blobId ?? null),
-    type: isFolder ? "inode/directory" : n.type || "application/octet-stream",
+    type: isFolder ? "inode/directory" : n.mediaType || n.type || "application/octet-stream",
     size: typeof n.size === "number" ? n.size : 0,
     created: n.created ?? null,
     modified: n.modified ?? n.updated ?? n.created ?? null,
@@ -195,6 +198,8 @@ export async function listChildren(parentId: string | null): Promise<DriveNode[]
   const accountId = await account();
   const rootId = parentId ?? (await getRootId());
   const want = (n: DriveNode) => (n.parentId ?? null) === rootId;
+  // Stalwart rejects `filter: { parentId: null }` (invalidArguments): list the root locally.
+  if (rootId === null) return (await getAllNodes()).filter(want);
   try {
     const r = await jmap(
       [
@@ -332,7 +337,16 @@ export async function uniqueName(parentId: string | null, name: string): Promise
 async function create(props: Record<string, unknown>): Promise<DriveNode> {
   const accountId = await account();
   // Stalwart rejects explicit nulls on create, so empty fields are omitted.
-  const clean = Object.fromEntries(Object.entries(props).filter(([, v]) => v != null));
+  const clean: Record<string, unknown> = {
+    // Stalwart requires `@type` on creation: "Directory" for folders, "File" (with blobId) for files.
+    "@type": props.blobId ? "File" : "Directory",
+    ...Object.fromEntries(
+      Object.entries(props)
+        .filter(([, v]) => v != null)
+        // Stalwart calls the MIME type `mediaType` and rejects `type`.
+        .map(([k, v]) => [k === "type" ? "mediaType" : k, v]),
+    ),
+  };
   const r = await jmap([["FileNode/set", { accountId, create: { n: clean } }, "s"]], USING);
   const err = firstError(r.s, "notCreated");
   if (err) setFailure("create", err);

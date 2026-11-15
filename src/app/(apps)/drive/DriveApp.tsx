@@ -412,7 +412,8 @@ export function DriveApp(props: Props) {
 
         {/* Selection bar */}
         {selected.size > 0 && (
-          <div className="flex h-11 shrink-0 items-center gap-1 border-b border-line bg-sheet-muted px-3">
+          // Overlays the toolbar (same height) so selecting never shifts the list under the cursor.
+          <div className="absolute inset-x-0 top-0 z-10 flex h-14 items-center gap-1 border-b border-line bg-sheet-muted px-3">
             <button type="button" className="icon-btn h-8 w-8" onClick={() => setSelected(new Set())} aria-label={t("clearSelection")} title={t("clearSelection")}>
               <X size={15} aria-hidden />
             </button>
