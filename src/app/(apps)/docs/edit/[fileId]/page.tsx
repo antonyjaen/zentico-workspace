@@ -1,9 +1,9 @@
-import { ArrowLeft } from "lucide-react";
 import { getLocale, getTranslations } from "next-intl/server";
-import Link from "next/link";
 import { unstable_rethrow } from "next/navigation";
-import { EditorFrame } from "./EditorFrame";
-import { KIND_ICON, Notice } from "../../ui";
+import { EditorWorkspace } from "./EditorFrame";
+import { Notice } from "../../ui";
+import { getRootId } from "@/lib/drive";
+import { env } from "@/lib/env";
 import {
   collaboraUrl,
   docKind,
@@ -11,11 +11,22 @@ import {
   ID,
   mintWopiToken,
   userFiles,
+  wopiIsLocal,
   wopiSrc,
   type FileNode,
 } from "@/lib/wopi";
 
 export const dynamic = "force-dynamic";
+
+/** Public URL of this app when it isn't a loopback host (where the editor can work). */
+function deployedUrl(): string | null {
+  try {
+    const u = new URL(env.appUrl);
+    return /^(localhost|127\.|\[::1\]|0\.0\.0\.0)/.test(u.hostname) || u.hostname.endsWith(".localhost") ? null : u.origin;
+  } catch {
+    return null;
+  }
+}
 
 export default async function EditDocPage({
   params,
@@ -30,36 +41,17 @@ export default async function EditDocPage({
   const back = from === "drive" ? { href: "/drive", label: t("backToDrive") } : { href: "/docs", label: t("backToDocs") };
   const base = collaboraUrl();
 
-  const shell = (title: string | null, body: React.ReactNode, readOnly = false) => {
-    const Icon = KIND_ICON[(title && docKind(title)) || "text"];
-    return (
-      <main className="sheet flex min-w-0 flex-1 flex-col overflow-hidden">
-        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-2">
-          <Link
-            href={back.href}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[13.5px] text-ink-soft transition-colors hover:bg-hover hover:text-ink"
-            aria-label={`${t("back")}: ${back.label}`}
-          >
-            <ArrowLeft size={16} aria-hidden />
-            <span className="hidden sm:inline">{back.label}</span>
-          </Link>
-          {title && (
-            <>
-              <span aria-hidden className="h-5 w-px bg-line" />
-              <Icon size={16} aria-hidden className="ml-1 shrink-0" style={{ color: "var(--color-app-docs)" }} />
-              <h1 className="min-w-0 truncate text-[14px] font-medium text-ink">{title}</h1>
-              {readOnly && (
-                <span className="shrink-0 rounded-md border border-line px-1.5 py-0.5 text-[11.5px] text-ink-mute">
-                  {t("readOnly")}
-                </span>
-              )}
-            </>
-          )}
-        </div>
-        {body}
-      </main>
-    );
-  };
+  const shell = (node: FileNode | null, body: React.ReactNode, extra: Partial<Parameters<typeof EditorWorkspace>[0]> = {}) => (
+    <EditorWorkspace
+      file={node ? { id: node.id, name: node.name, kind: docKind(node.name) ?? "text" } : null}
+      folderId={null}
+      back={back}
+      readOnly={false}
+      {...extra}
+    >
+      {body}
+    </EditorWorkspace>
+  );
 
   if (!base) return shell(null, <Notice title={t("notConfigured")} hint={t("notConfiguredHint")} />);
   if (!ID.test(fileId)) return shell(null, <Notice title={t("notFound")} />);
@@ -76,31 +68,54 @@ export default async function EditDocPage({
   }
   if (!node || !node.blobId) return shell(null, <Notice title={t("notFound")} />);
 
+  // Drive folder for "Open in Drive": the top-level/home folder maps to /drive itself.
+  let folderId = node.parentId;
+  try {
+    const rootId = await getRootId();
+    if (folderId && folderId === rootId) folderId = null;
+  } catch (e) {
+    unstable_rethrow(e);
+  }
+
   let editor: Awaited<ReturnType<typeof editorUrlFor>> = null;
   try {
     editor = await editorUrlFor(base, node.name);
   } catch (e) {
     unstable_rethrow(e);
-    return shell(node.name, <Notice title={t("editorError")} />);
+    return shell(node, <Notice title={t("editorError")} />, { folderId });
   }
-  if (!editor) return shell(node.name, <Notice title={t("unsupported")} />);
+  if (!editor) return shell(node, <Notice title={t("unsupported")} hint={t("unsupportedHint")} />, { folderId });
+
+  // Collabora calls WOPISrc server-to-server: a loopback host can never be reached from it.
+  if (wopiIsLocal()) {
+    const url = deployedUrl();
+    return shell(
+      node,
+      <Notice
+        title={t("localOnlyTitle")}
+        hint={url ? t("localOnlyHintUrl", { url: url.replace(/^https?:\/\//, "") }) : t("localOnlyHint")}
+      >
+        {url && (
+          <a
+            href={`${url}/docs/edit/${encodeURIComponent(fileId)}`}
+            className="mt-5 inline-flex h-9 items-center rounded-md bg-primary px-3 text-[13.5px] font-medium text-primary-ink transition-colors hover:bg-primary-hover"
+          >
+            {t("openDeployed")}
+          </a>
+        )}
+      </Notice>,
+      { folderId },
+    );
+  }
 
   const { token, ttl } = await mintWopiToken(fileId, user);
   const locale = await getLocale();
   const action =
-    editor.url +
-    new URLSearchParams({ WOPISrc: wopiSrc(fileId), lang: locale, closebutton: "1" }).toString();
+    editor.url + new URLSearchParams({ WOPISrc: wopiSrc(fileId), lang: locale, closebutton: "1" }).toString();
 
-  return shell(
-    node.name,
-    <EditorFrame
-      action={action}
-      origin={new URL(base).origin}
-      token={token}
-      ttl={ttl}
-      backHref={back.href}
-      title={t("editorTitle", { name: node.name })}
-    />,
-    !editor.canEdit,
-  );
+  return shell(node, null, {
+    folderId,
+    readOnly: !editor.canEdit,
+    frame: { action, origin: new URL(base).origin, token, ttl, title: t("editorTitle", { name: node.name }) },
+  });
 }

@@ -66,6 +66,43 @@
     "truncated": "Se muestran los primeros 200 KB. Descarga el archivo para verlo completo.",
     "unavailable": "Drive aún no está disponible en este servidor",
     "unavailableHint": "El almacenamiento de archivos no está activado para tu cuenta o no se pudo contactar con el servidor. Inténtalo más tarde.",
+    "sharedWithMe": "Compartido conmigo",
+    "sharedSpaces": "Espacios compartidos",
+    "sharedBy": "Compartido por {owner}",
+    "sharedBadge": "Compartido",
+    "sharedEmpty": "Todavía nadie ha compartido nada contigo",
+    "sharedEmptyHint": "Aquí aparecerán los archivos y carpetas que otras personas compartan contigo, agrupados por propietario.",
+    "noSpacesShort": "Aún no hay espacios compartidos",
+    "noSpaces": "Aún no hay espacios compartidos",
+    "noSpacesHint": "Los espacios compartidos son unidades de equipo. Un administrador crea un grupo en Stalwart y añade miembros; cada miembro del grupo verá aquí el espacio, con sus propios archivos y carpetas.",
+    "share": {
+      "action": "Compartir",
+      "title": "Compartir «{name}»",
+      "addPeople": "Añadir personas o grupos",
+      "add": "Compartir",
+      "clearPick": "Quitar",
+      "group": "Grupo",
+      "noMatches": "Ninguna persona ni grupo coincide",
+      "noDirectory": "El directorio de personas y grupos no está disponible en este servidor.",
+      "withAccess": "Personas con acceso",
+      "notShared": "Solo tú tienes acceso.",
+      "remove": "Quitar a {name}",
+      "role": "Rol",
+      "viewer": "Lector",
+      "editor": "Editor",
+      "manager": "Administrador",
+      "unavailable": "Compartir no está disponible en este servidor",
+      "unavailableHint": "El servidor de archivos todavía no permite compartir archivos y carpetas."
+    },
+    "settings": {
+      "title": "Ajustes de Drive",
+      "defaultView": "Vista predeterminada",
+      "defaultSort": "Orden predeterminado",
+      "direction": "Dirección del orden",
+      "asc": "Ascendente",
+      "desc": "Descendente",
+      "showExtensions": "Mostrar extensiones de archivo"
+    },
     "errors": {
       "failed": "Algo salió mal. Inténtalo de nuevo.",
       "invalid": "Esa acción no es válida.",
@@ -78,7 +115,9 @@
       "truncated": "La subida se interrumpió. Inténtalo de nuevo.",
       "upload_failed": "Error al subir",
       "network": "Error de red",
-      "unavailable": "Drive no está disponible ahora mismo."
+      "unavailable": "Drive no está disponible ahora mismo.",
+      "forbidden": "No tienes permiso para hacer eso.",
+      "share_failed": "No se pudo actualizar el uso compartido. Inténtalo de nuevo."
     }
   }
 }

@@ -66,6 +66,43 @@
     "truncated": "Showing the first 200 KB. Download the file to see all of it.",
     "unavailable": "Drive isn’t available on this server yet",
     "unavailableHint": "File storage isn’t enabled for your account, or the server couldn’t be reached. Try again later.",
+    "sharedWithMe": "Shared with me",
+    "sharedSpaces": "Shared spaces",
+    "sharedBy": "Shared by {owner}",
+    "sharedBadge": "Shared",
+    "sharedEmpty": "Nothing has been shared with you yet",
+    "sharedEmptyHint": "Files and folders other people share with you will appear here, grouped by owner.",
+    "noSpacesShort": "No shared spaces yet",
+    "noSpaces": "No shared spaces yet",
+    "noSpacesHint": "Shared spaces are team drives. An administrator creates a group in Stalwart and adds members; everyone in the group then gets the space here, with its own files and folders.",
+    "share": {
+      "action": "Share",
+      "title": "Share “{name}”",
+      "addPeople": "Add people or groups",
+      "add": "Share",
+      "clearPick": "Clear",
+      "group": "Group",
+      "noMatches": "No people or groups match",
+      "noDirectory": "The directory of people and groups isn’t available on this server.",
+      "withAccess": "People with access",
+      "notShared": "Only you have access.",
+      "remove": "Remove {name}",
+      "role": "Role",
+      "viewer": "Viewer",
+      "editor": "Editor",
+      "manager": "Manager",
+      "unavailable": "Sharing isn’t available on this server",
+      "unavailableHint": "The file server doesn’t support sharing files and folders yet."
+    },
+    "settings": {
+      "title": "Drive settings",
+      "defaultView": "Default view",
+      "defaultSort": "Default sort",
+      "direction": "Sort direction",
+      "asc": "Ascending",
+      "desc": "Descending",
+      "showExtensions": "Show file extensions"
+    },
     "errors": {
       "failed": "Something went wrong. Try again.",
       "invalid": "That action isn’t valid.",
@@ -78,7 +115,9 @@
       "truncated": "The upload was cut off. Try again.",
       "upload_failed": "Upload failed",
       "network": "Network error",
-      "unavailable": "Drive isn’t available right now."
+      "unavailable": "Drive isn’t available right now.",
+      "forbidden": "You don’t have permission to do that.",
+      "share_failed": "Couldn’t update sharing. Try again."
     }
   }
 }

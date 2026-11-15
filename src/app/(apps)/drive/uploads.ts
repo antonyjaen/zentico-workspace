@@ -30,7 +30,7 @@ export function useUploads(onSettled: () => void) {
   }, []);
 
   const start = useCallback(
-    async (entries: UploadEntry[], parentId: string | null) => {
+    async (entries: UploadEntry[], parentId: string | null, accountId: string | null = null) => {
       if (!entries.length) return;
       const jobs = entries.map((e) => ({ ...e, key: `u${++seq}` }));
       setUploads((list) => [
@@ -50,7 +50,7 @@ export function useUploads(onSettled: () => void) {
       const dirs = [...new Set(jobs.map((j) => dirOf(j.relPath)).filter(Boolean))];
       let folderIds: Record<string, string> = {};
       if (dirs.length) {
-        const r = await ensureFoldersAction(parentId, dirs);
+        const r = await ensureFoldersAction(parentId, dirs, accountId);
         if (!r.ok) {
           for (const j of jobs) if (dirOf(j.relPath)) patch(j.key, { status: "error", error: r.error });
         } else folderIds = r.data;
@@ -60,7 +60,7 @@ export function useUploads(onSettled: () => void) {
       const worker = async () => {
         for (let j = queue.shift(); j; j = queue.shift()) {
           const dir = dirOf(j.relPath);
-          await send(j.file, dir ? folderIds[dir] : parentId, j.key, patch);
+          await send(j.file, dir ? folderIds[dir] : parentId, accountId, j.key, patch);
         }
       };
       await Promise.all(Array.from({ length: CONCURRENCY }, worker));
@@ -74,10 +74,17 @@ export function useUploads(onSettled: () => void) {
   return { uploads, start, clear };
 }
 
-function send(file: File, parentId: string | null, key: string, patch: (k: string, p: Partial<Upload>) => void) {
+function send(
+  file: File,
+  parentId: string | null,
+  accountId: string | null,
+  key: string,
+  patch: (k: string, p: Partial<Upload>) => void,
+) {
   return new Promise<void>((resolve) => {
     const q = new URLSearchParams({ name: file.name });
     if (parentId) q.set("parentId", parentId);
+    if (accountId) q.set("account", accountId);
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `/api/drive/upload?${q}`);
     xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");

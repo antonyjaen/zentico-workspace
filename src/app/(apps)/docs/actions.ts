@@ -1,25 +1,103 @@
 "use server";
 
-// Docs mutations. Form input is untrusted: the kind is checked against a fixed list.
+// Docs mutations. Every argument is untrusted: ids, names and presets are validated here.
 import { getTranslations } from "next-intl/server";
-import { redirect, unstable_rethrow } from "next/navigation";
-import { userFiles, type DocKind } from "@/lib/wopi";
+import { revalidatePath } from "next/cache";
+import { unstable_rethrow } from "next/navigation";
+import { PRESETS, extOf, type DocKind } from "./shared";
+import {
+  createFile,
+  destroyNodes,
+  DriveError,
+  getNode,
+  getTrashId,
+  listChildren,
+  moveNodes,
+  updateNode,
+  uploadStream,
+  validName,
+} from "@/lib/drive";
+import { docKind, NEW_DOC } from "@/lib/wopi";
 
-const KINDS: DocKind[] = ["text", "spreadsheet", "presentation"];
+export type ActionResult<T = undefined> = { ok: true; data: T } | { ok: false; error: string };
 
-/** Creates an empty document in the Drive root and opens it in the editor. */
-export async function createDocument(fd: FormData) {
-  const kind = fd.get("kind");
-  if (typeof kind !== "string" || !KINDS.includes(kind as DocKind)) redirect("/docs?error=create");
-  const user = await userFiles();
-  if (!user) redirect("/signin?returnTo=/docs");
-  const t = await getTranslations("docs");
+const ID = /^[A-Za-z0-9_-]{1,255}$/;
 
-  let id: string | null = null;
+async function run<T>(fn: () => Promise<T>): Promise<ActionResult<T>> {
   try {
-    id = await user.client.createEmpty(kind as DocKind, t(`untitled.${kind as DocKind}`));
+    const data = await fn();
+    revalidatePath("/docs");
+    revalidatePath("/drive");
+    return { ok: true, data };
   } catch (e) {
     unstable_rethrow(e);
+    if (e instanceof DriveError) return { ok: false, error: e.code };
+    console.error("[docs] action:", e instanceof Error ? e.message : e);
+    return { ok: false, error: "failed" };
   }
-  redirect(id ? `/docs/edit/${encodeURIComponent(id)}` : "/docs?error=create");
+}
+
+function fileId(v: unknown): string {
+  if (typeof v !== "string" || !ID.test(v)) throw new DriveError("Invalid id", "invalid");
+  return v;
+}
+
+async function fileNode(id: string) {
+  const node = await getNode(id);
+  if (!node || node.isFolder) throw new DriveError("Not found", "not_found");
+  return node;
+}
+
+/** Creates an empty office file in the Drive root (named after the preset) and returns its id. */
+export async function createDocumentAction(preset: unknown) {
+  return run(async () => {
+    const spec = PRESETS.find((p) => p.id === preset);
+    if (!spec) throw new DriveError("Invalid preset", "invalid");
+    const kind: DocKind = spec.kind;
+    const t = await getTranslations("docs");
+    const base = spec.id.startsWith("blank") ? t(`untitled.${kind}`) : t(`presets.${spec.id}`);
+    const { ext, type } = NEW_DOC[kind];
+    // Zero-byte ODF: Collabora opens it as a new blank document of that type.
+    const blob = await uploadStream(new ArrayBuffer(0), type);
+    const node = await createFile(null, `${base}.${ext}`, { ...blob, type });
+    return node.id;
+  });
+}
+
+/**
+ * Renames a file. The extension decides which editor opens it, so it's kept unless the new
+ * name ends in another office extension. Returns the final name.
+ */
+export async function renameDocumentAction(id: unknown, newName: unknown) {
+  return run(async () => {
+    const fid = fileId(id);
+    let name = validName(newName);
+    if (!name) throw new DriveError("Invalid name", "invalid_name");
+    const node = await fileNode(fid);
+    const oldExt = extOf(node.name);
+    if (oldExt && !docKind(name)) name = validName(`${name}.${oldExt}`);
+    if (!name) throw new DriveError("Invalid name", "invalid_name");
+    if (name === node.name) return name;
+    const siblings = await listChildren(node.parentId).catch(() => []);
+    if (siblings.some((s) => s.id !== fid && s.name.toLowerCase() === name!.toLowerCase())) {
+      throw new DriveError("Name taken", "exists");
+    }
+    await updateNode(fid, { name });
+    return name;
+  });
+}
+
+/** Moves a file to the Drive trash when the server has one, else deletes it permanently. */
+export async function deleteDocumentAction(id: unknown) {
+  return run(async () => {
+    const fid = fileId(id);
+    await fileNode(fid);
+    const trashId = await getTrashId();
+    if (trashId) {
+      await moveNodes([fid], trashId);
+      return "trashed" as const;
+    }
+    await destroyNodes([fid]);
+    return "destroyed" as const;
+  });
 }

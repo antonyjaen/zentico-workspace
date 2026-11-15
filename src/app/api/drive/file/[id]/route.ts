@@ -3,7 +3,7 @@
 import { unstable_rethrow } from "next/navigation";
 import type { NextRequest } from "next/server";
 import { guessType } from "@/app/(apps)/drive/shared";
-import { fetchBlob, getNode, TEXT_PREVIEW_BYTES, validId } from "@/lib/drive";
+import { DriveError, fetchBlob, getNode, TEXT_PREVIEW_BYTES, validId } from "@/lib/drive";
 
 export const dynamic = "force-dynamic";
 
@@ -26,9 +26,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id } = await params;
   if (!validId(id)) return new Response("Invalid id", { status: 400 });
   const q = req.nextUrl.searchParams;
+  // ?account=<id> reads from a shared account; lib/drive checks it's one of the session's.
+  const account = q.get("account") || null;
+  if (account !== null && !validId(account)) return new Response("Invalid account", { status: 400 });
 
   try {
-    const node = await getNode(id);
+    const node = await getNode(id, account);
     if (!node || node.isFolder || !node.blobId) return new Response("Not found", { status: 404 });
     const type = guessType(node.name, node.type);
     const name = node.name || "file";
@@ -80,6 +83,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     return new Response(upstream.body, { status: upstream.status === 206 ? 206 : 200, headers });
   } catch (e) {
     unstable_rethrow(e);
+    if (e instanceof DriveError && e.code === "not_found") return new Response("Not found", { status: 404 });
     console.error("[drive] file route:", e instanceof Error ? e.message : e);
     return new Response("Download failed", { status: 502 });
   }

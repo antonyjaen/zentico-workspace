@@ -12,26 +12,32 @@ type Folder = { id: string; name: string; parentId: string | null };
 export function MoveDialog({
   excluded,
   startFolder,
+  accountId = null,
+  rootLabel,
   onPick,
   onClose,
 }: {
   /** Selected ids: they (and their descendants) can't be destinations. */
   excluded: string[];
   startFolder: string | null;
+  /** Account to browse (null = My Drive); moves never cross accounts. */
+  accountId?: string | null;
+  rootLabel?: string;
   onPick: (folderId: string | null) => void;
   onClose: () => void;
 }) {
   const t = useTranslations("drive");
+  const root = rootLabel ?? t("myDrive");
   const [folders, setFolders] = useState<Folder[] | null>(null);
   const [error, setError] = useState(false);
   const [current, setCurrent] = useState<string | null>(startFolder);
 
   useEffect(() => {
-    folderTreeAction().then((r) => (r.ok ? setFolders(r.data.folders) : setError(true)));
+    folderTreeAction(accountId).then((r) => (r.ok ? setFolders(r.data.folders) : setError(true)));
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, accountId]);
 
   const blocked = useMemo(() => {
     const out = new Set(excluded);
@@ -74,7 +80,7 @@ export function MoveDialog({
         </div>
         <nav className="flex shrink-0 flex-wrap items-center gap-1 px-3 py-2 text-[13px]" aria-label={t("path")}>
           <button type="button" onClick={() => setCurrent(null)} className="rounded px-1.5 py-0.5 text-ink-soft hover:bg-hover hover:text-ink">
-            {t("myDrive")}
+            {root}
           </button>
           {crumbs.map((c) => (
             <span key={c.id} className="flex items-center gap-1">
@@ -115,7 +121,7 @@ export function MoveDialog({
         <div className="flex shrink-0 items-center justify-end gap-2 px-4 py-3">
           <span className="mr-auto flex min-w-0 items-center gap-2 truncate text-[12.5px] text-ink-mute">
             <HardDrive size={13} aria-hidden />
-            <span className="truncate">{crumbs.at(-1)?.name ?? t("myDrive")}</span>
+            <span className="truncate">{crumbs.at(-1)?.name ?? root}</span>
           </span>
           <button
             type="button"

@@ -1,19 +1,56 @@
 // Client-safe Drive helpers: item shape, file kinds, MIME guessing and formatting.
+import type { Rights, ShareRole } from "@/lib/drive";
+
+export type { Rights, ShareRole };
 
 export type Item = {
   id: string;
+  /** Owning JMAP account; null = the user's own (primary) account. */
+  accountId: string | null;
   parentId: string | null;
   name: string;
   isFolder: boolean;
   type: string;
   size: number;
   modified: string | null;
+  /** Owner label for items outside My Drive (account name); null = me. */
+  owner: string | null;
+  rights: Rights;
+  shared: boolean;
 };
 
-export type Section = "my" | "recent" | "trash" | "search";
+/** "shared" = Shared with me, "spaces" = Shared spaces (team drives). */
+export type Section = "my" | "recent" | "trash" | "search" | "shared" | "spaces";
 export type ViewMode = "list" | "grid";
 export type SortKey = "name" | "modified" | "size";
 export const VIEW_COOKIE = "zw_drive_view";
+/** Default sort, "<key>.<asc|desc>". */
+export const SORT_COOKIE = "zw_drive_sort";
+/** "0" hides file extensions in lists. */
+export const EXT_COOKIE = "zw_drive_ext";
+/** Set once the default folders were offered, so they're never re-created. */
+export const INIT_COOKIE = "zw_drive_init";
+
+export type Grant = {
+  principalId: string;
+  name: string;
+  email: string | null;
+  type: "individual" | "group" | "unknown";
+  role: ShareRole;
+};
+
+export type PrincipalOption = { id: string; name: string; email: string | null; type: "individual" | "group" };
+
+export function setCookie(name: string, value: string) {
+  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=31536000; samesite=lax`;
+}
+
+/** Name as shown in lists: files lose their extension when extensions are hidden. */
+export function displayName(item: { name: string; isFolder: boolean }, showExt: boolean): string {
+  if (showExt || item.isFolder) return item.name;
+  const dot = item.name.lastIndexOf(".");
+  return dot > 0 ? item.name.slice(0, dot) : item.name;
+}
 
 export type Kind =
   | "folder"
@@ -118,10 +155,17 @@ export function formatDate(iso: string | null, locale: string): string {
   return new Intl.DateTimeFormat(locale, sameDay ? { hour: "2-digit", minute: "2-digit" } : d.getFullYear() === now.getFullYear() ? { day: "numeric", month: "short" } : { day: "numeric", month: "short", year: "numeric" }).format(d);
 }
 
-export function driveHref(p: { folder?: string | null; section?: Section; q?: string; sort?: SortKey; dir?: "asc" | "desc" }): string {
+export function driveHref(p: {
+  folder?: string | null;
+  account?: string | null;
+  section?: Section;
+  q?: string;
+  sort?: SortKey;
+  dir?: "asc" | "desc";
+}): string {
   const q = new URLSearchParams();
-  if (p.section === "recent") q.set("view", "recent");
-  if (p.section === "trash") q.set("view", "trash");
+  if (p.account) q.set("account", p.account);
+  else if (p.section === "recent" || p.section === "trash" || p.section === "shared" || p.section === "spaces") q.set("view", p.section);
   if (p.folder) q.set("folder", p.folder);
   if (p.q) q.set("q", p.q);
   if (p.sort && p.sort !== "name") q.set("sort", p.sort);
@@ -130,7 +174,13 @@ export function driveHref(p: { folder?: string | null; section?: Section; q?: st
   return s ? `/drive?${s}` : "/drive";
 }
 
-export const fileUrl = (id: string, opts: { inline?: boolean; text?: boolean } = {}) =>
-  `/api/drive/file/${encodeURIComponent(id)}${opts.text ? "?text=1" : opts.inline ? "?inline=1" : ""}`;
+export function fileUrl(id: string, opts: { inline?: boolean; text?: boolean; account?: string | null } = {}): string {
+  const q = new URLSearchParams();
+  if (opts.text) q.set("text", "1");
+  else if (opts.inline) q.set("inline", "1");
+  if (opts.account) q.set("account", opts.account);
+  const s = q.toString();
+  return `/api/drive/file/${encodeURIComponent(id)}${s ? `?${s}` : ""}`;
+}
 
 export const docsHref = (id: string) => `/docs/edit/${encodeURIComponent(id)}`;

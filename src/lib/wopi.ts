@@ -37,7 +37,7 @@ export const ID = /^[A-Za-z0-9_-]{1,255}$/;
 export type DocKind = "text" | "spreadsheet" | "presentation";
 
 const KIND_BY_EXT: Record<string, DocKind> = {
-  odt: "text", ott: "text", doc: "text", docx: "text", docm: "text", dot: "text", dotx: "text", rtf: "text",
+  odt: "text", ott: "text", doc: "text", docx: "text", docm: "text", dot: "text", dotx: "text", rtf: "text", txt: "text", md: "text",
   ods: "spreadsheet", ots: "spreadsheet", xls: "spreadsheet", xlsx: "spreadsheet", xlsm: "spreadsheet", csv: "spreadsheet",
   odp: "presentation", otp: "presentation", ppt: "presentation", pptx: "presentation", pps: "presentation", ppsx: "presentation",
 };
@@ -269,23 +269,6 @@ export class FilesClient {
       throw new FilesError("Rename rejected", 400);
     }
   }
-
-  /** Creates an empty office file in the root folder, picking a name that isn't taken. */
-  async createEmpty(kind: DocKind, baseName: string): Promise<string> {
-    const { ext, type } = NEW_DOC[kind];
-    const accountId = await this.accountId();
-    const taken = new Set(
-      (await this.listNodes()).filter((n) => !n.parentId).map((n) => n.name.toLowerCase()),
-    );
-    let name = `${baseName}.${ext}`;
-    for (let i = 2; taken.has(name.toLowerCase()) && i < 1000; i++) name = `${baseName} (${i}).${ext}`;
-    const { blobId } = await this.upload(new Uint8Array(0), type);
-    // Root folder: parentId omitted (Stalwart rejects explicit nulls on create).
-    const r = await this.call([["FileNode/set", { accountId, create: { n: { "@type": "File", name, blobId, mediaType: type } } }, "s"]]);
-    const created = (r.s?.created as Record<string, { id: string }> | undefined)?.n;
-    if (!created?.id) throw new FilesError("Could not create the file");
-    return created.id;
-  }
 }
 
 /** Client for the signed-in user (cookie session), for pages and server actions. */
@@ -294,15 +277,6 @@ export async function userFiles(): Promise<{ client: FilesClient; creds: Creds; 
   if (!s) return null;
   const creds = { accessToken: s.accessToken, refreshToken: s.refreshToken, accessExpiresAt: s.expiresAt };
   return { client: new FilesClient(creds), creds, email: s.email, name: s.name };
-}
-
-/** Recent office documents, newest first. */
-export async function recentDocuments(client: FilesClient, limit = 100): Promise<FileNode[]> {
-  const nodes = await client.listNodes();
-  return nodes
-    .filter((n) => n.blobId && docKind(n.name))
-    .sort((a, b) => (b.modified ?? "").localeCompare(a.modified ?? ""))
-    .slice(0, limit);
 }
 
 /* ------------------------------------------------------------ WOPI tokens */
@@ -428,6 +402,17 @@ async function getDiscovery(base: string): Promise<Map<string, string>> {
   return actions;
 }
 
+/** Extensions Collabora can open (edit or view), from its discovery document. */
+export async function supportedExts(base: string): Promise<Set<string>> {
+  const actions = await getDiscovery(base);
+  const out = new Set<string>();
+  for (const key of actions.keys()) {
+    const [action, ext] = key.split(":");
+    if ((action === "edit" || action === "view") && ext) out.add(ext);
+  }
+  return out;
+}
+
 /** The Collabora editor URL (without WOPISrc) for a file name, or null if unsupported. */
 export async function editorUrlFor(base: string, name: string): Promise<{ url: string; canEdit: boolean } | null> {
   const ext = extOf(name);
@@ -447,3 +432,14 @@ export async function editorUrlFor(base: string, name: string): Promise<{ url: s
  */
 const wopiBase = () => (process.env.WOPI_BASE_URL || env.appUrl).replace(/\/$/, "");
 export const wopiSrc = (fileId: string) => `${wopiBase()}/api/wopi/files/${encodeURIComponent(fileId)}`;
+
+const LOCAL_HOST = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\]|0\.0\.0\.0)$/i;
+
+/** True when Collabora would have to call back a loopback host (local development): editing can't work. */
+export function wopiIsLocal(): boolean {
+  try {
+    return LOCAL_HOST.test(new URL(wopiBase()).hostname) || new URL(wopiBase()).hostname.endsWith(".localhost");
+  } catch {
+    return true;
+  }
+}

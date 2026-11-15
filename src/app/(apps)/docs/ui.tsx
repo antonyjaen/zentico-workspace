@@ -1,5 +1,5 @@
 import { FileSpreadsheet, FileText, Presentation, type LucideIcon } from "lucide-react";
-import type { DocKind } from "@/lib/wopi";
+import type { DocKind } from "./shared";
 
 export const KIND_ICON: Record<DocKind, LucideIcon> = {
   text: FileText,
@@ -7,11 +7,23 @@ export const KIND_ICON: Record<DocKind, LucideIcon> = {
   presentation: Presentation,
 };
 
+/** Per-kind tint, matching Drive's file icons. */
+export const KIND_COLOR: Record<DocKind, string> = {
+  text: "var(--color-app-mail)",
+  spreadsheet: "var(--color-signal)",
+  presentation: "var(--color-amber)",
+};
+
+export function DocIcon({ kind, size = 18, className = "" }: { kind: DocKind; size?: number; className?: string }) {
+  const Icon = KIND_ICON[kind];
+  return <Icon size={size} aria-hidden className={`shrink-0 ${className}`} style={{ color: KIND_COLOR[kind] }} />;
+}
+
 /** Centered empty/error state used across Docs pages. */
 export function Notice({ icon: Icon = FileText, title, hint, children }: {
   icon?: LucideIcon;
   title: string;
-  hint?: string;
+  hint?: React.ReactNode;
   children?: React.ReactNode;
 }) {
   return (
@@ -29,4 +41,9 @@ export function Notice({ icon: Icon = FileText, title, hint, children }: {
       </div>
     </div>
   );
+}
+
+/** Pulsing placeholder block for loading skeletons. */
+export function Bone({ className = "" }: { className?: string }) {
+  return <span aria-hidden className={`block animate-pulse rounded-md bg-hover ${className}`} />;
 }
