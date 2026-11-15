@@ -21,6 +21,7 @@ import {
   updateSealedSession,
   type JobMeeting,
 } from "./store";
+import { recordingLanguage } from "./language";
 import { formatWhen, mergeSegments, toMarkdown, transcribeFile, whisperConfig } from "./transcribe";
 import type { TranscriptSegment } from "@/app/(apps)/meet/recording";
 
@@ -97,9 +98,12 @@ async function processMeeting(id: string): Promise<void> {
       saveTranscript(id, [], markdown);
     } else {
       const parts: { speaker: string; offsetSeconds: number; segments: TranscriptSegment[] }[] = [];
+      // Whisper's per-file auto-detection picked English for Spanish speech (and translated it):
+      // use the meeting's locked language, else the recorder's UI language.
+      const lang = recordingLanguage(m.summary.room);
       for (const s of m.segments) {
         try {
-          parts.push({ speaker: s.name, offsetSeconds: s.offsetMs / 1000, segments: await transcribeFile(cfg, s.path, s.mime) });
+          parts.push({ speaker: s.name, offsetSeconds: s.offsetMs / 1000, segments: await transcribeFile(cfg, s.path, s.mime, lang) });
         } catch (e) {
           log(`transcription of ${id}/${s.id} failed`, e);
           return markFailed(id, "transcription_failed");

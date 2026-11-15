@@ -42,3 +42,17 @@ export function noteDetection(room: string, language: string | null | undefined,
 export function setMeetingLanguage(room: string, language: string): void {
   if (LANG.test(language)) state(room).locked = language;
 }
+
+/** Language hint for a room from whoever started its recording (their UI language). */
+const hints = new Map<string, { lang: string; at: number }>();
+
+export function setRecordingHint(room: string, language: string | null): void {
+  if (language && LANG.test(language)) hints.set(room, { lang: language, at: Date.now() });
+}
+
+/** Best language for transcribing a room's recording: the locked meeting language, else the hint. */
+export function recordingLanguage(room: string): string | null {
+  const h = hints.get(room);
+  if (h && Date.now() - h.at > TTL_MS) hints.delete(room);
+  return meetingLanguage(room) ?? hints.get(room)?.lang ?? null;
+}

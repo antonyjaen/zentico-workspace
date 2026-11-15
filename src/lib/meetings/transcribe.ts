@@ -33,9 +33,14 @@ const REQUEST_TIMEOUT_MS = 60 * 60_000;
 const filename = (mime: string) => (mime === "audio/ogg" ? "audio.ogg" : mime === "audio/mp4" ? "audio.m4a" : "audio.webm");
 
 /** Transcribes one audio file; returns segments relative to the start of that file. */
-export async function transcribeFile(cfg: WhisperConfig, path: string, mime: string): Promise<TranscriptSegment[]> {
+export async function transcribeFile(
+  cfg: WhisperConfig,
+  path: string,
+  mime: string,
+  language: string | null = null,
+): Promise<TranscriptSegment[]> {
   const audio = await readFile(path);
-  return (await transcribeAudio(cfg, audio, mime, { timeoutMs: REQUEST_TIMEOUT_MS })).segments;
+  return (await transcribeAudio(cfg, audio, mime, { timeoutMs: REQUEST_TIMEOUT_MS, language })).segments;
 }
 
 /**
