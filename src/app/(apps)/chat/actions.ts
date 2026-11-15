@@ -205,7 +205,7 @@ async function buildDirectory(me: ChatUser): Promise<DirectoryResult> {
 
   const out = new Map<string, DirPerson>();
   const add = (p: Person, source: DirectorySource, principalId: string | null = null) => {
-    if (!out.has(p.email)) out.set(p.email, { email: p.email, name: p.name || p.email, principalId, source });
+    if (!out.has(p.email)) out.set(p.email, { email: p.email, name: displayName(p.name, p.email), principalId, source });
   };
   for (const p of individuals) add({ email: p.email, name: p.name }, "directory", p.id);
 
@@ -588,4 +588,19 @@ export async function scheduleMeeting(id: string, input: ScheduleInput): Promise
 
     return store.scheduleMeeting(c, me.id, { code, title, description, start, end, timeZone: input.timeZone, eventId: event.id || null });
   });
+}
+
+/**
+ * Stalwart principals often carry the address as their name; turn "leo.park@x" into
+ * "Leo Park" so people read like people.
+ */
+function displayName(name: string | undefined, email: string): string {
+  const n = (name ?? "").trim();
+  if (n && !n.includes("@")) return n;
+  const local = email.split("@")[0] ?? email;
+  return local
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ") || email;
 }
