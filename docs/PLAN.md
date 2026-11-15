@@ -47,21 +47,21 @@ team.zentico.dev (Next.js · React · Tailwind v4 · next-intl)
 - [x] Workspace link in the zentico.dev header
 - [ ] Production deployment at team.zentico.dev
 
-### 1. Mail
-- Read view: thread conversation, sanitized HTML in a sandboxed frame, remote-image blocking
-- Compose / reply / reply-all / forward, rich text, attachments (JMAP blob upload), drafts autosave
-- Send-as identity per domain (zentico.dev, acme.example, globex.example, initech.example)
-- Actions: archive, delete, spam, mark read/unread, star, move, labels; multi-select + bulk
-- Live updates via JMAP push (EventSource)
-- Keyboard shortcuts (c, r, a, f, e, #, j/k, /)
-- Signatures, vacation responder, filters (Sieve) in settings
-- Density and reading-pane options
+### 1. Mail — built, verified live against Stalwart (2026-11-15)
+- [x] Read view: thread conversation, sanitized HTML in a sandboxed frame, remote-image blocking
+- [x] Compose / reply / reply-all / forward, rich text, attachments (JMAP blob upload), drafts autosave
+- [x] Send-as identity per domain (identities come from Stalwart)
+- [x] Actions: archive, delete, spam, mark read/unread, star, move; multi-select + bulk (labels: later)
+- [x] Live updates via JMAP push (EventSource, proxied server-side)
+- [x] Keyboard shortcuts (c, r, a, f, e, #, j/k, x, s, ?, /)
+- [x] Signatures, vacation responder, filters (Sieve) in settings
+- [x] Density option (reading pane: preference saved, layout not built yet)
 
-### 2. Calendar & Contacts
-- Day / week / month / agenda views, drag to create and move
-- Events with guests, invitations and RSVPs (iTIP/iMIP), reminders, time zones
-- Multiple and shared calendars, availability view
-- Contacts: list, groups, search, quick-compose, autocomplete in mail
+### 2. Calendar & Contacts — built, core flows verified live (2026-11-15)
+- [x] Day / week / month / agenda views, drag to create and move
+- [x] Events with guests, invitations and RSVPs (iTIP/iMIP), reminders, time zones (invites not yet tested live)
+- [ ] Shared calendars, availability view
+- [x] Contacts: list, groups, search, quick-compose, autocomplete in mail
 
 ### 3. Drive & Docs
 - Files and folders (Stalwart file storage), upload with progress, previews
