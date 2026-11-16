@@ -9,17 +9,22 @@
 //   chunks as kind=context, so commands come with what was said in the meeting. The part not sent
 //   yet when push to talk starts goes in front of the command, in the same clip (contextMs marks
 //   the boundary), so the last seconds before a command are never missing.
+// - Local transcription (localWhisper.ts): where the GPU allows it, both are transcribed in this
+//   browser (the command and the tail separately) and only the text is posted (kind=command-text /
+//   context-text); until the model is loaded, or after it fails, the audio goes to the server.
 // Also polls their commands / pending confirmations in this room. Results stay private to the
 // user (only the short spoken summary is shared, by useClaudeVoice).
 import { Room, RoomEvent, Track, type Participant, type RemoteParticipant } from "livekit-client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  COMMAND_MAX_CHARS,
   CLAUDE_LISTEN_PREF,
   CLAUDE_LISTEN_TOPIC,
   CONTEXT_CHUNK_MS,
   CONTEXT_TAIL_MAX_MS,
   isFinalStatus,
   PTT_MIN_MS,
+  VOICE_CONTEXT_MAX_CHARS,
   VOICE_MAX_BYTES,
   VOICE_MAX_CLIP_MS,
   VOICE_MAX_TOTAL_MS,
@@ -28,7 +33,9 @@ import {
   type CommandView,
   type VoiceKind,
   type VoiceResponse,
+  type VoiceTextRequest,
 } from "./claude";
+import { loadLocalStt, LocalSttDropped, pcmToFloat, transcribeLocal, useLocalStt } from "./localWhisper";
 import { displayName } from "./media";
 
 export type ClaudeNotice =
@@ -293,7 +300,8 @@ class MeetingListener {
 
   constructor(
     private room: Room,
-    private onChunk: (blob: Blob, mime: string, durationMs: number) => void,
+    /** `pcm` (16 kHz) is there in PCM mode, for local transcription. */
+    private onChunk: (blob: Blob, mime: string, durationMs: number, pcm: Int16Array<ArrayBuffer> | null) => void,
   ) {
     this.mix = this.ctx.createGain();
     for (const ev of LISTEN_EVENTS) room.on(ev, this.reconcileBound);
@@ -365,7 +373,7 @@ class MeetingListener {
     const pcm = this.ring.slice(from, to);
     if (soundMs(pcm) < MIN_SOUND_MS) return;
     const blob = wavBlob([pcm]);
-    if (blob.size <= VOICE_MAX_BYTES) this.onChunk(blob, "audio/wav", samplesToMs(pcm.length));
+    if (blob.size <= VOICE_MAX_BYTES) this.onChunk(blob, "audio/wav", samplesToMs(pcm.length), pcm);
   }
 
   private flush() {
@@ -444,7 +452,7 @@ class MeetingListener {
       if (this.stopped || prev.soundMs < MIN_SOUND_MS) return;
       const type = baseMime(prev.mr, mime);
       const blob = new Blob(parts, { type });
-      if (blob.size > 0 && blob.size <= VOICE_MAX_BYTES) this.onChunk(blob, type, Math.min(durationMs, CONTEXT_MAX_MS));
+      if (blob.size > 0 && blob.size <= VOICE_MAX_BYTES) this.onChunk(blob, type, Math.min(durationMs, CONTEXT_MAX_MS), null);
     };
     try {
       prev.mr.stop();
@@ -631,6 +639,34 @@ export function useClaudeCommands(
     return () => clearInterval(id);
   }, [refresh, busy]);
 
+  /** Handles the server's answer to a command or context clip (audio or text). */
+  const settle = useCallback(
+    async (res: Response, command: boolean) => {
+      if (res.status === 412 || res.status === 503) {
+        const p = res.status === 412 ? "noToken" : "notConfigured";
+        setProblem(p);
+        setListenState(false);
+        return notifyRef.current({ kind: p });
+      }
+      // 429 for a context chunk: superseded by a newer one (the server keeps the newest).
+      if (!command || !res.ok || res.redirected) return;
+      const body = (await res.json()) as VoiceResponse;
+      if (body.heard) setHeard({ text: body.heard.slice(0, 200), at: Date.now() });
+      else notifyRef.current({ kind: "nothingHeard" });
+      if (body.action) notifyRef.current({ kind: body.action });
+      const cmd = body.command;
+      if (cmd) {
+        if (!seen.current.has(cmd.id)) notifyRef.current({ kind: "queued", command: cmd });
+        seen.current.set(cmd.id, cmd.status);
+        // Optimistic: show it right away, before the next poll.
+        if (cmd.status === "queued") setAccepted((prev) => new Set(prev).add(cmd.id));
+        setData((prev) => (prev && !prev.commands.some((c) => c.id === cmd.id) ? { ...prev, commands: [cmd, ...prev.commands] } : prev));
+      }
+      if (cmd || body.action) void refresh();
+    },
+    [refresh],
+  );
+
   const upload = useCallback(
     async (kind: VoiceKind, blob: Blob, mime: string, durationMs: number, contextMs = 0) => {
       const form = new FormData();
@@ -644,36 +680,94 @@ export function useClaudeCommands(
       const command = kind === "command";
       if (command) setTranscribing((n) => n + 1);
       try {
-        const res = await fetch("/api/meet/voice", { method: "POST", body: form });
-        if (res.status === 412 || res.status === 503) {
-          const p = res.status === 412 ? "noToken" : "notConfigured";
-          setProblem(p);
-          setListenState(false);
-          return notifyRef.current({ kind: p });
-        }
-        // 429 for a context chunk: superseded by a newer one (the server keeps the newest).
-        if (!command || !res.ok || res.redirected) return;
-        const body = (await res.json()) as VoiceResponse;
-        if (body.heard) setHeard({ text: body.heard.slice(0, 200), at: Date.now() });
-        else notifyRef.current({ kind: "nothingHeard" });
-        if (body.action) notifyRef.current({ kind: body.action });
-        const cmd = body.command;
-        if (cmd) {
-          if (!seen.current.has(cmd.id)) notifyRef.current({ kind: "queued", command: cmd });
-          seen.current.set(cmd.id, cmd.status);
-          // Optimistic: show it right away, before the next poll.
-          if (cmd.status === "queued") setAccepted((prev) => new Set(prev).add(cmd.id));
-          setData((prev) => (prev && !prev.commands.some((c) => c.id === cmd.id) ? { ...prev, commands: [cmd, ...prev.commands] } : prev));
-        }
-        if (cmd || body.action) void refresh();
+        await settle(await fetch("/api/meet/voice", { method: "POST", body: form }), command);
       } catch {
         // dropped clip (offline): nothing to retry, the speaker can repeat
       } finally {
         if (command) setTranscribing((n) => Math.max(0, n - 1));
       }
     },
-    [roomName, refresh],
+    [roomName, settle],
   );
+
+  /* ----- local transcription (only text leaves the browser) */
+
+  const local = useLocalStt();
+  const localRef = useRef(local);
+  localRef.current = local;
+
+  const postText = useCallback(
+    (body: VoiceTextRequest) =>
+      fetch("/api/meet/voice", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+    [],
+  );
+
+  /**
+   * Push to talk, transcribed here: the command first (it is what the user waits for), then the
+   * meeting tail; both go up as text. If the GPU fails, `fallback` uploads the clip instead.
+   */
+  const sendLocalCommand = useCallback(
+    async (command: Int16Array, tail: Int16Array | null, fallback: () => void) => {
+      setTranscribing((n) => n + 1);
+      try {
+        let said;
+        try {
+          said = await transcribeLocal(pcmToFloat(command), "command");
+        } catch {
+          return fallback();
+        }
+        const context = tail ? await transcribeLocal(pcmToFloat(tail), "command").catch(() => null) : null;
+        const text = said.text.slice(0, COMMAND_MAX_CHARS);
+        const ctx = context?.text.slice(-VOICE_CONTEXT_MAX_CHARS) ?? "";
+        if (!text && !ctx) return notifyRef.current({ kind: "nothingHeard" });
+        const body: VoiceTextRequest = { kind: "command-text", room: roomName, command: text, timeZone: timeZone() };
+        if (ctx) body.context = ctx;
+        if (said.language) body.lang = said.language;
+        await settle(await postText(body), true);
+      } catch {
+        // offline: the speaker can repeat
+      } finally {
+        setTranscribing((n) => Math.max(0, n - 1));
+      }
+    },
+    [roomName, postText, settle],
+  );
+
+  /** A meeting chunk: transcribed here when the local model is ready, otherwise uploaded. */
+  const sendContext = useCallback(
+    async (blob: Blob, mime: string, durationMs: number, pcm: Int16Array | null) => {
+      if (!pcm || !localRef.current.active) return upload("context", blob, mime, durationMs);
+      let heard;
+      try {
+        heard = await transcribeLocal(pcmToFloat(pcm), "context");
+      } catch (e) {
+        // Dropped behind newer chunks: fine. A GPU failure: this one goes to the server.
+        if (!(e instanceof LocalSttDropped)) await upload("context", blob, mime, durationMs);
+        return;
+      }
+      const text = heard.text.slice(0, VOICE_CONTEXT_MAX_CHARS);
+      if (!text) return;
+      try {
+        const body: VoiceTextRequest = { kind: "context-text", room: roomName, context: text, timeZone: timeZone() };
+        if (heard.language) body.lang = heard.language;
+        await settle(await postText(body), false);
+      } catch {
+        // offline: this piece of context is lost
+      }
+    },
+    [roomName, upload, postText, settle],
+  );
+
+  const localCommandRef = useRef(sendLocalCommand);
+  localCommandRef.current = sendLocalCommand;
+  const contextRef = useRef(sendContext);
+  contextRef.current = sendContext;
+
+  // The model loads only once Claude is used: panel opened, meeting listening on, or push to talk.
+  useEffect(() => {
+    if (local.wanted && (opts.panelOpen || listen)) loadLocalStt();
+  }, [local.wanted, opts.panelOpen, listen]);
+
   const uploadRef = useRef(upload);
   uploadRef.current = upload;
 
@@ -713,7 +807,11 @@ export function useClaudeCommands(
       const contextMs = tail ? samplesToMs(tail.length) + TAIL_GAP_MS / 2 : 0;
       const blob = wavBlob(parts);
       const totalMs = samplesToMs(parts.reduce((n, x) => n + x.length, 0));
-      if (blob.size <= VOICE_MAX_BYTES) void uploadRef.current("command", blob, "audio/wav", totalMs, contextMs);
+      const upload = () => {
+        if (blob.size <= VOICE_MAX_BYTES) void uploadRef.current("command", blob, "audio/wav", totalMs, contextMs);
+      };
+      if (localRef.current.active) void localCommandRef.current(command, tail, upload);
+      else upload();
       return;
     }
 
@@ -740,6 +838,7 @@ export function useClaudeCommands(
     if (press.current) return;
     // Claude's spoken reply stops here so it doesn't talk over the user.
     onTalkRef.current?.();
+    if (localRef.current.wanted) loadLocalStt();
     if (dataRef.current && !dataRef.current.hasWriteToken) {
       setProblem("noToken");
       return notifyRef.current({ kind: "noToken" });
@@ -888,7 +987,7 @@ export function useClaudeCommands(
       if (cancelled || listener) return;
       let next: MeetingListener | null = null;
       try {
-        next = new MeetingListener(room, (blob, type, ms) => void uploadRef.current("context", blob, type, ms));
+        next = new MeetingListener(room, (blob, type, ms, pcm) => void contextRef.current(blob, type, ms, pcm));
         listener = next;
         if (!(await next.start())) throw new Error("unsupported");
         if (cancelled) return;
@@ -1054,6 +1153,8 @@ export function useClaudeCommands(
     transcribing,
     heard: heard?.text ?? null,
     accepted,
+    /** Local (GPU) transcription: the setting, the model's state, and whether it is in use. */
+    local,
     ask,
     decide,
     cancel,

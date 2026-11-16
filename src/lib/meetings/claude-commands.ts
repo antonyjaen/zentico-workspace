@@ -80,10 +80,10 @@ export function bridgePayload(c: CommandRow, appUrl: string): BridgeCommand {
   const meetingParts = recent.filter((u) => u.source === "meeting");
   let meeting: BridgeCommand["meeting"] = null;
   if (meetingParts.length) {
-    const full = meetingParts.map((u) => u.text.trim()).join(" ").replace(/s+/g, " ").trim();
+    const full = meetingParts.map((u) => u.text.trim()).join(" ").replace(/\s+/g, " ").trim();
     const truncated = full.length > MEETING_CONTEXT_MAX_CHARS;
     // Keep the newest text, starting at a word boundary.
-    const text = truncated ? `…${full.slice(-MEETING_CONTEXT_MAX_CHARS).replace(/^S*s/, "")}` : full;
+    const text = truncated ? `…${full.slice(-MEETING_CONTEXT_MAX_CHARS).replace(/^\S*\s/, "")}` : full;
     // A chunk's timestamp is when its transcript was stored (~15 s of audio before that).
     const iso = (ms: number) => new Date(ms).toISOString();
     meeting = { from: iso(meetingParts[0].at - 15_000), to: iso(meetingParts[meetingParts.length - 1].at), text, truncated };

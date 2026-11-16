@@ -20,9 +20,9 @@ const fold = (t: string) =>
  * A push-to-talk clip is the command as a whole: no wake word needed, but a leading "Claude, …"
  * (people say it out of habit) is stripped. Null when there is nothing to run.
  */
-export function commandText(segments: TranscriptSegment[]): string | null {
-  const text = segments
-    .map((s) => s.text.trim())
+export function commandText(segments: TranscriptSegment[] | string): string | null {
+  const text = (typeof segments === "string" ? [segments] : segments.map((s) => s.text))
+    .map((s) => s.trim())
     .filter(Boolean)
     .join(" ")
     .replace(LEADING_JUNK, "");

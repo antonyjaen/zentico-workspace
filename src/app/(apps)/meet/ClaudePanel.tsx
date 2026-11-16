@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Ear, Loader2, Mic, Send, Share2, ShieldCheck, Square, Volume2, X } from "lucide-react";
+import { Check, Cpu, Ear, Loader2, Mic, Send, Share2, ShieldCheck, Square, Volume2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { useMemo, useState } from "react";
@@ -73,6 +73,7 @@ function TalkStatus({ claude, compact = false }: { claude: Claude; compact?: boo
       <p key="tr" className="flex items-center gap-2">
         <Loader2 size={11} aria-hidden className="shrink-0 animate-spin" />
         {claude.transcribing > 1 ? t("claudeTranscribingQueued", { count: claude.transcribing - 1 }) : t("claudeTranscribing")}
+        <span className="text-ink-mute">· {claude.local.active ? t("claudeOnDevice") : t("claudeOnServer")}</span>
       </p>,
     );
   if (claude.accepted.size > 0)
@@ -97,6 +98,47 @@ function TalkStatus({ claude, compact = false }: { claude: Claude; compact?: boo
     <div role="status" aria-live="polite" className="space-y-1 text-[12.5px] text-ink-soft">
       {lines}
     </div>
+  );
+}
+
+/** "Transcribe on this device (GPU)": the setting, the one-time model download and where speech is transcribed. */
+function LocalSttSetting({ claude }: { claude: Claude }) {
+  const t = useTranslations("meet");
+  const l = claude.local;
+  if (l.supported === null) return null;
+  if (!l.supported) return <p className="text-[12.5px] text-ink-mute">{t("claudeLocalSttUnsupported")}</p>;
+  const status =
+    !l.enabled ? null : l.status === "loading" ? (
+      <span className="flex items-center gap-1.5 text-ink-soft">
+        <Loader2 size={11} aria-hidden className="shrink-0 animate-spin" />
+        {l.percent != null ? t("claudeLocalSttLoadingPct", { percent: l.percent }) : t("claudeLocalSttLoading")}
+      </span>
+    ) : l.status === "ready" ? (
+      <span className="text-signal">{t("claudeLocalSttReady")}</span>
+    ) : l.status === "failed" ? (
+      <span className="text-amber">{t("claudeLocalSttFailed")}</span>
+    ) : null;
+  return (
+    <label className="flex items-start gap-3">
+      <input
+        type="checkbox"
+        className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-app-meet)]"
+        checked={l.enabled}
+        onChange={(e) => l.setEnabled(e.target.checked)}
+      />
+      <span className="min-w-0">
+        <span className="flex items-center gap-2 text-[14px] font-medium text-ink">
+          <Cpu size={14} aria-hidden className="shrink-0 text-ink-soft" />
+          {t("claudeLocalStt")}
+        </span>
+        <span className="block text-[12.5px] leading-relaxed text-ink-mute">{t("claudeLocalSttHint")}</span>
+        {status && (
+          <span role="status" aria-live="polite" className="mt-1 block text-[12.5px]">
+            {status}
+          </span>
+        )}
+      </span>
+    </label>
   );
 }
 
@@ -329,6 +371,7 @@ export function ClaudePanel({
               <span className="block text-[12.5px] leading-relaxed text-ink-mute">{t("claudeListenHint")}</span>
             </span>
           </label>
+          <LocalSttSetting claude={claude} />
           {voice.supported && (
             <label className="flex items-start gap-3">
               <input

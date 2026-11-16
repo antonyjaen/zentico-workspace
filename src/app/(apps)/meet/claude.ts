@@ -56,6 +56,17 @@ export type VoiceResponse = {
   action?: "approved" | "rejected" | "cancelled";
 };
 
+/**
+ * Text transcribed in the browser (local Whisper on the GPU), posted as JSON to /api/meet/voice
+ * instead of audio: a push-to-talk command (with the meeting tail before it as `context`), or a
+ * meeting chunk (`context` only). `lang` is the detected language (ISO 639-1).
+ */
+export type VoiceTextRequest =
+  | { kind: "command-text"; room: string; command: string; context?: string; lang?: string; timeZone: string }
+  | { kind: "context-text"; room: string; context: string; lang?: string; timeZone: string };
+/** Max length of meeting context text sent with a command or as a chunk (local transcription). */
+export const VOICE_CONTEXT_MAX_CHARS = 4000;
+
 /** What a voice clip is: a push-to-talk command, or a chunk of meeting audio for context. */
 export type VoiceKind = "command" | "context";
 /** A push-to-talk command clip stops by itself at this length. */

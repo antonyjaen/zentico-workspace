@@ -7,6 +7,9 @@
 // - kind=context: ~15 s of the meeting's mixed audio, sent while the user's "Claude listens to the
 //   meeting" toggle is on (announced to everyone in the call). Only stored as prompt context for
 //   that user's commands; never parsed for commands.
+// - JSON { kind: "command-text" | "context-text", ... } (VoiceTextRequest): the same two, already
+//   transcribed in the user's browser (local Whisper on their GPU), so only text arrives: the
+//   command's meeting tail (`context`) is stored first, then the command is handled as above.
 // CPU Whisper takes ~11 s per clip, so clips wait in a queue where commands go first (see
 // enterClipQueue in src/lib/meetings/voice.ts).
 // Multipart fields: kind, room, file, mime, duration (ms), timeZone, contextMs (command only).
@@ -26,6 +29,7 @@ import {
 } from "@/lib/mcp/agent";
 import type { Session } from "@/lib/session";
 import {
+  COMMAND_MAX_CHARS,
   CONTEXT_CHUNK_MS,
   CONTEXT_MIN_INTERVAL_MS,
   CONTEXT_TAIL_MAX_MS,
@@ -33,6 +37,7 @@ import {
   VOICE_MAX_CLIP_MS,
   VOICE_MAX_TOTAL_MS,
   VOICE_MIMES,
+  VOICE_CONTEXT_MAX_CHARS,
   VOICE_MIN_INTERVAL_MS,
   type VoiceResponse,
 } from "@/app/(apps)/meet/claude";
@@ -77,6 +82,63 @@ function handleCommand(session: Session, room: string, text: string, timeZone: s
   return { ok: true, heard, command: toView(command) };
 }
 
+/* ------------------------------------------------- text from the browser */
+
+const TEXT_MAX_BYTES = 32 * 1024;
+const LANG = /^[a-z]{2,3}$/;
+const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
+
+/** Untrusted transcript text: control characters out, whitespace collapsed; null when too long or not a string. */
+function cleanTranscript(v: unknown, max: number): string | null {
+  if (v === undefined || v === null) return "";
+  if (typeof v !== "string" || v.length > max) return null;
+  return v.replace(CONTROL_CHARS, " ").replace(/\s+/g, " ").trim();
+}
+
+/** Stores text as utterances of ≤ 2000 chars (addUtterance's limit). */
+function storeText(email: string, room: string, text: string, source: "meeting" | "command") {
+  for (let at = 0; at < text.length; at += 2000) addUtterance(email, room, text.slice(at, at + 2000), source);
+}
+
+async function handleText(req: NextRequest, session: Session) {
+  if (Number(req.headers.get("content-length") ?? "0") > TEXT_MAX_BYTES) return jsonError("too_large", 413);
+  let body: Record<string, unknown>;
+  try {
+    // Bounded even without a Content-Length header.
+    const raw = await req.text();
+    if (raw.length > TEXT_MAX_BYTES) return jsonError("too_large", 413);
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return jsonError("invalid", 400);
+    body = parsed as Record<string, unknown>;
+  } catch {
+    return jsonError("invalid", 400);
+  }
+  const kind = body.kind;
+  const room = typeof body.room === "string" ? body.room : "";
+  const command = kind === "command-text" ? cleanTranscript(body.command, COMMAND_MAX_CHARS) : "";
+  const context = cleanTranscript(body.context, VOICE_CONTEXT_MAX_CHARS);
+  const lang = typeof body.lang === "string" && LANG.test(body.lang) ? body.lang : null;
+  if ((kind !== "command-text" && kind !== "context-text") || !ROOM_PATTERN.test(room) || command == null || context == null) {
+    return jsonError("invalid", 400);
+  }
+  const clip: ClipKind = kind === "command-text" ? "command" : "context";
+  if (!takeClipSlot(session.email, clip, MIN_INTERVAL_MS[clip])) return jsonError("rate_limited", 429);
+  console.info(`[voice] ${clip} (local) lang=${lang ?? "?"} heard=${command.length + context.length}ch${clip === "command" && context ? " +tail" : ""}`);
+
+  // The meeting tail first, so the command's prompt context includes it (never searched for commands).
+  if (context) storeText(session.email, room, context, "meeting");
+  if (clip === "context") return NextResponse.json({ ok: true }, { headers: NO_STORE });
+  if (command) storeText(session.email, room, command, "command");
+  try {
+    const text = commandText(command);
+    if (!text) return respond({ ok: true, heard: command });
+    return respond(handleCommand(session, room, text, cleanTimeZone(body.timeZone), command));
+  } catch (e) {
+    console.error("[voice] command:", e instanceof Error ? e.message : e);
+    return jsonError("failed", 500);
+  }
+}
+
 export async function POST(req: NextRequest) {
   const session = await getSession();
   if (!session) return jsonError("unauthorized", 401);
@@ -85,6 +147,8 @@ export async function POST(req: NextRequest) {
   const length = Number(req.headers.get("content-length") ?? "0");
   if (Number.isFinite(length) && length > VOICE_MAX_BYTES + 16 * 1024) return jsonError("too_large", 413);
   if (!hasWriteToken(session.sub)) return jsonError("no_token", 412);
+  // Transcribed in the browser: no Whisper needed here.
+  if ((req.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")) return handleText(req, session);
   const cfg = whisperConfig();
   if (!cfg) return jsonError("not_configured", 503);
 
