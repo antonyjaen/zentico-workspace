@@ -1,0 +1,26 @@
+{
+  "appId": "dev.zentico.workspace",
+  "appName": "Zentico Workspace",
+  "webDir": "../launcher",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": false
+  },
+  "ios": {
+    "contentInset": "always",
+    "limitsNavigationsToAppBoundDomains": false
+  },
+  "plugins": {
+    "SystemBars": { "insetsHandling": "native", "style": "DEFAULT" },
+    "SplashScreen": {
+      "launchShowDuration": 600,
+      "launchAutoHide": true,
+      "backgroundColor": "#0a0a0a",
+      "showSpinner": false,
+      "androidScaleType": "CENTER_INSIDE"
+    }
+  }
+}

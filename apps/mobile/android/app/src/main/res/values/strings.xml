@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Zentico Workspace</string>
+    <string name="title_activity_main">Zentico Workspace</string>
+    <string name="package_name">dev.zentico.workspace</string>
+    <string name="custom_url_scheme">zentico</string>
+    <string name="channel_messages">Messages and calls</string>
+    <string name="downloading">Downloading %1$s…</string>
+    <string name="download_unsupported">This download isn\'t supported in the app. Open the workspace in your browser to save it.</string>
+    <string name="shortcut_change_short">Change workspace</string>
+    <string name="shortcut_change_long">Change workspace server</string>
+</resources>

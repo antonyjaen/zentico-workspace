@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press on the launcher icon: "Change workspace" opens the setup screen (zentico://setup). -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="change_workspace"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_change_short"
+        android:shortcutLongLabel="@string/shortcut_change_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="zentico://setup"
+            android:targetPackage="dev.zentico.workspace"
+            android:targetClass="dev.zentico.workspace.MainActivity" />
+    </shortcut>
+</shortcuts>

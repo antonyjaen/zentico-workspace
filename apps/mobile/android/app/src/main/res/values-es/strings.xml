@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="channel_messages">Mensajes y llamadas</string>
+    <string name="downloading">Descargando %1$s…</string>
+    <string name="download_unsupported">Esta descarga no es compatible con la app. Abre el espacio de trabajo en el navegador para guardarla.</string>
+    <string name="shortcut_change_short">Cambiar espacio</string>
+    <string name="shortcut_change_long">Cambiar servidor del espacio de trabajo</string>
+</resources>

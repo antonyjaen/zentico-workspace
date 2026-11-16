@@ -1,0 +1,24 @@
+{
+  "name": "zentico-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "cap run android",
+    "build": "cap sync android && node gradle.mjs assembleDebug",
+    "build:release": "cap sync android && node gradle.mjs bundleRelease",
+    "sync": "cap sync",
+    "assets": "node assets/make-assets.mjs && capacitor-assets generate --android --ios --iconBackgroundColor #0a0a0a --iconBackgroundColorDark #0a0a0a --splashBackgroundColor #fafafa --splashBackgroundColorDark #0a0a0a",
+    "open:android": "cap open android",
+    "open:ios": "cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.6.2",
+    "@capacitor/core": "8.6.2",
+    "@capacitor/ios": "8.6.2",
+    "@capacitor/splash-screen": "8.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "4.0.0",
+    "@capacitor/cli": "8.6.2"
+  }
+}
