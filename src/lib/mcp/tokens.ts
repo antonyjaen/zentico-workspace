@@ -2,11 +2,11 @@
 // per-token rate limiting. Server-only.
 //
 // Each token is backed by its own Stalwart API key (see credential.ts for why). Rows created before
-// that carry a sealed OIDC refresh token instead; they keep working on it until they are
-// reconnected, which moves them to an API key.
+// that hold a copy of the web session's OIDC refresh token: it is never used again (refreshing a
+// copy makes Stalwart revoke the user's whole grant on replay), so they report "needs reauth"
+// until reconnected, which moves them to an API key.
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { seal, unseal } from "../crypto";
-import { refreshTokens } from "../oidc";
 import type { Session } from "../session";
 import { apiKeyWorks, createApiKey, CredentialError, destroyApiKey, type StalwartKey } from "./credential";
 import {
@@ -17,7 +17,6 @@ import {
   tokenByHash,
   touchToken,
   updateCredential,
-  updateRefresh,
   userTokens,
   type Scope,
   type TokenRow,
@@ -171,27 +170,6 @@ async function keySession(row: TokenRow): Promise<Session> {
   return sessionOf(row, key.apiKey, Date.now() + KEY_RECHECK_MS);
 }
 
-/** Legacy rows: refresh the stored OIDC refresh token (rotations are persisted). */
-async function refreshSession(row: TokenRow): Promise<Session> {
-  const refresh = await unseal<string>(row.refreshSealed);
-  if (!refresh) throw new ReauthError();
-  let tokens;
-  try {
-    tokens = await refreshTokens(refresh);
-  } catch (e) {
-    // 400/401 from the token endpoint = invalid/expired grant; anything else may be transient.
-    if (e instanceof Error && /: (400|401)$/.test(e.message)) {
-      markNeedsReauth(row.id);
-      throw new ReauthError();
-    }
-    throw e;
-  }
-  if (tokens.refresh_token && tokens.refresh_token !== refresh) {
-    updateRefresh(row.id, await seal(tokens.refresh_token));
-  }
-  return sessionOf(row, tokens.access_token, Date.now() + (tokens.expires_in ?? 3600) * 1000);
-}
-
 /**
  * A JMAP-capable session for the token's user, shaped like a browser session (jmap() and friends
  * send its accessToken as Bearer, which Stalwart accepts for API keys too). Cached while valid;
@@ -205,7 +183,11 @@ export async function sessionForToken(row: TokenRow): Promise<Session> {
   const pending = inflight.get(row.id);
   if (pending) return pending;
   const p = (async () => {
-    const session = row.credentialSealed ? await keySession(row) : await refreshSession(row);
+    if (!row.credentialSealed) {
+      markNeedsReauth(row.id);
+      throw new ReauthError();
+    }
+    const session = await keySession(row);
     accessCache.set(row.id, { session, expiresAt: session.expiresAt });
     return session;
   })();

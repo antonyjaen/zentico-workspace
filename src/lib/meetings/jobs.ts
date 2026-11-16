@@ -8,8 +8,7 @@ import { runWithSession } from "../auth";
 import { unseal } from "../crypto";
 import { createFile, createFolder, DriveError, listChildren, uploadFile, uploadStream } from "../drive";
 import { env } from "../env";
-import { refreshTokens } from "../oidc";
-import { needsRefresh, sealSession, type Session } from "../session";
+import { needsRefresh, type Session } from "../session";
 import { chatMeetingTitle, postTranscriptReady } from "./chat-link";
 import { egressConfig, getEgress, stopEgress, videoPath } from "./egress";
 import {
@@ -27,7 +26,6 @@ import {
   setVideoRetry,
   setVideoUploading,
   storedMarkdown,
-  updateSealedSession,
   videoEgress,
   type JobMeeting,
   type PendingVideo,
@@ -195,26 +193,16 @@ function fileName(m: JobMeeting, ext: "md" | "mp4"): string {
   return `${date} ${time.replace(/:/g, ".")} ${title || m.summary.room}.${ext}`;
 }
 
-/** The starter's stored session, refreshed through OIDC when its access token has expired. */
+/**
+ * The starter's stored access token while it is still valid, else null ("drive_session_expired":
+ * Retry on the recording page stores the starter's current one). Never refreshed here: a refresh
+ * token copy presented after the browser rotated it makes Stalwart revoke the user's whole grant.
+ * The copy is kept fresh by recording uploads, stop, Retry and the open recording page.
+ */
 async function starterSession(m: JobMeeting): Promise<Session | null> {
   const session = await unseal<Session>(m.sealedSession ?? undefined);
-  if (!session) return null;
-  if (!needsRefresh(session)) return session;
-  if (!session.refreshToken) return null;
-  try {
-    const tokens = await refreshTokens(session.refreshToken);
-    const next: Session = {
-      ...session,
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token ?? session.refreshToken,
-      expiresAt: Date.now() + (tokens.expires_in ?? 3600) * 1000,
-    };
-    updateSealedSession(m.id, await sealSession(next));
-    return next;
-  } catch (e) {
-    log(`refreshing the session for ${m.id} failed`, e);
-    return null;
-  }
+  if (!session || needsRefresh(session)) return null;
+  return { ...session, refreshToken: undefined };
 }
 
 /** Uploads a blob (via `upload`) into the starter's "Meetings" folder as `name`. */
@@ -306,7 +294,7 @@ async function followEgress(v: PendingVideo): Promise<void> {
 
 async function uploadVideo(v: PendingVideo): Promise<void> {
   if (Date.now() < v.nextAt) return;
-  // Don't refresh the starter's session concurrently with the transcript job.
+  // One Drive upload per meeting at a time: wait for its transcript job.
   if (queue.running === v.id) return;
   const loaded = jobMeeting(v.id);
   if (!loaded) return;

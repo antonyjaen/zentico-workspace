@@ -15,7 +15,7 @@ export type TokenView = {
   lastUsed: number | null;
   expires: number | null;
   needsReauth: boolean;
-  /** Still on the web session's refresh token (pre API key): reconnecting moves it to its own key. */
+  /** Created before API keys (holds an unusable refresh token copy): must be reconnected to work. */
   legacy: boolean;
 };
 
@@ -204,7 +204,7 @@ export function IntegrationsClient({
 
   const [capsScope, setCapsScope] = useState<"read" | "write">("read");
   const bridgeCmd = `node zentico-bridge.mjs --url ${appUrl} --token ${token} --cwd .`;
-  const hasWrite = tokens.some((t) => t.scope === "write" && !t.needsReauth && (t.expires == null || t.expires > now));
+  const hasWrite = tokens.some((t) => t.scope === "write" && !t.needsReauth && !t.legacy && (t.expires == null || t.expires > now));
 
   const run = (p: Pending) => {
     setError(null);

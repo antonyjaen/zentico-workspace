@@ -1,10 +1,12 @@
 // Docs: WOPI host for Collabora Online over JMAP FileNode storage.
 // Collabora calls the WOPI endpoints server-to-server without cookies, so every call carries
-// a sealed access token that wraps the user's JMAP OAuth credentials.
+// a sealed access token that wraps the user's JMAP OAuth access token. The refresh token is never
+// copied in: Stalwart rotates it and revokes the user's whole grant (signing them out) when a
+// superseded copy is presented. Instead the open editor page re-sends the browser session's
+// current access token (renewWopiCreds) before the one in the WOPI token expires.
 import { getSession } from "./auth";
-import { seal, sha256, base64url, unseal } from "./crypto";
+import { seal, sha256, base64url, randomToken, unseal } from "./crypto";
 import { env } from "./env";
-import { refreshTokens } from "./oidc";
 
 /* ------------------------------------------------------------------ config */
 
@@ -73,7 +75,6 @@ const fromRaw = (n: FileNode & { mediaType?: string | null }): FileNode => ({ ..
 
 export type Creds = {
   accessToken: string;
-  refreshToken?: string;
   /** Epoch ms when the access token expires (if known). */
   accessExpiresAt?: number;
 };
@@ -94,12 +95,6 @@ export class FilesError extends Error {
   }
 }
 
-/**
- * Access tokens refreshed on behalf of WOPI tokens, keyed by a hash of the refresh token.
- * The sealed WOPI token can't be rewritten once Collabora holds it, so later calls reuse this.
- * In-memory: fine for a single instance (a restart just refreshes again).
- */
-const refreshed = new Map<string, Creds & { accessExpiresAt: number }>();
 const sessions = new Map<string, { at: number; session: JmapSession }>();
 const keyOf = async (s: string) => base64url(await sha256(s));
 
@@ -110,54 +105,19 @@ function utcNow() {
 /** Minimal JMAP FileNode client bound to explicit credentials (no cookies needed). */
 export class FilesClient {
   private session?: JmapSession;
-  private refreshKey?: Promise<string>;
 
   constructor(private creds: Creds) {}
 
-  private async init() {
-    if (!this.creds.refreshToken) return;
-    this.refreshKey ??= keyOf(this.creds.refreshToken);
-    const cached = refreshed.get(await this.refreshKey);
-    if (cached && cached.accessExpiresAt > Date.now() + 60_000) this.creds = cached;
-    else if (this.creds.accessExpiresAt && this.creds.accessExpiresAt < Date.now() + 30_000) await this.refresh();
-  }
-
-  private async refresh() {
-    if (!this.creds.refreshToken) throw new FilesError("Access token expired", 401);
-    const key = await (this.refreshKey ??= keyOf(this.creds.refreshToken));
-    let tokens;
-    try {
-      tokens = await refreshTokens(this.creds.refreshToken);
-    } catch {
-      throw new FilesError("Token refresh failed", 401);
-    }
-    this.creds = {
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token ?? this.creds.refreshToken,
-      accessExpiresAt: Date.now() + (tokens.expires_in ?? 3600) * 1000,
-    };
-    refreshed.set(key, this.creds as Creds & { accessExpiresAt: number });
-  }
-
-  /** Authenticated fetch; on 401 refreshes once (when a refresh token is available) and retries. */
-  private async authed(url: string, init: RequestInit = {}, retry = true): Promise<Response> {
-    const res = await fetch(url, {
+  private authed(url: string, init: RequestInit = {}): Promise<Response> {
+    return fetch(url, {
       ...init,
       headers: { ...(init.headers as Record<string, string>), Authorization: `Bearer ${this.creds.accessToken}` },
       cache: "no-store",
     });
-    if (res.status === 401 && retry && this.creds.refreshToken) {
-      await res.body?.cancel();
-      await this.refresh();
-      this.session = undefined;
-      return this.authed(url, init, false);
-    }
-    return res;
   }
 
   private async getSession(): Promise<JmapSession> {
     if (this.session) return this.session;
-    await this.init();
     const key = await keyOf(this.creds.accessToken);
     const hit = sessions.get(key);
     if (hit && Date.now() - hit.at < 5 * 60_000) return (this.session = hit.session);
@@ -292,7 +252,7 @@ export class FilesClient {
 export async function userFiles(): Promise<{ client: FilesClient; creds: Creds; email: string; name: string } | null> {
   const s = await getSession();
   if (!s) return null;
-  const creds = { accessToken: s.accessToken, refreshToken: s.refreshToken, accessExpiresAt: s.expiresAt };
+  const creds = { accessToken: s.accessToken, accessExpiresAt: s.expiresAt };
   return { client: new FilesClient(creds), creds, email: s.email, name: s.name };
 }
 
@@ -300,8 +260,9 @@ export async function userFiles(): Promise<{ client: FilesClient; creds: Creds; 
 
 export type WopiToken = {
   fileId: string;
+  /** Random id of this editing session (key of its renewed credentials). */
+  sid?: string;
   accessToken: string;
-  refreshToken?: string;
   accessExpiresAt?: number;
   email: string;
   name: string;
@@ -316,13 +277,13 @@ export async function mintWopiToken(
   const exp = Date.now() + WOPI_TOKEN_TTL_MS;
   const payload: WopiToken = {
     fileId,
+    sid: randomToken(16),
     accessToken: user.creds.accessToken,
     accessExpiresAt: user.creds.accessExpiresAt,
     email: user.email,
     name: user.name,
     exp,
   };
-  if (user.creds.refreshToken) payload.refreshToken = user.creds.refreshToken;
   return { token: await seal({ wopi: 1, ...payload }), ttl: exp };
 }
 
@@ -340,8 +301,32 @@ export async function verifyWopiToken(req: Request, fileId: string): Promise<Wop
   return t;
 }
 
-export const clientFor = (t: WopiToken) =>
-  new FilesClient({ accessToken: t.accessToken, refreshToken: t.refreshToken, accessExpiresAt: t.accessExpiresAt });
+// Newer access tokens for open editing sessions, sent by the editor page (renewWopiCreds), keyed
+// by the WOPI token's sid. In-memory: a restart drops them (reopening the document mints a new token).
+const g = globalThis as typeof globalThis & { __zwWopiCreds?: Map<string, Creds & { accessExpiresAt: number; exp: number }> };
+const renewed = (g.__zwWopiCreds ??= new Map());
+
+/** Client for a WOPI request: the most recently renewed access token of its editing session. */
+export function clientFor(t: WopiToken): FilesClient {
+  const fresh = t.sid ? renewed.get(t.sid) : undefined;
+  if (fresh && fresh.accessExpiresAt > (t.accessExpiresAt ?? 0)) return new FilesClient(fresh);
+  return new FilesClient({ accessToken: t.accessToken, accessExpiresAt: t.accessExpiresAt });
+}
+
+/**
+ * Stores the browser session's current access token for the editing session `rawToken` belongs
+ * to. Only its own user may renew it. Returns false for an invalid/expired/foreign token.
+ */
+export async function renewWopiCreds(rawToken: string, user: { email: string; creds: Creds }): Promise<boolean> {
+  if (rawToken.length > 8192) return false;
+  const t = await unseal<WopiToken & { wopi?: number }>(rawToken);
+  if (!t || t.wopi !== 1 || typeof t.sid !== "string" || typeof t.exp !== "number" || t.exp < Date.now()) return false;
+  if (t.email.toLowerCase() !== user.email.toLowerCase() || !user.creds.accessExpiresAt) return false;
+  const now = Date.now();
+  for (const [k, v] of renewed) if (v.exp < now) renewed.delete(k);
+  renewed.set(t.sid, { accessToken: user.creds.accessToken, accessExpiresAt: user.creds.accessExpiresAt, exp: t.exp });
+  return true;
+}
 
 /* ------------------------------------------------------------------- locks */
 

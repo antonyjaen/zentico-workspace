@@ -16,7 +16,7 @@ export const cleanTimeZone = (tz: unknown): string | null => (typeof tz === "str
 /** Meeting commands need an active read+write access token (the bridge runs with one). */
 export function hasWriteToken(userSub: string): boolean {
   const now = Date.now();
-  return userTokens(userSub).some((t) => t.scope === "write" && !t.needsReauth && (t.expires == null || t.expires > now));
+  return userTokens(userSub).some((t) => t.scope === "write" && !t.needsReauth && !!t.credentialSealed && (t.expires == null || t.expires > now));
 }
 
 export function createCommand(

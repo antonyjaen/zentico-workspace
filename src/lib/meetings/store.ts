@@ -10,6 +10,13 @@ import { appendFile, mkdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { randomToken } from "../crypto";
 import { sealSession, type Session } from "../session";
+
+/**
+ * Seals the starter's credentials for the background jobs: the access token only. The refresh
+ * token stays with the browser session: Stalwart rotates it and revokes the whole grant (signing
+ * the user out) when a superseded copy is presented, so jobs must never refresh a copy.
+ */
+const sealForJobs = (session: Session) => sealSession({ ...session, refreshToken: undefined });
 import { all, get, meetingsDir, num, numOrNull, run, str, strOrNull, tx, type Row } from "./db";
 import {
   AUDIO_MIMES,
@@ -211,7 +218,7 @@ export async function startRecording(input: {
   if (replaced) finalize(replaced);
 
   const id = randomToken(18);
-  const sealed = await sealSession(session);
+  const sealed = await sealForJobs(session);
   const me: MeetingPerson = { email: session.email, name: session.name || session.email };
   tx(() => {
     run(
@@ -309,7 +316,7 @@ export async function addChunk(input: ChunkInput): Promise<{ duplicate: boolean 
     run("UPDATE meetings SET bytes = bytes + ?, last_activity = ? WHERE id = ?", data.byteLength, now, id);
     // Keep a recent copy of the starter's credentials for the background job.
     if (now - num(m.session_at) > SESSION_REFRESH_MS) {
-      run("UPDATE meetings SET starter_session = ?, session_at = ? WHERE id = ?", await sealSession(session), now, id);
+      run("UPDATE meetings SET starter_session = ?, session_at = ? WHERE id = ?", await sealForJobs(session), now, id);
     }
     return { duplicate: false };
   });
@@ -340,7 +347,7 @@ export async function stopRecording(id: string, session: Session): Promise<{ sto
   if (!m) throw new RecordingError("not_found");
   if (norm(str(m.started_by)) !== norm(session.email)) throw new RecordingError("forbidden");
   if (str(m.status) !== "recording") return { stopped: false };
-  run("UPDATE meetings SET starter_session = ?, session_at = ? WHERE id = ?", await sealSession(session), Date.now(), id);
+  run("UPDATE meetings SET starter_session = ?, session_at = ? WHERE id = ?", await sealForJobs(session), Date.now(), id);
   return { stopped: finalize(id) };
 }
 
@@ -359,7 +366,7 @@ export async function retryMeeting(id: string, userEmail: string, session: Sessi
   if (!transcriptRetry && !videoRetry) throw new RecordingError("invalid");
   // A fresh session from the starter helps when their stored one expired.
   if (session && norm(session.email) === norm(str(m.started_by))) {
-    run("UPDATE meetings SET starter_session = ?, session_at = ? WHERE id = ?", await sealSession(session), Date.now(), id);
+    run("UPDATE meetings SET starter_session = ?, session_at = ? WHERE id = ?", await sealForJobs(session), Date.now(), id);
   }
   if (transcriptRetry) run("UPDATE meetings SET status = 'processing', error = NULL WHERE id = ?", id);
   if (videoRetry) {
@@ -446,8 +453,21 @@ export function markFailed(id: string, error: string) {
   run("UPDATE meetings SET status = 'failed', error = ? WHERE id = ?", error.slice(0, 200), id);
 }
 
-export function updateSealedSession(id: string, sealed: string) {
-  run("UPDATE meetings SET starter_session = ?, session_at = ? WHERE id = ?", sealed, Date.now(), id);
+/**
+ * While the starter has the recording page open and Drive work is still pending (transcript or
+ * video), keeps the jobs' copy of their access token fresh (the page polls; throttled).
+ */
+export async function refreshStarterSession(id: string, session: Session): Promise<void> {
+  const m = MEETING_ID.test(id)
+    ? get("SELECT started_by, status, drive_file_id, video_status, session_at FROM meetings WHERE id = ?", id)
+    : undefined;
+  if (!m || norm(str(m.started_by)) !== norm(session.email)) return;
+  const pending =
+    ["recording", "processing"].includes(str(m.status)) ||
+    (str(m.status) === "ready" && !strOrNull(m.drive_file_id)) ||
+    ["recording", "processing", "uploading"].includes(str(m.video_status));
+  if (!pending || Date.now() - num(m.session_at) < SESSION_REFRESH_MS) return;
+  run("UPDATE meetings SET starter_session = ?, session_at = ? WHERE id = ?", await sealForJobs(session), Date.now(), id);
 }
 
 /** Recordings whose recorder vanished (tab crash, network loss): finalize them. Returns their ids. */

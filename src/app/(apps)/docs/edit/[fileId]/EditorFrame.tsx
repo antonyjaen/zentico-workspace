@@ -67,6 +67,22 @@ export function EditorWorkspace({
     if (frame) formRef.current?.submit();
   }, [frame?.action, frame?.token]);
 
+  // Keep the editing session's mail-server access token fresh while the editor is open: the
+  // server never refreshes it on its own (see /api/docs/wopi-session).
+  useEffect(() => {
+    const token = frame?.token;
+    if (!token) return;
+    const renew = () =>
+      void fetch("/api/docs/wopi-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      }).catch(() => undefined);
+    renew();
+    const timer = setInterval(renew, 10 * 60_000);
+    return () => clearInterval(timer);
+  }, [frame?.token]);
+
   useEffect(() => {
     if (!frame) return;
     const settle = (ok: boolean) => saveWaiters.current.splice(0).forEach((w) => w(ok));

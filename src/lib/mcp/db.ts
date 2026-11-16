@@ -166,10 +166,6 @@ export function revokeToken(id: string, userSub: string): boolean {
   return Number(r.changes) > 0;
 }
 
-export function updateRefresh(id: string, refreshSealed: string): void {
-  db().prepare("UPDATE tokens SET refresh_sealed = ?, needs_reauth = 0 WHERE id = ? AND revoked IS NULL").run(refreshSealed, id);
-}
-
 /** Binds the token to a (new) Stalwart API key; the legacy refresh token, if any, is dropped. */
 export function updateCredential(id: string, credentialSealed: string): void {
   db()
