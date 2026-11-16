@@ -348,7 +348,7 @@ async function connect() {
 
   const decoder = new TextDecoder();
   let buf = "";
-  let connectedOnce = false;
+  connectedOnce = false;
   for await (const chunk of res.body) {
     buf += decoder.decode(chunk, { stream: true }).replace(/\r\n/g, "\n");
     let sep;
@@ -383,6 +383,9 @@ async function connect() {
   return connectedOnce;
 }
 
+// Set by connect(): a stream that connected and later dropped retries quickly, not with backoff.
+let connectedOnce = false;
+
 async function main() {
   log(`zentico-bridge ${VERSION} → ${baseUrl} (cwd ${cwd})`);
   let delay = 1000;
@@ -392,6 +395,7 @@ async function main() {
       if (ok) delay = 1000;
       log("Stream closed; reconnecting…");
     } catch (e) {
+      if (connectedOnce) delay = 1000;
       log(`Connection failed (${e?.message ?? e}); retrying in ${Math.round(delay / 1000)}s`);
     }
     await sleep(delay);
