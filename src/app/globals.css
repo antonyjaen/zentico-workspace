@@ -36,8 +36,8 @@
   --color-accent: #3b6cf6;
 
   /* Chat bubbles (DMs and groups): mine tinted cobalt, others neutral; links darkened to keep AA */
-  --color-bubble-mine: #e9effe;
-  --color-bubble-other: #f0f0f0;
+  --color-bubble-mine: #dbe6fd;
+  --color-bubble-other: #ececec;
   --color-bubble-link: #1f4fd1;
   --color-bubble-code: #ffffffa6;
 
@@ -79,9 +79,9 @@
 
   --color-accent: #5b8cff;
 
-  --color-bubble-mine: #172446;
-  --color-bubble-other: #1c1c1c;
-  --color-bubble-link: #7aa2ff;
+  --color-bubble-mine: #1e3a8a;
+  --color-bubble-other: #262626;
+  --color-bubble-link: #a5bfff;
   --color-bubble-code: #00000080;
 
   --color-app-chat: #9d85ff;

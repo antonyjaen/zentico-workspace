@@ -49,7 +49,7 @@ const groupedWith = (prev: ChatMessage | undefined, m: ChatMessage | undefined, 
   prev.author?.id === m.author?.id &&
   m.created - prev.created < GROUP_GAP_MS;
 /** Max width of the centered message column and the composer (Google Chat–like). */
-const COLUMN = "mx-auto w-full max-w-[900px]";
+const COLUMN = "mx-auto w-full max-w-[1180px]";
 
 export function Conversation({ id, me, summary, subscribe, onBack, onChanged, onOpen, onRead, autoSchedule = false }: Props) {
   const t = useTranslations("chat");

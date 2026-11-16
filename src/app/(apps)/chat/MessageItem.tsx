@@ -250,27 +250,27 @@ export const MessageItem = memo(function MessageItem({
         ? `${grouped ? "rounded-tr-md" : ""} ${last ? "" : "rounded-br-md"}`
         : `${grouped ? "rounded-tl-md" : ""} ${last ? "" : "rounded-bl-md"}`;
     const text = m.deleted ? (
-      <p className="text-[13.5px] text-ink-mute italic">{t("deleted")}</p>
+      <p className="text-[15px] text-ink-mute italic">{t("deleted")}</p>
     ) : m.meta?.notice ? (
       <Notice notice={m.meta.notice} />
     ) : m.body ? (
-      <div className="text-[14px] leading-relaxed break-words whitespace-pre-wrap text-ink">
+      <div className="text-[15px] leading-[1.5] break-words whitespace-pre-wrap text-ink">
         <Markdown text={m.body} meHandle={meHandle} />
-        {m.edited && <span className="ml-1.5 text-[11px] text-ink-mute">{t("edited")}</span>}
+        {m.edited && <span className="ml-1.5 text-[12px] text-ink-mute">{t("edited")}</span>}
       </div>
     ) : null;
 
     return (
       <div
-        className={`group relative flex gap-2 px-3 md:px-4 ${grouped ? "pt-0.5" : "pt-2.5"} ${
+        className={`group relative flex gap-2 px-3 md:px-4 ${grouped ? "pt-1" : "pt-3"} ${
           side === "right" ? "justify-end" : side === "center" ? "justify-center" : ""
         }`}
         data-message-id={m.id}
       >
         {side === "left" && (
-          <div className="w-8 shrink-0">
+          <div className="w-9 shrink-0">
             {!grouped && m.author && (
-              <Avatar name={m.author.name} email={m.author.email} bot={m.author.bot} size={32} className={showName ? "mt-[18px]" : ""} />
+              <Avatar name={m.author.name} email={m.author.email} bot={m.author.bot} size={36} className={showName ? "mt-[18px]" : ""} />
             )}
           </div>
         )}
@@ -281,7 +281,7 @@ export const MessageItem = memo(function MessageItem({
         >
           {showName && (
             <div className="mb-0.5 flex max-w-full items-baseline gap-1.5 px-1">
-              <span className="truncate text-[12.5px] font-medium text-ink-soft">{m.author ? userName(m.author) : t("someone")}</span>
+              <span className="truncate text-[13px] font-medium text-ink-soft">{m.author ? userName(m.author) : t("someone")}</span>
               {m.author?.bot && <AppBadge bot={m.author.bot} />}
             </div>
           )}
@@ -294,7 +294,7 @@ export const MessageItem = memo(function MessageItem({
             text && (
               <div
                 title={fullTime}
-                className={`chat-bubble max-w-full rounded-2xl px-3 py-1.5 ${corners} ${
+                className={`chat-bubble max-w-full rounded-[20px] px-4 py-2.5 ${corners} ${
                   m.deleted ? "border border-line" : side === "right" ? "bg-bubble-mine" : "bg-bubble-other"
                 } ${highlighted ? "ring-1 ring-amber/60" : ""}`}
               >
@@ -308,7 +308,7 @@ export const MessageItem = memo(function MessageItem({
           {reactions}
           {replies}
           {last && !editing && (
-            <time dateTime={new Date(m.created).toISOString()} title={fullTime} className="mt-0.5 px-1 text-[11px] text-ink-mute tabular-nums">
+            <time dateTime={new Date(m.created).toISOString()} title={fullTime} className="mt-1 px-1.5 text-[12px] text-ink-mute tabular-nums">
               {timeLabel}
             </time>
           )}
@@ -344,7 +344,7 @@ export const MessageItem = memo(function MessageItem({
         )}
 
         {m.deleted ? (
-          <p className="text-[13.5px] text-ink-mute italic">{t("deleted")}</p>
+          <p className="text-[15px] text-ink-mute italic">{t("deleted")}</p>
         ) : editing ? (
           editBox
         ) : (
