@@ -22,7 +22,7 @@ export type ChatSummary = {
 };
 export type ChatMsg = {
   id: number;
-  author: { name: string; email: string } | null;
+  author: { name: string; email: string; bot?: { kind: string; ownerName: string } } | null;
   body: string;
   created: number;
   edited?: number | null;
@@ -37,7 +37,7 @@ export type ChatApi = {
   overview(user: ChatUser): { teams: { id: string; name: string; channels: ChatSummary[] }[]; chats: ChatSummary[] };
   listMessages(convId: string, userId: number, before: number | null): { messages: ChatMsg[]; hasMore: boolean };
   listThread?(rootId: number, userId: number): { root: ChatMsg; replies: ChatMsg[] };
-  postMessage(convId: string, userId: number, input: { body: string; threadRoot?: number | null }): ChatMsg;
+  postMessage(convId: string, userId: number, input: { body: string; threadRoot?: number | null; fromAgent?: boolean }): ChatMsg;
 };
 
 export async function loadChat(): Promise<ChatApi> {

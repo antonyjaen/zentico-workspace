@@ -52,17 +52,24 @@ const compactConv = (c: ChatSummary, team?: string) => ({
   lastMessage: c.lastMessage ? { author: c.lastMessage.author, preview: truncate(c.lastMessage.preview, 140), at: iso(c.lastMessage.created) } : undefined,
 });
 
-const compactMsg = (m: ChatMsg) => ({
-  id: m.id,
-  author: m.author ? m.author.name || m.author.email : null,
-  at: iso(m.created),
-  kind: m.kind !== "text" ? m.kind : undefined,
-  body: m.deleted ? "(deleted)" : m.body,
-  edited: m.edited ? true : undefined,
-  threadRoot: m.threadRoot ?? undefined,
-  replies: m.replyCount || undefined,
-  meta: m.kind === "text" || m.deleted ? undefined : m.meta,
-});
+const compactMsg = (m: ChatMsg) => {
+  const bot = m.author?.bot;
+  const cards = (m.meta as { cards?: unknown[] } | null | undefined)?.cards;
+  return {
+    id: m.id,
+    author: m.author ? m.author.name || m.author.email : null,
+    // Apps, webhooks and people's Claude bots post too: say so (they are not people).
+    authorType: bot ? (bot.kind === "webhook" ? "webhook" : bot.kind === "claude" ? `claude bot of ${bot.ownerName}` : "app") : undefined,
+    at: iso(m.created),
+    kind: m.kind !== "text" ? m.kind : undefined,
+    body: m.deleted ? "(deleted)" : m.body,
+    cards: !m.deleted && cards?.length ? cards : undefined,
+    edited: m.edited ? true : undefined,
+    threadRoot: m.threadRoot ?? undefined,
+    replies: m.replyCount || undefined,
+    meta: m.kind === "text" || m.deleted ? undefined : m.meta,
+  };
+};
 
 /* ----------------------------------------------------------------- meetings */
 
@@ -216,7 +223,7 @@ export const CHAT_TOOLS: Tool[] = [
       const chat = await loadChat();
       try {
         const me = await chat.me();
-        const m = chat.postMessage(convId, me.id, { body, threadRoot });
+        const m = chat.postMessage(convId, me.id, { body, threadRoot, fromAgent: true });
         return { posted: true, message: compactMsg(m) };
       } catch (e) {
         chatError(e);
@@ -395,7 +402,7 @@ export const CHAT_TOOLS: Tool[] = [
         }
         const grantFailed = grant && grant !== "none" && someoneMissing ? await drive.grantMissing(checked, grant) : 0;
         const messages = checked.located.map((l, i) =>
-          store.postMessage(convId, me.id, { body: i === 0 ? body : "", drive: [drive.refOf(l, me)], threadRoot }),
+          store.postMessage(convId, me.id, { body: i === 0 ? body : "", drive: [drive.refOf(l, me)], threadRoot, fromAgent: true }),
         );
         return {
           posted: true,
