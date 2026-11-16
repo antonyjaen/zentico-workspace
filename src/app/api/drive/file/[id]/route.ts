@@ -76,11 +76,28 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       "Referrer-Policy": "no-referrer",
       "Accept-Ranges": "bytes",
     });
-    for (const h of ["content-length", "content-range"]) {
-      const v = upstream.headers.get(h);
-      if (v && /^[\w\s\-/*=]+$/.test(v)) headers.set(h, v);
+    if (upstream.status === 206) {
+      for (const h of ["content-length", "content-range"]) {
+        const v = upstream.headers.get(h);
+        if (v && /^[\w\s\-/*=]+$/.test(v)) headers.set(h, v);
+      }
+      return new Response(upstream.body, { status: 206, headers });
     }
-    return new Response(upstream.body, { status: upstream.status === 206 ? 206 : 200, headers });
+    // Stalwart ignores Range and streams the whole blob (chunked, no length). Media players need
+    // byte ranges and a length to start playing and to seek, so serve the range from the stream.
+    const size = node.size;
+    const range = parseRange(req.headers.get("range"), size);
+    if (range === "invalid") {
+      await upstream.body.cancel().catch(() => {});
+      return new Response("Range not satisfiable", { status: 416, headers: { "Content-Range": `bytes */${size}` } });
+    }
+    if (range) {
+      headers.set("Content-Range", `bytes ${range.start}-${range.end}/${size}`);
+      headers.set("Content-Length", String(range.end - range.start + 1));
+      return new Response(sliceStream(upstream.body, range.start, range.end), { status: 206, headers });
+    }
+    if (size > 0) headers.set("Content-Length", String(size));
+    return new Response(upstream.body, { status: 200, headers });
   } catch (e) {
     unstable_rethrow(e);
     if (e instanceof DriveError && e.code === "not_found") return new Response("Not found", { status: 404 });
@@ -102,6 +119,52 @@ async function readUpTo(body: ReadableStream<Uint8Array>, max: number): Promise<
   }
   await reader.cancel().catch(() => {});
   return out.subarray(0, n);
+}
+
+/** A single "bytes=a-b" / "bytes=a-" / "bytes=-n" range within `size`; null = whole file. */
+function parseRange(header: string | null, size: number): { start: number; end: number } | null | "invalid" {
+  if (!header || !(size > 0)) return null;
+  const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!m || (!m[1] && !m[2])) return null; // multi-range or malformed: send it all
+  let start: number;
+  let end: number;
+  if (!m[1]) {
+    start = Math.max(0, size - Number(m[2]));
+    end = size - 1;
+  } else {
+    start = Number(m[1]);
+    end = m[2] ? Math.min(Number(m[2]), size - 1) : size - 1;
+  }
+  if (start >= size || start > end) return "invalid";
+  return { start, end };
+}
+
+/** Bytes [start, end] of a stream (skipping what comes before, stopping after end). */
+function sliceStream(body: ReadableStream<Uint8Array>, start: number, end: number): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  let pos = 0;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) return controller.close();
+        const from = pos;
+        pos += value.byteLength;
+        if (pos <= start) continue;
+        const a = Math.max(0, start - from);
+        const b = Math.min(value.byteLength, end + 1 - from);
+        if (b > a) controller.enqueue(value.subarray(a, b));
+        if (pos > end) {
+          await reader.cancel().catch(() => {});
+          return controller.close();
+        }
+        return;
+      }
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
+    },
+  });
 }
 
 function asciiName(name: string): string {
