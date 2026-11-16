@@ -156,8 +156,10 @@ function sliceStream(body: ReadableStream<Uint8Array>, start: number, end: numbe
         const b = Math.min(value.byteLength, end + 1 - from);
         if (b > a) controller.enqueue(value.subarray(a, b));
         if (pos > end) {
-          await reader.cancel().catch(() => {});
-          return controller.close();
+          // Close first: awaiting the upstream cancel can stall and leave the response open.
+          controller.close();
+          void reader.cancel().catch(() => {});
+          return;
         }
         return;
       }
