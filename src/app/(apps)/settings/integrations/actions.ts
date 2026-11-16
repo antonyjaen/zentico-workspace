@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireSession } from "@/lib/auth";
-import { createToken, MAX_EXPIRY_DAYS, revokeToken, TokenError } from "@/lib/mcp/tokens";
+import { createToken, MAX_EXPIRY_DAYS, reauthorizeToken, revokeToken, TokenError } from "@/lib/mcp/tokens";
 
 export type CreateResult = { ok: true; token: string } | { ok: false; error: "invalid_name" | "invalid_expiry" | "no_refresh" | "too_many" | "failed" };
 
@@ -38,4 +38,18 @@ export async function revokeTokenAction(id: unknown): Promise<{ ok: boolean }> {
   const ok = revokeToken(id, session.sub);
   revalidatePath("/settings/integrations");
   return { ok };
+}
+
+export async function reauthorizeTokenAction(id: unknown): Promise<{ ok: boolean; error?: "no_refresh" }> {
+  const session = await requireSession();
+  if (typeof id !== "string" || !ID.test(id)) return { ok: false };
+  try {
+    const ok = await reauthorizeToken(session, id);
+    revalidatePath("/settings/integrations");
+    return { ok };
+  } catch (e) {
+    if (e instanceof TokenError) return { ok: false, error: "no_refresh" };
+    console.error("[mcp] reauthorize failed:", e instanceof Error ? e.message : e);
+    return { ok: false };
+  }
 }

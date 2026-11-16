@@ -3,7 +3,7 @@
 import { Check, Copy, KeyRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { createTokenAction, revokeTokenAction } from "./actions";
+import { createTokenAction, reauthorizeTokenAction, revokeTokenAction } from "./actions";
 import { copyFor } from "./copy";
 
 export type TokenView = {
@@ -189,6 +189,15 @@ export function IntegrationsClient({
     });
   };
 
+  const reconnect = (t: TokenView) => {
+    setError(null);
+    startTransition(async () => {
+      const r = await reauthorizeTokenAction(t.id);
+      if (!r.ok) setError(c.errors[r.error ?? "failed"]);
+      router.refresh();
+    });
+  };
+
   const revoke = (t: TokenView) => {
     if (!window.confirm(c.revokeConfirm(t.name))) return;
     startTransition(async () => {
@@ -291,6 +300,11 @@ export function IntegrationsClient({
                     </p>
                     {t.needsReauth && <p className="mt-1 text-[12.5px] text-amber">{c.reauth}</p>}
                   </div>
+                  {t.needsReauth && (
+                    <button type="button" className={`${secondaryBtn} h-8 text-[13px]`} onClick={() => reconnect(t)} disabled={pending}>
+                      {c.reconnect}
+                    </button>
+                  )}
                   <button type="button" className={`${secondaryBtn} h-8 text-[13px]`} onClick={() => revoke(t)} disabled={pending}>
                     {c.revoke}
                   </button>

@@ -12,6 +12,7 @@ import {
   tokenByHash,
   touchToken,
   updateRefresh,
+  userTokens,
   type Scope,
   type TokenRow,
 } from "./db";
@@ -68,6 +69,27 @@ export async function createToken(
     expires: days ? Date.now() + days * 86_400_000 : null,
   });
   return { id, token };
+}
+
+/**
+ * Re-binds an existing token to a fresh refresh token from the signed-in user's session, so a
+ * token whose grant died (e.g. after a Stalwart key change) works again without being recreated
+ * and pasted into every client.
+ */
+export async function reauthorizeToken(session: Session, id: string): Promise<boolean> {
+  const row = userTokens(session.sub).find((t) => t.id === id && !t.revoked);
+  if (!row) return false;
+  if (!session.refreshToken) throw new TokenError("no_refresh");
+  let refreshToken = session.refreshToken;
+  try {
+    const fresh = await refreshTokens(session.refreshToken);
+    if (fresh.refresh_token) refreshToken = fresh.refresh_token;
+  } catch {
+    throw new TokenError("no_refresh");
+  }
+  updateRefresh(row.id, await seal(refreshToken));
+  accessCache.delete(row.id);
+  return true;
 }
 
 export function revokeToken(id: string, userSub: string): boolean {
