@@ -256,7 +256,7 @@ A mod is a folder \`mods/<id>/\` with:
 
 ### Sandbox
 
-Mods run in an iframe with \`sandbox="allow-scripts"\` (opaque origin: no cookies, no storage, no access
+Mods run in an iframe with \`sandbox="allow-scripts allow-forms"\` (forms and submit events work; real submissions are blocked by \`form-action 'none'\`) (opaque origin: no cookies, no storage, no access
 to the workspace page) and the CSP \`default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline';
 img-src data:\`. No \`fetch\`, no forms, no popups. Navigating the frame (e.g. a plain link) stops the mod:
 use \`zentico.ui.openApp(href)\` instead. Theme variables are set on \`:root\`: \`--zw-ink\`, \`--zw-ink-soft\`,

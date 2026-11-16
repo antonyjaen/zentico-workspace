@@ -17,7 +17,7 @@ import { effectiveMcp, effectivePerms, mcpAllows, MOD_ACTIONS, MOD_EVENTS, MOD_Q
 import { safePath, useStudio, type Selection } from "./studio-context";
 import { viewerTimeZone } from "./widgets";
 
-const CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:";
+const CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; form-action 'none'; base-uri 'none'";
 
 const THEME_VARS = [
   ["--zw-ink", "--color-ink"],
@@ -341,7 +341,9 @@ export function ModFrame({ mod, instance, config, title }: { mod: ModView; insta
           ref={frame}
           title={title}
           srcDoc={srcDoc}
-          sandbox="allow-scripts"
+          // allow-forms: without it the browser drops submit events, so form-based mods can't react
+          // to Enter/submit. form-action 'none' in the CSP still blocks any real submission.
+          sandbox="allow-scripts allow-forms"
           referrerPolicy="no-referrer"
           className="h-full w-full border-0 bg-transparent"
           onLoad={() => {

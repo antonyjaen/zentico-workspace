@@ -15,7 +15,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { isDataQuery } from "./model";
 import { fetchQuery } from "./widgets";
 
-const CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:";
+const CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'";
 
 const THEME_VARS = [
   ["--zw-ink", "--color-ink"],
@@ -144,7 +144,9 @@ export function CustomWidget({ html, title }: { html: string; title: string }) {
           ref={frame}
           title={title}
           srcDoc={srcDoc}
-          sandbox="allow-scripts"
+          // allow-forms: without it the browser drops submit events, so form-based mods can't react
+          // to Enter/submit. form-action 'none' in the CSP still blocks any real submission.
+          sandbox="allow-scripts allow-forms"
           referrerPolicy="no-referrer"
           loading="lazy"
           className="h-full w-full border-0 bg-transparent"
