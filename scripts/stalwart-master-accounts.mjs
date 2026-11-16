@@ -128,7 +128,7 @@ function callsFor(accountId, masterId, cols, grant) {
     }
     const create =
       grant && type === "FileNode" && !cols.FileNode.length
-        ? { home: { name: HOME_NAME, role: "home", shareWith: { [masterId]: RIGHTS.FileNode } } }
+        ? { home: { "@type": "Directory", name: HOME_NAME, role: "home", shareWith: { [masterId]: RIGHTS.FileNode } } }
         : undefined;
     if (Object.keys(update).length || create) {
       calls.push([`${type}/set`, { accountId, ...(create && { create }), ...(Object.keys(update).length && { update }) }, type]);
