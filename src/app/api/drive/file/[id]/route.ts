@@ -3,6 +3,9 @@
 import { unstable_rethrow } from "next/navigation";
 import type { NextRequest } from "next/server";
 import { guessType } from "@/app/(apps)/drive/shared";
+import { createReadStream } from "node:fs";
+import { Readable } from "node:stream";
+import { cachedBlobPath } from "@/lib/blob-cache";
 import { DriveError, fetchBlob, getNode, TEXT_PREVIEW_BYTES, validId } from "@/lib/drive";
 
 export const dynamic = "force-dynamic";
@@ -56,7 +59,33 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const isSvg = type === "image/svg+xml";
     const inline = wantInline && (RASTER.has(type) || MEDIA.has(type) || isPdf || isSvg);
 
-    const upstream = await fetchBlob(node, req.headers.get("range"));
+    const rangeHeader = req.headers.get("range");
+    // Media players ask for many ranges; serve them from a local copy (see blob-cache).
+    const cached = inline && MEDIA.has(type) && rangeHeader ? await cachedBlobPath(node) : null;
+    if (cached) {
+      const size = node.size;
+      const range = parseRange(rangeHeader, size) ?? { start: 0, end: size - 1 };
+      if (range === "invalid") return new Response("Range not satisfiable", { status: 416, headers: { "Content-Range": `bytes */${size}` } });
+      const file = Readable.toWeb(createReadStream(cached, { start: range.start, end: range.end })) as ReadableStream<Uint8Array>;
+      return new Response(file, {
+        status: 206,
+        headers: {
+          "Content-Type": type,
+          "Content-Disposition": `inline; filename="${asciiName(name)}"; filename*=UTF-8''${encodeURIComponent(name)}`,
+          "Content-Range": `bytes ${range.start}-${range.end}/${size}`,
+          "Content-Length": String(range.end - range.start + 1),
+          "Accept-Ranges": "bytes",
+          "X-Content-Type-Options": "nosniff",
+          "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+          "X-Frame-Options": "SAMEORIGIN",
+          "Cache-Control": "private, no-cache, no-transform",
+          "Cross-Origin-Resource-Policy": "same-origin",
+          "Referrer-Policy": "no-referrer",
+        },
+      });
+    }
+
+    const upstream = await fetchBlob(node, rangeHeader);
     if (!upstream.body || (!upstream.ok && upstream.status !== 206)) {
       return new Response(upstream.status === 404 ? "Not found" : "Download failed", {
         status: upstream.status === 404 ? 404 : upstream.status === 416 ? 416 : 502,
