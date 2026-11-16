@@ -1,30 +1,19 @@
 "use client";
 
-import { DisconnectReason, Room, RoomEvent } from "livekit-client";
-import { PhoneOff } from "lucide-react";
+import { PhoneOff, Video } from "lucide-react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import { InCall } from "./InCall";
-import { PreJoin, type JoinSettings } from "./PreJoin";
+import { useLayoutEffect, useRef } from "react";
+import { useMeeting } from "./MeetingProvider";
+import { PreJoin } from "./PreJoin";
+import { meetHref } from "./shared";
 
-type LeftReason = "self" | "duplicate" | "ended" | "lost";
-type Phase = { kind: "prejoin" } | { kind: "call"; room: Room } | { kind: "left"; reason: LeftReason };
+const BTN_PRIMARY =
+  "inline-flex h-10 items-center rounded-lg bg-primary px-4 text-[14px] font-medium text-primary-ink transition-colors hover:bg-primary-hover";
+const BTN_SECONDARY =
+  "inline-flex h-10 items-center rounded-lg border border-line px-4 text-[14px] font-medium text-ink-soft transition-colors hover:border-line-strong hover:bg-hover hover:text-ink";
 
-function leftReason(reason?: DisconnectReason): LeftReason {
-  switch (reason) {
-    case DisconnectReason.CLIENT_INITIATED:
-      return "self";
-    case DisconnectReason.DUPLICATE_IDENTITY:
-      return "duplicate";
-    case DisconnectReason.PARTICIPANT_REMOVED:
-    case DisconnectReason.ROOM_DELETED:
-      return "ended";
-    default:
-      return "lost";
-  }
-}
-
+/** The /meet/<room> page: pre-join, the live call (owned by MeetingProvider), or how it ended. */
 export function MeetRoom({
   room: roomName,
   name,
@@ -38,103 +27,73 @@ export function MeetRoom({
   videoRecording: boolean;
 }) {
   const t = useTranslations("meet");
-  const [phase, setPhase] = useState<Phase>({ kind: "prejoin" });
-  const [joining, setJoining] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const roomRef = useRef<Room | null>(null);
+  const meeting = useMeeting();
+  const { call, ended } = meeting;
 
-  // Leaving the page (navigation, tab close via unmount) always disconnects and stops local tracks.
-  useEffect(
-    () => () => {
-      void roomRef.current?.disconnect(true);
-      roomRef.current = null;
-    },
-    [],
-  );
+  if (call?.roomName === roomName) return <CallSlot />;
 
-  const join = async (settings: JoinSettings) => {
-    setJoining(true);
-    setError(null);
-    let room: Room | null = null;
-    try {
-      const res = await fetch("/api/meet/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ room: roomName }),
-      });
-      // Expired session: middleware redirects to sign-in, the route itself answers 401.
-      if (res.status === 401 || res.redirected) {
-        window.location.assign(`/signin?returnTo=${encodeURIComponent(window.location.pathname)}`);
-        return;
-      }
-      if (!res.ok) throw new Error(res.status === 503 ? "not_configured" : "token");
-      const { token, url } = (await res.json()) as { token: string; url: string };
+  if (call) {
+    return (
+      <Centered icon={<Video size={24} aria-hidden />} message={t("inOtherCall", { room: call.roomName })}>
+        <Link href={meetHref(call.roomName)} className={BTN_PRIMARY}>
+          {t("returnToCall")}
+        </Link>
+        <button type="button" onClick={meeting.leave} className={BTN_SECONDARY}>
+          {t("switchCall")}
+        </button>
+      </Centered>
+    );
+  }
 
-      room = new Room({
-        adaptiveStream: true,
-        dynacast: true,
-        audioCaptureDefaults: { deviceId: settings.audioDeviceId, echoCancellation: true, noiseSuppression: true },
-        videoCaptureDefaults: { deviceId: settings.videoDeviceId, resolution: { width: 1280, height: 720 } },
-      });
-      await room.connect(url, token);
-      const connected = room;
-      roomRef.current = connected;
-      connected.once(RoomEvent.Disconnected, (reason) => {
-        if (roomRef.current === connected) roomRef.current = null;
-        setPhase({ kind: "left", reason: leftReason(reason) });
-      });
-      setPhase({ kind: "call", room: connected });
-
-      // Publish after the call UI is up; failures surface as MediaDevicesError toasts in the call.
-      const lp = connected.localParticipant;
-      await Promise.allSettled([
-        settings.audio ? lp.setMicrophoneEnabled(true) : Promise.resolve(),
-        settings.video ? lp.setCameraEnabled(true) : Promise.resolve(),
-      ]);
-    } catch (e) {
-      void room?.disconnect(true);
-      setError(e instanceof Error && e.message === "not_configured" ? t("notConfigured") : t("connectFailed"));
-      setPhase({ kind: "prejoin" });
-    } finally {
-      setJoining(false);
-    }
-  };
-
-  if (phase.kind === "call") return <InCall room={phase.room} roomName={roomName} videoRecording={videoRecording} />;
-
-  if (phase.kind === "left") {
+  if (ended?.roomName === roomName) {
     const message = {
       self: t("leftSelf"),
       duplicate: t("leftDuplicate"),
       ended: t("leftEnded"),
       lost: t("leftLost"),
-    }[phase.reason];
+    }[ended.reason];
     return (
-      <div className="grid flex-1 place-items-center p-10 text-center">
-        <div className="rise max-w-sm">
-          <span className="mx-auto grid h-14 w-14 place-items-center rounded-xl border border-line bg-sheet-muted text-ink-soft">
-            <PhoneOff size={24} aria-hidden />
-          </span>
-          <p className="mt-6 text-[17px] font-medium text-ink">{message}</p>
-          <div className="mt-6 flex justify-center gap-2">
-            <button
-              type="button"
-              onClick={() => setPhase({ kind: "prejoin" })}
-              className="inline-flex h-10 items-center rounded-lg bg-primary px-4 text-[14px] font-medium text-primary-ink transition-colors hover:bg-primary-hover"
-            >
-              {t("rejoin")}
-            </button>
-            <Link
-              href="/meet"
-              className="inline-flex h-10 items-center rounded-lg border border-line px-4 text-[14px] font-medium text-ink-soft transition-colors hover:border-line-strong hover:bg-hover hover:text-ink"
-            >
-              {t("backToMeet")}
-            </Link>
-          </div>
-        </div>
-      </div>
+      <Centered icon={<PhoneOff size={24} aria-hidden />} message={message}>
+        <button type="button" onClick={meeting.dismissEnded} className={BTN_PRIMARY}>
+          {t("rejoin")}
+        </button>
+        <Link href="/meet" onClick={meeting.dismissEnded} className={BTN_SECONDARY}>
+          {t("backToMeet")}
+        </Link>
+      </Centered>
     );
   }
 
-  return <PreJoin room={roomName} name={name} email={email} joining={joining} error={error} onJoin={join} />;
+  return (
+    <PreJoin
+      room={roomName}
+      name={name}
+      email={email}
+      joining={meeting.joiningRoom === roomName}
+      error={meeting.error?.roomName === roomName ? meeting.error.message : null}
+      onJoin={(settings) => void meeting.join(roomName, settings, videoRecording)}
+    />
+  );
+}
+
+/** Where the provider's call view is shown while this page is open. */
+function CallSlot() {
+  const { attachSlot } = useMeeting();
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => (ref.current ? attachSlot(ref.current) : undefined), [attachSlot]);
+  return <div ref={ref} className="flex min-h-0 min-w-0 flex-1 flex-col" />;
+}
+
+function Centered({ icon, message, children }: { icon: React.ReactNode; message: string; children: React.ReactNode }) {
+  return (
+    <div className="grid flex-1 place-items-center p-10 text-center">
+      <div className="rise max-w-sm">
+        <span className="mx-auto grid h-14 w-14 place-items-center rounded-xl border border-line bg-sheet-muted text-ink-soft">
+          {icon}
+        </span>
+        <p className="mt-6 text-[17px] font-medium text-ink">{message}</p>
+        <div className="mt-6 flex flex-wrap justify-center gap-2">{children}</div>
+      </div>
+    </div>
+  );
 }

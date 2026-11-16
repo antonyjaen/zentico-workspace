@@ -559,7 +559,13 @@ async function acquireMic(room: Room): Promise<MediaStreamTrack> {
 export function useClaudeCommands(
   room: Room,
   roomName: string,
-  opts: { panelOpen: boolean; notify: (n: ClaudeNotice) => void; onTalk?: () => void },
+  opts: {
+    panelOpen: boolean;
+    notify: (n: ClaudeNotice) => void;
+    onTalk?: () => void;
+    /** Hold-"C" push to talk; off while the call is minimised elsewhere in the app. */
+    hotkey: boolean;
+  },
 ) {
   /** "Claude listens to the meeting" toggle (remembered on this device). */
   const [listen, setListenState] = useState(false);
@@ -916,7 +922,9 @@ export function useClaudeCommands(
   talkRef.current = { startTalk, endTalk };
 
   // Hold "C" anywhere in the call (not while typing) to talk to Claude.
+  const hotkey = opts.hotkey;
   useEffect(() => {
+    if (!hotkey) return;
     let heldCode: string | null = null;
     const release = () => {
       if (heldCode == null) return;
@@ -946,8 +954,9 @@ export function useClaudeCommands(
       window.removeEventListener("keyup", onUp);
       window.removeEventListener("blur", release);
       document.removeEventListener("visibilitychange", onHidden);
+      release();
     };
-  }, []);
+  }, [hotkey]);
 
   // Leaving the call drops a press in progress.
   useEffect(

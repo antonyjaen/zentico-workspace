@@ -4,6 +4,7 @@
 // dialog (Drive) and the access step both use before posting.
 import { ChevronRight, CircleAlert, Clock, HardDrive, Loader2, Search, Users } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FileIcon } from "@/app/(apps)/drive/FileIcon";
 import { formatDate } from "@/app/(apps)/drive/shared";
@@ -447,9 +448,9 @@ export function SendToChatDialog({
             <button type="button" onClick={onClose} className={BTN}>
               {t("close")}
             </button>
-            <a href={`/chat?c=${sent.id}`} className={BTN_PRIMARY}>
+            <Link href={`/chat?c=${sent.id}`} className={BTN_PRIMARY}>
               {t("drive.openChat")}
-            </a>
+            </Link>
           </>
         }
       >

@@ -35,10 +35,12 @@ import {
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { usePopover } from "@/components/usePopover";
 import { AddPeopleDialog } from "./AddPeopleDialog";
 import { ClaudeConfirmations, ClaudeListeningBanner, ClaudePanel, useToolLabel } from "./ClaudePanel";
 import { AudioView, Avatar, displayName, Tile, type TileSource } from "./media";
+import { MiniCall } from "./MiniCall";
 import { SELECT, useDevices } from "./PreJoin";
 import { clock } from "./recording";
 import { CHAT_MAX_LENGTH, CHAT_TOPIC, meetHref, type ChatMessage } from "./shared";
@@ -96,7 +98,21 @@ function mediaErrorKey(e: unknown): "permissionDenied" | "deviceMissing" | "devi
   return "deviceBusy";
 }
 
-export function InCall({ room, roomName, videoRecording }: { room: Room; roomName: string; videoRecording: boolean }) {
+export function InCall({
+  room,
+  roomName,
+  videoRecording,
+  host,
+  onPage,
+}: {
+  room: Room;
+  roomName: string;
+  videoRecording: boolean;
+  /** Node the full call view renders into (moved into the meeting page by MeetingProvider). */
+  host: HTMLElement;
+  /** The meeting page is showing the full view; otherwise a floating mini window is shown. */
+  onPage: boolean;
+}) {
   const t = useTranslations("meet");
   useRoomVersion(room);
   const lp = room.localParticipant;
@@ -113,6 +129,8 @@ export function InCall({ room, roomName, videoRecording }: { room: Room; roomNam
   const [inviting, setInviting] = useState(false);
   const panelRef = useRef<Panel>(null);
   panelRef.current = panel;
+  const onPageRef = useRef(onPage);
+  onPageRef.current = onPage;
 
   const flash = useCallback((msg: string) => setToast(msg), []);
   useEffect(() => {
@@ -173,7 +191,12 @@ export function InCall({ room, roomName, videoRecording }: { room: Room; roomNam
     },
     [flash, t, announceVoice, stopMyVoice],
   );
-  const claude = useClaudeCommands(room, roomName, { panelOpen: panel === "claude", notify: onClaudeNotice, onTalk: hush });
+  const claude = useClaudeCommands(room, roomName, {
+    panelOpen: onPage && panel === "claude",
+    notify: onClaudeNotice,
+    onTalk: hush,
+    hotkey: onPage,
+  });
 
   // A write action waiting for the local user's OK is announced on their own device only.
   const toolLabel = useToolLabel();
@@ -215,7 +238,9 @@ export function InCall({ room, roomName, videoRecording }: { room: Room; roomNam
           mine: false,
         };
         setMessages((m) => [...m.slice(-499), msg]);
-        if (panelRef.current !== "chat") setUnread((n) => n + 1);
+        if (panelRef.current !== "chat" || !onPageRef.current) setUnread((n) => n + 1);
+        // Minimised: the mini window shows the message as a toast.
+        if (!onPageRef.current) flash(`${msg.name}: ${msg.text.slice(0, 80)}`);
       } catch {
         // ignore malformed payloads
       }
@@ -224,7 +249,12 @@ export function InCall({ room, roomName, videoRecording }: { room: Room; roomNam
     return () => {
       room.off(RoomEvent.DataReceived, onData);
     };
-  }, [room]);
+  }, [room, flash]);
+
+  // Coming back with the chat open marks what arrived meanwhile as read.
+  useEffect(() => {
+    if (onPage && panelRef.current === "chat") setUnread(0);
+  }, [onPage]);
 
   const sendChat = async (text: string) => {
     const msg: ChatMessage = {
@@ -303,10 +333,12 @@ export function InCall({ room, roomName, videoRecording }: { room: Room; roomNam
     }
   };
 
-  // Meet-style shortcuts: Ctrl/Cmd+D mic, Ctrl/Cmd+E camera.
+  // Meet-style shortcuts: Ctrl/Cmd+D mic, Ctrl/Cmd+E camera — only on the meeting page, so other
+  // apps keep their own keys.
   const toggles = useRef({ toggleMic, toggleCam });
   toggles.current = { toggleMic, toggleCam };
   useEffect(() => {
+    if (!onPage) return;
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
       const k = e.key.toLowerCase();
@@ -320,7 +352,15 @@ export function InCall({ room, roomName, videoRecording }: { room: Room; roomNam
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [onPage]);
+
+  // Dialogs and menus of the full view don't stay open behind the mini window.
+  const closeRecMenu = recMenu.setOpen;
+  useEffect(() => {
+    if (onPage) return;
+    setInviting(false);
+    closeRecMenu(false);
+  }, [onPage, closeRecMenu]);
 
   const reconnecting =
     room.state === ConnectionState.Reconnecting || room.state === ConnectionState.SignalReconnecting;
@@ -341,12 +381,8 @@ export function InCall({ room, roomName, videoRecording }: { room: Room; roomNam
           : "border-line bg-sheet text-ink-soft hover:bg-hover hover:text-ink"
     }`;
 
-  return (
+  const callView = (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      {audioTracks.map((a) => (
-        <AudioView key={a.key} track={a.track} />
-      ))}
-
       {reconnecting && (
         <div role="status" className="flex items-center justify-center gap-2 border-b border-line bg-sheet-muted px-4 py-2 text-[13px] text-ink-soft">
           <Loader2 size={14} aria-hidden className="animate-spin" />
@@ -646,6 +682,33 @@ export function InCall({ room, roomName, videoRecording }: { room: Room; roomNam
         </div>
       )}
     </div>
+  );
+
+  return (
+    <>
+      {/* Outside the movable view so remote audio never stops, wherever the user is in the app. */}
+      {audioTracks.map((a) => (
+        <AudioView key={a.key} track={a.track} />
+      ))}
+      {!onPage &&
+        createPortal(
+          <MiniCall
+            room={room}
+            roomName={roomName}
+            speaker={speaker}
+            count={participants.length}
+            busy={busy}
+            onToggleMic={toggleMic}
+            onToggleCam={toggleCam}
+            recording={recording.active}
+            claude={claude}
+            reconnecting={reconnecting}
+            toast={toast}
+          />,
+          document.body,
+        )}
+      {createPortal(callView, host)}
+    </>
   );
 }
 
