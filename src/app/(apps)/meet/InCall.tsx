@@ -26,6 +26,7 @@ import {
   Settings2,
   Sparkles,
   Square,
+  UserPlus,
   Users,
   Video,
   VideoOff,
@@ -35,6 +36,7 @@ import {
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { usePopover } from "@/components/usePopover";
+import { AddPeopleDialog } from "./AddPeopleDialog";
 import { ClaudeConfirmations, ClaudeListeningBanner, ClaudePanel, useToolLabel } from "./ClaudePanel";
 import { AudioView, Avatar, displayName, Tile, type TileSource } from "./media";
 import { SELECT, useDevices } from "./PreJoin";
@@ -108,6 +110,7 @@ export function InCall({ room, roomName, videoRecording }: { room: Room; roomNam
   const [busy, setBusy] = useState<{ mic?: boolean; cam?: boolean; screen?: boolean }>({});
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [unread, setUnread] = useState(0);
+  const [inviting, setInviting] = useState(false);
   const panelRef = useRef<Panel>(null);
   panelRef.current = panel;
 
@@ -429,7 +432,7 @@ export function InCall({ room, roomName, videoRecording }: { room: Room; roomNam
               </button>
             </div>
             {panel === "chat" && <ChatPanel messages={messages} onSend={sendChat} />}
-            {panel === "people" && <PeoplePanel participants={participants} local={lp} />}
+            {panel === "people" && <PeoplePanel participants={participants} local={lp} onAdd={() => setInviting(true)} />}
             {panel === "settings" && <SettingsPanel room={room} voice={voice} />}
             {panel === "claude" && <ClaudePanel claude={claude} voice={voice} onShareInCall={sendChat} flash={flash} />}
           </aside>
@@ -566,6 +569,9 @@ export function InCall({ room, roomName, videoRecording }: { room: Room; roomNam
           <button type="button" className="icon-btn md:hidden" onClick={copyInvite} aria-label={t("copyInvite")}>
             <Link2 size={17} aria-hidden />
           </button>
+          <button type="button" className="icon-btn" onClick={() => setInviting(true)} aria-label={t("addPeople")} title={t("addPeople")}>
+            <UserPlus size={18} aria-hidden />
+          </button>
           <button
             type="button"
             className={`icon-btn ${panel === "people" ? "!bg-primary-soft !text-ink" : ""}`}
@@ -628,6 +634,8 @@ export function InCall({ room, roomName, videoRecording }: { room: Room; roomNam
           </button>
         </div>
       </div>
+
+      {inviting && <AddPeopleDialog roomName={roomName} onClose={() => setInviting(false)} />}
 
       {toast && (
         <div
@@ -759,10 +767,20 @@ function ChatPanel({ messages, onSend }: { messages: ChatMessage[]; onSend: (tex
   );
 }
 
-function PeoplePanel({ participants, local }: { participants: Participant[]; local: Participant }) {
+function PeoplePanel({ participants, local, onAdd }: { participants: Participant[]; local: Participant; onAdd: () => void }) {
   const t = useTranslations("meet");
   return (
     <ul className="min-h-0 flex-1 overflow-y-auto p-2">
+      <li className="px-2 pt-1 pb-2">
+        <button
+          type="button"
+          onClick={onAdd}
+          className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line px-3 text-[13px] font-medium text-ink-soft transition-colors hover:bg-hover hover:text-ink"
+        >
+          <UserPlus size={15} aria-hidden />
+          {t("addPeople")}
+        </button>
+      </li>
       {participants.map((p) => {
         const name = displayName(p);
         return (
