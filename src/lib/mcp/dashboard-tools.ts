@@ -1,151 +1,234 @@
-// MCP tools for the user's own Dashboard (/dashboard): read it, add / change / remove / move
-// widgets, set the theme, undo. Edits only change the user's own UI (and are undoable), so they are
-// `selfService`: never held for the in-call / in-dashboard confirmation. Every edit is validated
-// strictly (src/app/(apps)/dashboard/model.ts) and published live to the user's open dashboards.
+// Legacy MCP tools for the user's Dashboard, kept working on top of Zentico UI (the dashboard is
+// now built from files in the user's Drive folder "Zentico UI/", see ui-tools.ts and AGENTS.md).
+// "Widgets" are the components placed in a page's grid region (the first `grid` node of the page);
+// ids are node ids. Every edit is a validated, undoable write of ui.json / theme.json, published
+// live to the user's open dashboards; edits only change the user's own UI, so they are
+// `selfService` (never held for the in-call / in-dashboard confirmation).
+import { DATA_QUERIES } from "@/app/(apps)/dashboard/model";
+import { randomBytes } from "node:crypto";
 import {
-  CUSTOM_HTML_MAX_BYTES,
-  DashError,
-  DATA_QUERIES,
-  GRID_COLS,
-  MAX_H,
-  MAX_WIDGETS,
-  parseOp,
-  summarizeDoc,
-  WIDGET_TYPES,
-  WIDGETS,
-  type DashboardDoc,
-  type DashOp,
-  type Widget,
-} from "@/app/(apps)/dashboard/model";
-import { editDashboard, getDashboard, undoDashboard, undoCount } from "../dashboard/store";
-import { bool, ToolError, type Args } from "./args";
-import { appUrl, B, I, S, type JsonSchema, type Tool } from "./kit";
+  COMPONENT_NAMES,
+  COMPONENTS,
+  findSpot,
+  formatErrors,
+  getAtPointer,
+  GRID_COLUMNS,
+  isColor,
+  normalizeBoxes,
+  summarizeUi,
+  THEME_FILE,
+  UI_FILE,
+  walk,
+  type PointerOp,
+  type UiNode,
+  type UiPage,
+} from "../ui/schema";
+import { patchUi, syncUi, undoUi, UiServiceError, writeUiFiles } from "../ui/service";
+import { getUiState } from "../ui/store";
+import { ToolError, type Args } from "./args";
+import { appUrl, B, I, S, type JsonSchema, type Tool, type ToolContext } from "./kit";
 
-const ID_PROP = S('Widget id, e.g. "w_3fa2c1d4e5b6" (from dashboard_get).');
-const CONFIG_PROP: JsonSchema = { type: "object", description: "Widget config; see dashboard_list_widget_types for each type's schema." };
+type Raw = Record<string, unknown>;
 
-function edit(email: string, ops: unknown[]): { doc: DashboardDoc; added: string[] } {
+const ID_PROP = S('Widget (layout node) id, from dashboard_get, e.g. "agenda" or "w_3fa2c1d4e5b6".');
+const PAGE_PROP = S("Dashboard page id (default: the first page).");
+const CONFIG_PROP: JsonSchema = { type: "object", description: "Component props; see dashboard_list_widget_types / ui_list_components for each type's schema." };
+
+async function guard<T>(fn: () => Promise<T>): Promise<T> {
   try {
-    return editDashboard(email, ops.map(parseOp) as DashOp[]);
+    return await fn();
   } catch (e) {
-    if (e instanceof DashError) throw new ToolError(e.message);
+    if (e instanceof UiServiceError) throw new ToolError(e.errors.length ? `${e.message}:\n${formatErrors(e.errors)}` : e.message);
     throw e;
   }
 }
 
-const brief = (w: Widget) => ({ id: w.id, type: w.type, title: w.title || undefined, x: w.x, y: w.y, w: w.w, h: w.h });
+/** Synced state: compiled UI, raw ui.json and the signature to edit against. */
+async function load(ctx: ToolContext) {
+  const view = await guard(() => syncUi(ctx.session));
+  if (view.errors.length) throw new ToolError(`The UI files have errors; fix them first (ui_check):\n${formatErrors(view.errors)}`);
+  const row = getUiState(ctx.session.email);
+  if (!row?.compiled || !row.files) throw new ToolError("The dashboard is not available yet");
+  return { ui: row.compiled, raw: JSON.parse(row.files[UI_FILE]) as Raw, sig: view.sig, files: row.files };
+}
+
+function pageOf(ui: { pages: UiPage[] }, id: unknown): UiPage {
+  if (id == null || id === "") return ui.pages[0];
+  const p = ui.pages.find((x) => x.id === id);
+  if (!p) throw new ToolError(`No page "${String(id)}" (pages: ${ui.pages.map((x) => x.id).join(", ")})`);
+  return p;
+}
+
+function gridOf(page: UiPage): Extract<UiNode, { type: "grid" }> {
+  let grid: Extract<UiNode, { type: "grid" }> | null = null;
+  walk(page.layout, (n) => {
+    if (!grid && n.type === "grid") grid = n;
+  });
+  if (!grid) throw new ToolError(`Page "${page.id}" has no grid region; edit its layout in ui.json with ui_write_file / ui_edit_file (see ui_get_guide)`);
+  return grid;
+}
+
+function findNode(ui: { pages: UiPage[] }, id: string): { node: UiNode; parent: UiNode | null; page: UiPage } {
+  for (const page of ui.pages) {
+    let hit: { node: UiNode; parent: UiNode | null } | null = null;
+    walk(page.layout, (n, parent) => {
+      if (!hit && n.id === id) hit = { node: n, parent };
+    });
+    if (hit) return { ...(hit as { node: UiNode; parent: UiNode | null }), page };
+  }
+  throw new ToolError(`No widget with id "${id}" (dashboard_get lists them)`);
+}
+
+const brief = (n: UiNode) => ({ id: n.id ?? n.key, type: n.type === "component" ? n.component : n.type === "mod" ? `mod:${n.mod}` : n.type, title: n.title, x: n.x, y: n.y, w: n.w, h: n.h });
+
+/** Re-lays out a grid's raw children (pinned ids keep their spot) and returns the pointer ops. */
+function relayout(grid: Extract<UiNode, { type: "grid" }>, rawChildren: Raw[], pinned: string[]): PointerOp[] {
+  const boxes = rawChildren.map((c, i) => {
+    const node = grid.children[i];
+    const comp = typeof c.component === "string" ? COMPONENTS[c.component] : undefined;
+    return { id: String(c.id ?? node?.key ?? i), x: Number(c.x ?? 0), y: Number(c.y ?? 0), w: Number(c.w ?? 4), h: Number(c.h ?? 6), minW: comp?.size.minW ?? 2, minH: comp?.size.minH ?? 2 };
+  });
+  const placed = normalizeBoxes(boxes, pinned);
+  const children = rawChildren.map((c, i) => ({ ...c, x: placed[i].x, y: placed[i].y, w: placed[i].w, h: placed[i].h }));
+  return [{ op: "set", pointer: `${grid.ptr}/children`, value: children }];
+}
+
+const newId = () => `w_${randomBytes(6).toString("hex")}`;
+
+async function apply(ctx: ToolContext, sig: string, ops: PointerOp[]) {
+  return guard(() => patchUi(ctx.session, sig, ops));
+}
 
 export const DASHBOARD_TOOLS: Tool[] = [
   {
     name: "dashboard_list_widget_types",
     description:
-      "Lists the widget types of the user's Zentico dashboard with their config schemas and size limits, the grid rules, and the read-only data queries a custom widget can run. Call it before adding or reconfiguring widgets.",
+      "Lists the component types usable as dashboard widgets with their props schemas and sizes. The dashboard is now built from files (Zentico UI): for anything beyond simple grid widgets read ui_get_guide.",
     inputSchema: { type: "object", properties: {} },
     async run() {
       return {
-        grid: {
-          columns: GRID_COLS,
-          rowHeightPx: "about 44 (36 when density is compact)",
-          maxWidgets: MAX_WIDGETS,
-          maxHeightRows: MAX_H,
-          rules:
-            "x is the column (0-11), y the row (0 = top), w the width in columns, h the height in rows. Overlapping widgets are pushed down and everything floats up, so you never need to fix gaps. On phones widgets stack in (y, x) order.",
-        },
-        types: WIDGET_TYPES.map((t) => ({
-          type: t,
-          description: WIDGETS[t].description,
-          size: { minW: WIDGETS[t].minW, minH: WIDGETS[t].minH, defaultW: WIDGETS[t].defW, defaultH: WIDGETS[t].defH },
-          config: WIDGETS[t].schema,
-        })),
-        customWidget: {
-          maxBytes: CUSTOM_HTML_MAX_BYTES,
-          sandbox:
-            "Rendered in an iframe with sandbox=allow-scripts (opaque origin) and CSP default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:. No fetch, no external scripts/fonts/images, no cookies or storage, no popups or forms. Navigating the frame (e.g. clicking a plain link) stops the widget: show information, don't link out.",
-          api: "await zentico.query(name, args) → the data object, or throws Error(message). zentico.theme → { dark: boolean }. The document gets the theme CSS variables and a transparent background; keep it compact and readable in light and dark mode.",
-          dataQueries: DATA_QUERIES,
-        },
-        theme: { accent: 'Hex color like "#3b6cf6" (or null for the default)', density: ["comfortable", "compact"], background: ["plain", "muted", "grid"] },
+        note: "The Dashboard is defined by files in the user's Drive folder \"Zentico UI/\". These legacy tools edit the first grid region of a page; for splits, tabs, pages, rail apps, themes, shortcuts and mods use ui_get_guide + ui_write_file.",
+        grid: { columns: GRID_COLUMNS, rules: "x = column (0-11), y = row, w = width in columns, h = height in rows (~44 px). Overlaps are pushed down, everything floats up." },
+        types: COMPONENT_NAMES.map((name) => ({ type: name, description: COMPONENTS[name].description, size: COMPONENTS[name].size, config: COMPONENTS[name].props })),
+        dataQueries: DATA_QUERIES,
+        theme: { accent: 'CSS color like "#3b6cf6" (or null)', density: ["compact", "comfortable", "spacious"], background: ["plain", "muted", "grid", "dots"] },
       };
     },
   },
   {
     name: "dashboard_get",
-    description: "Returns the user's dashboard: theme and widgets (id, type, title, position, size, config). Custom widget HTML is summarized unless includeHtml=true.",
-    inputSchema: { type: "object", properties: { includeHtml: B("Include the full HTML of custom widgets.", false) } },
-    async run(args, ctx) {
-      const doc = getDashboard(ctx.session.email);
-      const out = bool(args, "includeHtml") ? doc : summarizeDoc(doc);
-      return { ...out, url: `${appUrl()}/dashboard`, undoSteps: undoCount(ctx.session.email) };
+    description: "Returns the user's dashboard: pages with their layout trees (widgets = components and mods with ids, grid positions), mods, theme and the files folder.",
+    inputSchema: { type: "object", properties: {} },
+    async run(_args, ctx) {
+      const view = await guard(() => syncUi(ctx.session));
+      return { ...summarizeUi(view.ui), theme: view.ui?.theme, errors: view.errors.length ? formatErrors(view.errors) : undefined, url: `${appUrl()}/dashboard`, undoSteps: view.undo };
     },
   },
   {
     name: "dashboard_add_widget",
-    description:
-      "Adds a widget to the user's dashboard. Omit x/y to place it in the first free spot; omit w/h for the type's default size. Applies instantly (live) and can be undone with dashboard_undo.",
+    description: "Adds a component to the grid region of a page (default: the first page). Omit x/y for the first free spot and w/h for the default size. Applies live; undo with dashboard_undo.",
     write: true,
     selfService: true,
     inputSchema: {
       type: "object",
       properties: {
-        type: S("Widget type.", { enum: [...WIDGET_TYPES] }),
-        title: S("Title shown on the widget (default: the type's name).", { maxLength: 80 }),
-        x: I("Column (0-11).", 0, GRID_COLS - 1),
-        y: I("Row (0 = top).", 0, 399),
-        w: I("Width in columns.", 1, GRID_COLS),
-        h: I("Height in rows.", 1, MAX_H),
+        type: S("Component name.", { enum: COMPONENT_NAMES }),
+        title: S("Card title.", { maxLength: 80 }),
+        page: PAGE_PROP,
+        x: I("Column (0-11).", 0, GRID_COLUMNS - 1),
+        y: I("Row.", 0, 399),
+        w: I("Width in columns.", 1, GRID_COLUMNS),
+        h: I("Height in rows.", 1, 40),
         config: CONFIG_PROP,
       },
       required: ["type"],
     },
     async run(args, ctx) {
-      const { type, title, x, y, w, h, config } = args;
-      const { doc, added } = edit(ctx.session.email, [{ op: "add", widget: { type, title, x, y, w, h, config } }]);
-      const widget = doc.widgets.find((wd) => wd.id === added[0])!;
-      return { added: brief(widget), version: doc.version };
+      const type = String(args.type ?? "");
+      const spec = COMPONENTS[type];
+      if (!spec) throw new ToolError(`"type" must be one of: ${COMPONENT_NAMES.join(", ")}`);
+      const { ui, raw, sig } = await load(ctx);
+      const grid = gridOf(pageOf(ui, args.page));
+      const rawChildren = ((getAtPointer(raw, `${grid.ptr}/children`) as Raw[]) ?? []).slice();
+      const w = Math.max(spec.size.minW, Math.min(GRID_COLUMNS, Number(args.w ?? spec.size.w)));
+      const h = Math.max(spec.size.minH, Math.min(40, Number(args.h ?? spec.size.h)));
+      const spot = args.x != null && args.y != null ? { x: Number(args.x), y: Number(args.y) } : findSpot(grid.children.map((c) => ({ x: c.x ?? 0, y: c.y ?? 0, w: c.w ?? 1, h: c.h ?? 1 })), w, h);
+      const id = newId();
+      const node: Raw = { type: "component", id, component: type, ...(args.title ? { title: String(args.title) } : {}), ...(args.config ? { props: args.config } : {}), x: spot.x, y: spot.y, w, h };
+      const view = await apply(ctx, sig, relayout(grid, [...rawChildren, node], [id]));
+      return { added: { id, type, ...spot, w, h }, version: view.sig };
     },
   },
   {
     name: "dashboard_update_widget",
-    description:
-      "Changes a widget: title, config (merged into the current config field by field unless replaceConfig=true) and/or position and size. Applies instantly; undo with dashboard_undo.",
+    description: "Changes a widget (any layout node with an id): title, config (merged into its props unless replaceConfig=true) and/or grid position and size. Applies live; undo with dashboard_undo.",
     write: true,
     selfService: true,
     inputSchema: {
       type: "object",
       properties: {
         id: ID_PROP,
-        title: S("New title (empty string = the type's default name).", { maxLength: 80 }),
+        title: S("New title (empty = default).", { maxLength: 80 }),
         config: CONFIG_PROP,
         replaceConfig: B("Replace the whole config instead of merging.", false),
-        x: I("Column (0-11).", 0, GRID_COLS - 1),
+        x: I("Column (0-11).", 0, GRID_COLUMNS - 1),
         y: I("Row.", 0, 399),
-        w: I("Width in columns.", 1, GRID_COLS),
-        h: I("Height in rows.", 1, MAX_H),
+        w: I("Width in columns.", 1, GRID_COLUMNS),
+        h: I("Height in rows.", 1, 40),
       },
       required: ["id"],
     },
     async run(args, ctx) {
-      const { id, title, config, replaceConfig, x, y, w, h } = args;
-      const { doc } = edit(ctx.session.email, [{ op: "update", id, title, config, replaceConfig, x, y, w, h }]);
-      const widget = doc.widgets.find((wd) => wd.id === id);
-      return { updated: widget ? brief(widget) : null, version: doc.version };
+      const { ui, raw, sig } = await load(ctx);
+      const { node, parent } = findNode(ui, String(args.id ?? ""));
+      const cur = { ...(getAtPointer(raw, node.ptr) as Raw) };
+      if (args.title != null) {
+        if (args.title === "") delete cur.title;
+        else cur.title = String(args.title);
+      }
+      if (args.config != null) {
+        if (typeof args.config !== "object" || Array.isArray(args.config)) throw new ToolError('"config" must be an object');
+        const key = node.type === "mod" ? "config" : "props";
+        cur[key] = args.replaceConfig === true ? args.config : { ...((cur[key] as Raw) ?? {}), ...(args.config as Raw) };
+      }
+      const moved = ["x", "y", "w", "h"].some((k) => args[k] != null);
+      if (moved && parent?.type !== "grid") throw new ToolError("x/y/w/h only apply to widgets in a grid region");
+      for (const k of ["x", "y", "w", "h"]) if (args[k] != null) cur[k] = Number(args[k]);
+      let ops: PointerOp[] = [{ op: "set", pointer: node.ptr, value: cur }];
+      if (moved && parent?.type === "grid") {
+        const rawChildren = ((getAtPointer(raw, `${parent.ptr}/children`) as Raw[]) ?? []).map((c, i) => (`${parent.ptr}/children/${i}` === node.ptr ? cur : c));
+        ops = relayout(parent, rawChildren, [String(cur.id ?? node.key)]);
+      }
+      const view = await apply(ctx, sig, ops);
+      return { updated: brief(findNode(view.ui!, String(args.id)).node), version: view.sig };
     },
   },
   {
     name: "dashboard_remove_widget",
-    description: "Removes a widget from the user's dashboard (undo with dashboard_undo).",
+    description: "Removes a widget (layout node) from the dashboard. Undo with dashboard_undo.",
     write: true,
     selfService: true,
     inputSchema: { type: "object", properties: { id: ID_PROP }, required: ["id"] },
     async run(args, ctx) {
-      const { doc } = edit(ctx.session.email, [{ op: "remove", id: args.id }]);
-      return { removed: args.id, version: doc.version, widgets: doc.widgets.length };
+      const { ui, raw, sig } = await load(ctx);
+      const { node, parent } = findNode(ui, String(args.id ?? ""));
+      if (!parent || !("children" in parent)) throw new ToolError("That is a page's root layout; change the page in ui.json instead");
+      if (parent.children.length <= 1) throw new ToolError(`It is the only child of a "${parent.type}"; edit the layout in ui.json instead`);
+      const rest = ((getAtPointer(raw, `${parent.ptr}/children`) as Raw[]) ?? []).filter((_c, i) => `${parent.ptr}/children/${i}` !== node.ptr);
+      const ops: PointerOp[] =
+        parent.type === "grid"
+          ? relayout({ ...parent, children: parent.children.filter((c) => c !== node) }, rest, [])
+          : [
+              { op: "remove", pointer: node.ptr },
+              ...((parent.type === "row" || parent.type === "column") && getAtPointer(raw, `${parent.ptr}/sizes`) ? [{ op: "remove" as const, pointer: `${parent.ptr}/sizes` }] : []),
+            ];
+      const view = await apply(ctx, sig, ops);
+      return { removed: args.id, version: view.sig };
     },
   },
   {
     name: "dashboard_move_widgets",
-    description:
-      "Moves and/or resizes several widgets at once (a new layout). Listed widgets keep the given spots; others that collide are pushed down, then everything floats up.",
+    description: "Moves and/or resizes several widgets of one grid region at once. Listed widgets keep the given spots; others that collide are pushed down, then everything floats up.",
     write: true,
     selfService: true,
     inputSchema: {
@@ -153,53 +236,75 @@ export const DASHBOARD_TOOLS: Tool[] = [
       properties: {
         items: {
           type: "array",
-          description: "New positions.",
-          maxItems: MAX_WIDGETS,
-          items: {
-            type: "object",
-            properties: { id: ID_PROP, x: I("Column.", 0, GRID_COLS - 1), y: I("Row.", 0, 399), w: I("Width.", 1, GRID_COLS), h: I("Height.", 1, MAX_H) },
-            required: ["id", "x", "y"],
-          },
+          maxItems: 60,
+          items: { type: "object", properties: { id: ID_PROP, x: I("Column.", 0, GRID_COLUMNS - 1), y: I("Row.", 0, 399), w: I("Width.", 1, GRID_COLUMNS), h: I("Height.", 1, 40) }, required: ["id", "x", "y"] },
         },
       },
       required: ["items"],
     },
     async run(args, ctx) {
-      if (!Array.isArray(args.items)) throw new ToolError('"items" must be an array');
-      const { doc } = edit(ctx.session.email, [{ op: "move", items: args.items }]);
-      return { version: doc.version, layout: doc.widgets.map(brief) };
+      if (!Array.isArray(args.items) || !args.items.length) throw new ToolError('"items" must be a non-empty array');
+      const { ui, raw, sig } = await load(ctx);
+      const items = args.items as Args[];
+      const first = findNode(ui, String(items[0].id ?? ""));
+      const grid = first.parent;
+      if (grid?.type !== "grid") throw new ToolError("Only widgets in a grid region can be moved this way");
+      const rawChildren = ((getAtPointer(raw, `${grid.ptr}/children`) as Raw[]) ?? []).map((c) => ({ ...c }));
+      const pinned: string[] = [];
+      for (const it of items) {
+        const hit = findNode(ui, String(it.id ?? ""));
+        if (hit.parent !== grid) throw new ToolError(`"${String(it.id)}" is not in the same grid region`);
+        const i = grid.children.indexOf(hit.node);
+        for (const k of ["x", "y", "w", "h"]) if (it[k] != null) rawChildren[i][k] = Number(it[k]);
+        pinned.push(String(rawChildren[i].id ?? hit.node.key));
+      }
+      const view = await apply(ctx, sig, relayout(grid, rawChildren, pinned));
+      const page = view.ui?.pages.find((p) => p.id === first.page.id);
+      return { version: view.sig, layout: page ? gridOf(page).children.map(brief) : [] };
     },
   },
   {
     name: "dashboard_set_theme",
-    description: "Sets the dashboard's look: accent color, density and background. Pass null to reset a field to the default.",
+    description: "Sets the dashboard's look in theme.json: accent color, density and background. Pass null to reset a field. For more (radius, font, light/dark overrides, CSS variables) edit theme.json (see ui_get_guide).",
     write: true,
     selfService: true,
     inputSchema: {
       type: "object",
       properties: {
-        accent: { type: ["string", "null"], description: 'Hex color like "#0f9f8f", or null for the default.' },
-        density: { type: ["string", "null"], enum: ["comfortable", "compact", null], description: "Spacing of the grid." },
-        background: { type: ["string", "null"], enum: ["plain", "muted", "grid", null], description: "Canvas background." },
+        accent: { type: ["string", "null"], description: 'CSS color like "#0f9f8f", or null for the default.' },
+        density: { type: ["string", "null"], enum: ["compact", "comfortable", "spacious", null] },
+        background: { type: ["string", "null"], enum: ["plain", "muted", "grid", "dots", null] },
       },
     },
-    async run(args: Args, ctx) {
-      const theme: Record<string, unknown> = {};
-      for (const k of ["accent", "density", "background"]) if (k in args) theme[k] = args[k];
-      const { doc } = edit(ctx.session.email, [{ op: "theme", theme }]);
-      return { theme: doc.theme, version: doc.version };
+    async run(args, ctx) {
+      const { files } = await load(ctx);
+      let theme: Raw = {};
+      try {
+        theme = JSON.parse(files[THEME_FILE] ?? "{}") as Raw;
+      } catch {
+        theme = {};
+      }
+      if ("accent" in args && args.accent !== null && !isColor(args.accent)) throw new ToolError('"accent" must be a CSS color like "#3b6cf6"');
+      for (const k of ["accent", "density", "background"]) {
+        if (!(k in args)) continue;
+        if (args[k] === null) delete theme[k];
+        else theme[k] = args[k];
+      }
+      const { check } = await guard(() => writeUiFiles(ctx.session, { [THEME_FILE]: `${JSON.stringify(theme, null, 2)}\n` }, { reason: "theme" }));
+      if (!check.ok) throw new ToolError(`theme.json is now invalid:\n${formatErrors(check.errors)}`);
+      return { theme };
     },
   },
   {
     name: "dashboard_undo",
-    description: "Undoes the last change to the user's dashboard (up to 20 steps back, whoever made the change).",
+    description: "Undoes the last change to the user's Zentico UI files (up to 20 steps back, whoever made the change).",
     write: true,
     selfService: true,
     inputSchema: { type: "object", properties: {} },
     async run(_args, ctx) {
-      const doc = undoDashboard(ctx.session.email);
-      if (!doc) throw new ToolError("Nothing to undo");
-      return { version: doc.version, undoStepsLeft: undoCount(ctx.session.email), widgets: doc.widgets.map(brief) };
+      const view = await guard(() => undoUi(ctx.session));
+      if (!view) throw new ToolError("Nothing to undo");
+      return { undoStepsLeft: view.undo, ui: summarizeUi(view.ui) };
     },
   },
 ];

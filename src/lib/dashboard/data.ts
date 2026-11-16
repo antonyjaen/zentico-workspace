@@ -1,13 +1,14 @@
-// Read-only data queries for dashboard widgets (built-in and custom), run as the signed-in user.
+// Read-only data queries for dashboard components and mods, run as the signed-in user.
 // Backed by the same read tools as the MCP server (src/lib/mcp/*-tools.ts) with a read-only
 // context, so every argument is validated there too. Server-only.
 import { threadHref } from "@/app/(apps)/mail/hrefs";
 import { nativeKind, openHref } from "@/app/(apps)/docs/shared";
 import { DATA_QUERIES, DashError, isTimeZoneName, type DataQuery } from "@/app/(apps)/dashboard/model";
-import { recentFiles, type DriveNode } from "@/lib/drive";
+import { getNode, listChildren, recentFiles, searchNodes, type DriveNode } from "@/lib/drive";
 import type { Session } from "@/lib/session";
 import { runTool } from "@/lib/mcp/tools";
 import { docKind } from "@/lib/wopi";
+import { shellOf } from "@/lib/ui/service";
 
 type Raw = Record<string, unknown>;
 
@@ -68,6 +69,7 @@ function compactEvent(e: ToolEvent) {
     allDay: !!e.allDay,
     location: e.location ?? null,
     attendees: e.attendees?.length ?? 0,
+    people: (e.attendees ?? []).slice(0, 20),
     declined: e.myStatus === "declined",
     href: calHref(e.start),
     meetHref: link ? `/meet/${link[1]}` : null,
@@ -187,6 +189,101 @@ export async function runQuery(session: Session, name: DataQuery, rawArgs: unkno
       const limit = intArg(args, "limit", 1, 50, 10);
       const nodes: DriveNode[] = await recentFiles(limit);
       return { items: nodes.slice(0, limit).map((n) => driveItem({ ...n, folder: n.isFolder })) };
+    }
+    case "calendar.range": {
+      onlyKeys(args, ["start", "end", "limit"]);
+      const start = strArg(args, "start", 10);
+      const end = strArg(args, "end", 10);
+      const DAY = /^\d{4}-\d{2}-\d{2}$/;
+      if (!start || !end || !DAY.test(start) || !DAY.test(end)) throw new DashError('"start" and "end" must be dates like "2026-11-16"');
+      const span = (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000;
+      if (!(span >= 1 && span <= 31)) throw new DashError('"end" must be 1 to 31 days after "start"');
+      const limit = intArg(args, "limit", 1, 200, 100);
+      const r = await tool(session, "calendar_list_events", { start, end, timeZone: tz, limit });
+      return { timeZone: tz, events: ((r.events as ToolEvent[]) ?? []).map(compactEvent) };
+    }
+    case "mail.thread": {
+      onlyKeys(args, ["threadId"]);
+      const threadId = strArg(args, "threadId", 255);
+      if (!threadId) throw new DashError('"threadId" is required');
+      const r = await tool(session, "mail_get_thread", { threadId, maxCharsPerMessage: 4000 });
+      const list = (r.messages as { emailId: string; from: string[]; to: string[]; date: string; subject: string; unread?: boolean; flagged?: boolean; body: string; folders?: string[] }[]) ?? [];
+      return {
+        threadId,
+        subject: String(r.subject ?? ""),
+        href: threadHref("search", threadId),
+        messages: list.map((m) => ({
+          emailId: m.emailId,
+          from: m.from ?? [],
+          to: m.to ?? [],
+          date: m.date,
+          unread: !!m.unread,
+          flagged: !!m.flagged,
+          folders: m.folders ?? [],
+          body: String(m.body ?? "").slice(0, 4000),
+        })),
+      };
+    }
+    case "drive.search": {
+      onlyKeys(args, ["query", "limit"]);
+      const query = strArg(args, "query", 200)?.trim();
+      if (!query) throw new DashError('"query" is required');
+      const limit = intArg(args, "limit", 1, 50, 20);
+      const found = (await searchNodes(query)).sort((a, b) => (b.modified ?? "").localeCompare(a.modified ?? "")).slice(0, limit);
+      return { items: found.map((n) => driveItem({ ...n, folder: n.isFolder })) };
+    }
+    case "drive.read": {
+      onlyKeys(args, ["fileId"]);
+      const fileId = strArg(args, "fileId", 255);
+      if (!fileId) throw new DashError('"fileId" is required');
+      const r = await tool(session, "drive_read_text", { fileId, maxBytes: 200 * 1024 });
+      if (r.binary) throw new DashError("Not a text file");
+      const node = await getNode(fileId).catch(() => null);
+      return {
+        id: fileId,
+        name: String(r.name ?? ""),
+        modified: (r.modified as string | undefined) ?? null,
+        text: String(r.text ?? r.content ?? ""),
+        truncated: !!r.truncated,
+        href: node ? driveItem({ ...node, folder: node.isFolder }).href : null,
+      };
+    }
+    case "drive.resolve": {
+      onlyKeys(args, ["path", "kind"]);
+      const path = strArg(args, "path", 300);
+      if (!path) throw new DashError('"path" is required');
+      const kind = args.kind === "file" ? "file" : "folder";
+      const parts = path.split("/").map((p) => p.trim()).filter(Boolean);
+      if (!parts.length || parts.length > 20) throw new DashError('"path" must be like "Folder/Sub" (from the root of My Drive)');
+      let parent: string | null = null;
+      let node: DriveNode | undefined;
+      for (let i = 0; i < parts.length; i++) {
+        const last = i === parts.length - 1;
+        const list: DriveNode[] = await listChildren(parent);
+        node = list.find((n) => n.name === parts[i] && (last ? n.isFolder === (kind === "folder") : n.isFolder)) ?? list.find((n) => n.name.toLowerCase() === parts[i].toLowerCase() && (last ? n.isFolder === (kind === "folder") : n.isFolder));
+        if (!node) throw new DashError(`"${parts.slice(0, i + 1).join("/")}" was not found in Drive`);
+        parent = node.id;
+      }
+      return { id: node!.id, name: node!.name, kind, href: driveItem({ ...node!, folder: node!.isFolder }).href };
+    }
+    case "contacts.search": {
+      onlyKeys(args, ["query", "limit"]);
+      const query = strArg(args, "query", 200)?.trim();
+      if (!query) throw new DashError('"query" is required');
+      const limit = intArg(args, "limit", 1, 50, 10);
+      const r = await tool(session, "contacts_search", { query, limit });
+      const contacts = (r.contacts as { name: string; emails: string[]; company?: string; title?: string }[]) ?? [];
+      const directory = (r.directory as { name: string; email: string; emails?: string[] }[]) ?? [];
+      return {
+        items: [
+          ...contacts.map((c) => ({ name: c.name, emails: c.emails, company: c.company ?? null, title: c.title ?? null })),
+          ...directory.map((p) => ({ name: p.name, emails: [p.email, ...(p.emails ?? []).filter((e) => e !== p.email)], company: null, title: null })),
+        ].slice(0, limit),
+      };
+    }
+    case "dashboard.state": {
+      onlyKeys(args, []);
+      return { pages: shellOf(session.email).pages };
     }
     case "drive.folder": {
       onlyKeys(args, ["folderId", "limit"]);

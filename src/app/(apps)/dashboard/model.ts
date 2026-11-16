@@ -404,6 +404,13 @@ export const DATA_QUERIES = {
   "drive.folder": { args: "{ folderId: string, limit?: 1-50 }", description: "Contents of a Drive folder." },
   "meetings.upcoming": { args: "{ days?: 1-14, limit?: 1-20 }", description: "Upcoming calendar events with other people." },
   "meetings.recordings": { args: "{ limit?: 1-20 }", description: "Recent meeting recordings / transcripts." },
+  "calendar.range": { args: '{ start: "YYYY-MM-DD", end: "YYYY-MM-DD", limit?: 1-200 }', description: "Events in a date range (end exclusive, max 31 days)." },
+  "mail.thread": { args: "{ threadId: string }", description: "One mail conversation with its messages." },
+  "drive.search": { args: "{ query: string, limit?: 1-50 }", description: "Drive files whose name contains the text." },
+  "drive.read": { args: "{ fileId: string }", description: "Text of a Drive text file (max 200 KB)." },
+  "drive.resolve": { args: '{ path: string, kind?: "folder" | "file" }', description: "Id of a Drive file or folder by its path from the root." },
+  "contacts.search": { args: "{ query: string, limit?: 1-50 }", description: "Contacts and directory people matching the text." },
+  "dashboard.state": { args: "{}", description: "Pages of the user's Dashboard." },
 } as const;
 export type DataQuery = keyof typeof DATA_QUERIES;
 export const isDataQuery = (v: unknown): v is DataQuery => typeof v === "string" && Object.prototype.hasOwnProperty.call(DATA_QUERIES, v);

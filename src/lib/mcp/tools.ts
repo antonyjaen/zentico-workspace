@@ -15,6 +15,7 @@ import { DRIVE_TOOLS } from "./drive-tools";
 import { appUrl, iso, type Tool } from "./kit";
 import { MAIL_TOOLS } from "./mail-tools";
 import { PEOPLE_TOOLS } from "./people-tools";
+import { UI_TOOLS } from "./ui-tools";
 import { connectedProviders } from "../connect/store";
 import type { ProviderId } from "../connect/providers";
 
@@ -43,6 +44,7 @@ const TOOLS: Tool[] = [
   ...MEETING_TOOLS,
   ...DASHBOARD_TOOLS,
   ...CONNECT_TOOLS,
+  ...UI_TOOLS,
 ];
 
 /* ----------------------------------------------------------------- registry */

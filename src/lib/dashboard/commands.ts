@@ -1,11 +1,13 @@
 // The Dashboard's Claude chat: each message becomes a command for the user's own bridge
 // (tools/zentico-bridge.mjs) in the per-user queue of src/lib/mcp/agent.ts, under the pseudo-room
 // DASHBOARD_ROOM. Server-only.
-import { CHAT_TEXT_MAX, summarizeDoc } from "@/app/(apps)/dashboard/model";
+import { CHAT_TEXT_MAX } from "@/app/(apps)/dashboard/model";
 import { DASHBOARD_ROOM } from "@/app/(apps)/meet/shared";
 import { enqueueCommand, type CommandRow } from "../mcp/agent";
 import type { Session } from "../session";
-import { addTurn, getDashboard, listTurns } from "./store";
+import { formatErrors, summarizeUi, UI_FOLDER } from "../ui/schema";
+import { getUiState, modAskOf } from "../ui/store";
+import { addTurn, listTurns } from "./store";
 
 const BAD_TEXT = /[\u0000-\u0008\u000b-\u001f\u007f]/g;
 export const cleanChatText = (text: string) => text.replace(BAD_TEXT, " ").trim().slice(0, CHAT_TEXT_MAX);
@@ -42,13 +44,19 @@ export type DashboardBridgeCommand = {
   timeZone: string | null;
   transcript: { at: string; text: string }[];
   meeting: null;
-  /** The user's dashboard when the command was handed to the bridge (custom HTML summarized). */
-  dashboard: ReturnType<typeof summarizeDoc>;
+  /** The user's Zentico UI when the command was handed to the bridge (summary; files are in Drive). */
+  dashboard: ReturnType<typeof summarizeUi>;
+  /** Where the UI files live and their current problems (the guide is ui_get_guide / AGENTS.md). */
+  ui: { folder: string; folderUrl: string | null; errors: string | null };
+  /** Set when a mod on the dashboard sent this request (zentico.claude.ask), not the user. */
+  mod: { id: string; name: string } | null;
   /** Earlier turns of the Dashboard chat, oldest first. */
   conversation: { at: string; user: string; claude: string | null; status: string }[];
 };
 
 export function dashboardPayload(c: CommandRow, appUrl: string): DashboardBridgeCommand {
+  const state = getUiState(c.userEmail);
+  const ask = modAskOf(c.userEmail, c.id);
   const earlier = listTurns(c.userEmail, CONTEXT_TURNS + 1).filter((t) => t.commandId !== c.id).slice(-CONTEXT_TURNS);
   return {
     id: c.id,
@@ -63,7 +71,13 @@ export function dashboardPayload(c: CommandRow, appUrl: string): DashboardBridge
     timeZone: c.timeZone,
     transcript: [],
     meeting: null,
-    dashboard: summarizeDoc(getDashboard(c.userEmail)),
+    dashboard: summarizeUi(state?.compiled ?? null),
+    ui: {
+      folder: `${UI_FOLDER}/`,
+      folderUrl: state?.folderId ? `${appUrl}/drive?folder=${encodeURIComponent(state.folderId)}` : null,
+      errors: state?.errors.length ? formatErrors(state.errors.slice(0, 20)) : null,
+    },
+    mod: ask ? { id: ask.modId, name: ask.modName } : null,
     conversation: earlier.map((t) => ({
       at: new Date(t.createdAt).toISOString(),
       user: t.text.slice(0, 1000),

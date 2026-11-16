@@ -285,13 +285,13 @@ async function grantsOf(node: DriveNode, accountId: string | undefined) {
 
 /* --------------------------------------------------------------------- edits */
 
-type Edit =
+export type Edit =
   | { op: "replace"; find: string; replace: string; all: boolean; occurrence: number | null }
   | { op: "append"; text: string }
   | { op: "prepend"; text: string }
   | { op: "replace_lines"; startLine: number; endLine: number; text: string };
 
-function parseEdits(v: unknown): Edit[] {
+export function parseEdits(v: unknown): Edit[] {
   if (!Array.isArray(v) || !v.length || v.length > 50) throw new ToolError('"edits" must be a list of 1–50 edits');
   return v.map((raw, i) => {
     const e = (raw && typeof raw === "object" ? raw : {}) as Args;
@@ -324,7 +324,7 @@ function parseEdits(v: unknown): Edit[] {
   });
 }
 
-function applyEdits(content: string, edits: Edit[]): { content: string; changes: string[] } {
+export function applyEdits(content: string, edits: Edit[]): { content: string; changes: string[] } {
   let out = content;
   const changes: string[] = [];
   edits.forEach((e, i) => {

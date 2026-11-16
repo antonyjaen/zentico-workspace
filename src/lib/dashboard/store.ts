@@ -1,22 +1,14 @@
-// Per-user dashboards and the Dashboard's Claude chat. Server-only.
-// ${DATA_DIR:-./data}/dashboard.sqlite holds each user's current document, the last
-// VERSIONS_KEPT previous documents (undo) and the chat turns (each one a command for the user's
-// own bridge, see src/lib/dashboard/commands.ts). Every function takes the acting user's email and
-// scopes its queries by it. Single instance: the change notifier below is in memory.
-import { randomBytes, randomUUID } from "node:crypto";
+// The Dashboard's server state. Server-only.
+// ${DATA_DIR:-./data}/dashboard.sqlite holds the Dashboard's Claude chat turns (each one a command
+// for the user's own bridge, see src/lib/dashboard/commands.ts), the classic per-user widget
+// documents (read once to migrate them into `Zentico UI/` files) and, since the UI moved to files
+// in the user's Drive, the tables of src/lib/ui/store.ts (last valid UI, undo snapshots, mod grants
+// and storage, gallery). Every function takes the acting user's email and scopes its queries by it.
+// Single instance: the change notifier below is in memory.
+import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import {
-  applyOps,
-  defaultDoc,
-  isFinalTurn,
-  sanitizeDoc,
-  VERSIONS_KEPT,
-  type DashboardDoc,
-  type DashOp,
-  type TurnStatus,
-  type TurnView,
-} from "@/app/(apps)/dashboard/model";
+import { isFinalTurn, sanitizeDoc, type DashboardDoc, type TurnStatus, type TurnView } from "@/app/(apps)/dashboard/model";
 import { getCommand } from "../mcp/agent";
 
 type SQLValue = null | number | bigint | string | Uint8Array;
@@ -60,6 +52,63 @@ const MIGRATIONS = [
   );
   CREATE INDEX turns_user ON turns(user_email, created);
   `,
+  `
+  CREATE TABLE ui_state (
+    user_email TEXT PRIMARY KEY,
+    folder_id TEXT,
+    sig TEXT,
+    valid_sig TEXT,
+    compiled TEXT,
+    files TEXT,
+    errors TEXT NOT NULL DEFAULT '[]',
+    updated INTEGER NOT NULL
+  );
+  CREATE TABLE ui_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_email TEXT NOT NULL,
+    files TEXT NOT NULL,
+    reason TEXT,
+    created INTEGER NOT NULL
+  );
+  CREATE INDEX ui_history_user ON ui_history(user_email, id);
+  CREATE TABLE ui_grants (
+    user_email TEXT NOT NULL,
+    mod_id TEXT NOT NULL,
+    perms TEXT NOT NULL,
+    always TEXT NOT NULL DEFAULT '[]',
+    updated INTEGER NOT NULL,
+    PRIMARY KEY (user_email, mod_id)
+  );
+  CREATE TABLE ui_storage (
+    user_email TEXT NOT NULL,
+    mod_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    updated INTEGER NOT NULL,
+    PRIMARY KEY (user_email, mod_id, key)
+  );
+  CREATE TABLE ui_gallery (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    icon TEXT,
+    author_email TEXT NOT NULL,
+    author_name TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    permissions TEXT NOT NULL DEFAULT '[]',
+    installs INTEGER NOT NULL DEFAULT 0,
+    created INTEGER NOT NULL
+  );
+  CREATE INDEX ui_gallery_created ON ui_gallery(created);
+  CREATE TABLE ui_mod_asks (
+    command_id TEXT PRIMARY KEY,
+    user_email TEXT NOT NULL,
+    mod_id TEXT NOT NULL,
+    mod_name TEXT NOT NULL,
+    created INTEGER NOT NULL
+  );
+  `,
 ];
 
 function open(): Database {
@@ -82,13 +131,17 @@ function open(): Database {
   return db;
 }
 
-export type DashboardEvent = { type: "doc"; doc: DashboardDoc } | { type: "chat" };
+/** ui: the user's UI state changed (new valid UI or new errors); reload: open dashboards should re-sync with Drive. */
+export type DashboardEvent = { type: "ui" } | { type: "reload" } | { type: "chat" };
 
 const g = globalThis as typeof globalThis & {
   __zwDashDb?: Database;
   __zwDashListeners?: Map<string, Set<(e: DashboardEvent) => void>>;
 };
 const db = () => (g.__zwDashDb ??= open());
+/** The shared database (also used by src/lib/ui/store.ts). */
+export const dashboardDb = db;
+export type { Database as DashboardDatabase, Row as DashboardRow, SQLValue as DashboardValue };
 const listeners = (g.__zwDashListeners ??= new Map());
 
 const norm = (email: string) => email.trim().toLowerCase();
@@ -117,87 +170,17 @@ export function subscribe(email: string, fn: (e: DashboardEvent) => void): () =>
   };
 }
 
-/* --------------------------------------------------------------- documents */
+/* ------------------------------------------------------- classic dashboard */
 
-export const newWidgetId = () => `w_${randomBytes(6).toString("hex")}`;
-
-function parse(json: string): DashboardDoc | null {
+/** The classic (pre-files) dashboard of a user, if they ever had one; used once for migration. */
+export function legacyDashboard(email: string): DashboardDoc | null {
+  const row = db().prepare("SELECT doc FROM dashboards WHERE user_email = ?").get(norm(email));
+  if (!row) return null;
   try {
-    return sanitizeDoc(JSON.parse(json));
+    return sanitizeDoc(JSON.parse(s(row.doc)));
   } catch {
     return null;
   }
-}
-
-/** The user's dashboard (created from the default on first use, in the user's locale). */
-export function getDashboard(email: string, locale = "es"): DashboardDoc {
-  const key = norm(email);
-  const row = db().prepare("SELECT doc, version FROM dashboards WHERE user_email = ?").get(key);
-  const doc = row ? parse(s(row.doc)) : null;
-  if (row && doc) return { ...doc, version: Number(row.version) };
-  const fresh = defaultDoc(locale, newWidgetId);
-  db()
-    .prepare(
-      `INSERT INTO dashboards (user_email, doc, version, updated) VALUES (?, ?, ?, ?)
-       ON CONFLICT(user_email) DO UPDATE SET doc = excluded.doc, version = dashboards.version + 1, updated = excluded.updated`,
-    )
-    .run(key, JSON.stringify(fresh), fresh.version, Date.now());
-  return getDashboard(email, locale);
-}
-
-/** Stores `next` as the current document, keeping `prev` for undo. Returns the saved document. */
-function save(email: string, prev: DashboardDoc | null, next: DashboardDoc): DashboardDoc {
-  const key = norm(email);
-  const now = Date.now();
-  const d = db();
-  const current = Number(d.prepare("SELECT version FROM dashboards WHERE user_email = ?").get(key)?.version ?? 0);
-  const saved: DashboardDoc = { ...next, version: Math.max(current, next.version) + 1 };
-  d.exec("BEGIN");
-  try {
-    if (prev) {
-      d.prepare("INSERT INTO versions (user_email, doc, created) VALUES (?, ?, ?)").run(key, JSON.stringify(prev), now);
-      d.prepare(
-        "DELETE FROM versions WHERE user_email = ? AND id NOT IN (SELECT id FROM versions WHERE user_email = ? ORDER BY id DESC LIMIT ?)",
-      ).run(key, key, VERSIONS_KEPT);
-    }
-    d.prepare(
-      `INSERT INTO dashboards (user_email, doc, version, updated) VALUES (?, ?, ?, ?)
-       ON CONFLICT(user_email) DO UPDATE SET doc = excluded.doc, version = excluded.version, updated = excluded.updated`,
-    ).run(key, JSON.stringify(saved), saved.version, now);
-    d.exec("COMMIT");
-  } catch (e) {
-    d.exec("ROLLBACK");
-    throw e;
-  }
-  publish(email, { type: "doc", doc: saved });
-  return saved;
-}
-
-/** Applies edit operations (validated; throws DashError) and saves one undo step. */
-export function editDashboard(email: string, ops: DashOp[], locale?: string): { doc: DashboardDoc; added: string[] } {
-  const prev = getDashboard(email, locale);
-  const { doc, added } = applyOps(prev, ops, newWidgetId);
-  return { doc: save(email, prev, doc), added };
-}
-
-/** Restores the previous version. Returns null when there is nothing to undo. */
-export function undoDashboard(email: string, locale?: string): DashboardDoc | null {
-  const key = norm(email);
-  const row = db().prepare("SELECT id, doc FROM versions WHERE user_email = ? ORDER BY id DESC LIMIT 1").get(key);
-  if (!row) return null;
-  const prevDoc = parse(s(row.doc));
-  db().prepare("DELETE FROM versions WHERE id = ?").run(Number(row.id));
-  if (!prevDoc) return undoDashboard(email, locale);
-  const current = getDashboard(email, locale);
-  return save(email, null, { ...prevDoc, version: current.version });
-}
-
-export const undoCount = (email: string) => Number(db().prepare("SELECT COUNT(*) AS n FROM versions WHERE user_email = ?").get(norm(email))?.n ?? 0);
-
-/** Back to the default dashboard (undoable). */
-export function resetDashboard(email: string, locale = "es"): DashboardDoc {
-  const prev = getDashboard(email, locale);
-  return save(email, prev, { ...defaultDoc(locale, newWidgetId), version: prev.version });
 }
 
 /* -------------------------------------------------------------------- chat */

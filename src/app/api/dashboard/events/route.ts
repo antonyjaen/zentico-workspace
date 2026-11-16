@@ -1,14 +1,18 @@
-// Server-Sent Events for the signed-in user's open dashboards:
-//   event: doc   data: DashboardDoc   (on connect and after every change: UI, Claude, another tab)
-//   event: chat  data: ChatState      (on connect and whenever a turn, its progress, a pending
-//                                      confirmation or the bridge status changes)
-// Doc changes come from the in-process notifier (src/lib/dashboard/store.ts, single instance);
+// Server-Sent Events for the signed-in user's open dashboards (and rail apps):
+//   event: ui      data: UiView     (on connect and after every change of the UI files or grants)
+//   event: reload  data: {}         (ui_reload: re-sync with Drive now)
+//   event: chat    data: ChatState  (on connect and whenever a turn, its progress, a pending
+//                                    confirmation or the bridge status changes)
+//   event: live    data: { category, kind, title, body, ref, at }  (new mail / chat / calendar
+//                                    notifications, forwarded to mods that may read them)
+// UI changes come from the in-process notifier (src/lib/dashboard/store.ts, single instance);
 // command progress lives in the agent queue, so the chat state is re-checked every second.
-import { getLocale } from "next-intl/server";
 import { getSession } from "@/lib/auth";
 import { chatState } from "@/lib/dashboard/chat";
-import { getDashboard, subscribe } from "@/lib/dashboard/store";
+import { subscribe } from "@/lib/dashboard/store";
 import { jsonError } from "@/lib/meetings/http";
+import { subscribe as subscribeNotifications } from "@/lib/notifications/store";
+import { viewOf } from "@/lib/ui/service";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,7 +24,6 @@ const PING_MS = 20_000;
 export async function GET(req: Request) {
   const session = await getSession();
   if (!session) return jsonError("unauthorized", 401);
-  const locale = await getLocale();
   const encoder = new TextEncoder();
 
   let cleanup = () => {};
@@ -58,10 +61,24 @@ export async function GET(req: Request) {
           console.error("[dashboard] events:", e instanceof Error ? e.message : e);
         }
       };
+      const sendUi = () => {
+        try {
+          event("ui", viewOf(session.email));
+        } catch (e) {
+          console.error("[dashboard] events ui:", e instanceof Error ? e.message : e);
+        }
+      };
 
       const unsubscribe = subscribe(session.email, (e) => {
-        if (e.type === "doc") event("doc", e.doc);
+        if (e.type === "ui") sendUi();
+        else if (e.type === "reload") event("reload", {});
         else checkChat(true);
+      });
+      const unsubscribeLive = subscribeNotifications(session.email, (e) => {
+        if (e.type !== "notification") return;
+        const n = e.notification;
+        if (n.category !== "mail" && n.category !== "chat" && n.category !== "calendar") return;
+        event("live", { category: n.category, kind: n.kind, title: n.title, body: n.body, ref: n.ref, at: n.created });
       });
       const tick = setInterval(() => checkChat(), TICK_MS);
       const ping = setInterval(() => send(": ping\n\n"), PING_MS);
@@ -72,6 +89,7 @@ export async function GET(req: Request) {
         clearInterval(tick);
         clearInterval(ping);
         unsubscribe();
+        unsubscribeLive();
         try {
           controller.close();
         } catch {
@@ -82,11 +100,7 @@ export async function GET(req: Request) {
       req.signal.addEventListener("abort", stop);
 
       send("retry: 3000\n\n");
-      try {
-        event("doc", getDashboard(session.email, locale));
-      } catch (e) {
-        console.error("[dashboard] events doc:", e instanceof Error ? e.message : e);
-      }
+      sendUi();
       checkChat(true);
     },
     cancel() {
