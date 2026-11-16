@@ -1,9 +1,11 @@
-import { ArrowRight, CalendarDays, FileText, HardDrive, Lock, Mail, Video } from "lucide-react";
+import { ArrowRight, CalendarDays, Download, FileText, HardDrive, Lock, Mail, Video } from "lucide-react";
 import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { Wordmark } from "@/components/Logo";
 import { getSession, getSessionForSetup, listAccounts } from "@/lib/auth";
+import { availableDownloads, platformFromUA } from "@/lib/downloads";
 import { safeLoginHint, safeReturnTo } from "@/lib/oidc";
 
 export const metadata: Metadata = { title: "Sign in" };
@@ -30,6 +32,11 @@ export default async function SignIn({
   const t = await getTranslations("signin");
   const tAccount = await getTranslations("account");
   const tApps = await getTranslations("apps");
+  const tDl = await getTranslations("downloads");
+  const downloads = await availableDownloads();
+  const platform = platformFromUA((await headers()).get("user-agent"));
+  const PLATFORM_NAME = { windows: "Windows", android: "Android", mac: "macOS", ios: "iPhone" } as const;
+  const forMe = platform && downloads.some((d) => d.platform === platform);
   const errorKey = error
     ? (ERRORS as readonly string[]).includes(error)
       ? `errors.${error}`
@@ -112,6 +119,17 @@ export default async function SignIn({
             </div>
           )}
         </section>
+
+        {downloads.length > 0 && (
+          <a
+            href="/download"
+            className="rise mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-line bg-sheet text-[13.5px] text-ink-soft transition-colors hover:bg-hover hover:text-ink"
+            style={{ animationDelay: "90ms" }}
+          >
+            <Download size={15} aria-hidden />
+            {forMe ? tDl("signinLink", { platform: PLATFORM_NAME[platform] }) : tDl("signinLinkGeneric")}
+          </a>
+        )}
 
         <p
           className="rise mt-6 flex items-center justify-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-ink-mute"

@@ -1,0 +1,23 @@
+{
+  "downloads": {
+    "title": "Descarga Zentico Workspace",
+    "body": "Usa tu workspace como app en tu ordenador o teléfono. La primera vez, escribe la dirección de tu workspace ({host}).",
+    "yourDevice": "Tu dispositivo",
+    "soon": "Próximamente.",
+    "back": "Volver al workspace",
+    "menu": "Descargar las apps",
+    "signinLink": "Descarga la app para {platform}",
+    "signinLinkGeneric": "Descarga las apps de escritorio y móvil",
+    "kind": {
+      "exe": "Instalador (.exe)",
+      "msi": "Instalador MSI",
+      "apk": "Descargar APK"
+    },
+    "note": {
+      "windows": "Si Windows muestra «Windows protegió su PC», pulsa «Más información» → «Ejecutar de todas formas».",
+      "android": "Abre el archivo descargado y permite «instalar apps de fuentes desconocidas» si Android lo pide.",
+      "mac": "",
+      "ios": ""
+    }
+  }
+}

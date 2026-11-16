@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Blocks, ExternalLink, Languages, LogOut, Plug, ShieldCheck, UserPlus } from "lucide-react";
+import { Bell, Blocks, Download, ExternalLink, Languages, LogOut, Plug, ShieldCheck, UserPlus } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -44,6 +44,7 @@ export function AccountMenu({ accounts, accountUrl }: { accounts: AccountSummary
   const tn = useTranslations("notifications");
   const ta = useTranslations("apps.settings");
   const ts = useTranslations("security");
+  const td = useTranslations("downloads");
   const locale = useLocale();
   const router = useRouter();
   const pathname = usePathname();
@@ -152,6 +153,9 @@ export function AccountMenu({ accounts, accountUrl }: { accounts: AccountSummary
             <Link href="/settings/security" onClick={toggle} className={itemClass}>
               <ShieldCheck size={16} aria-hidden /> {ts("title")}
             </Link>
+            <a href="/download" className={itemClass}>
+              <Download size={16} aria-hidden /> {td("menu")}
+            </a>
           </div>
 
           <div className="border-t border-line px-3 py-3">
