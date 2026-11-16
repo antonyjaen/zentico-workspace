@@ -5,6 +5,7 @@
 import { MessageSquare, UserPlus } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DesktopPrompt } from "./DesktopPrompt";
 import { getOverview } from "./actions";
 import { Conversation } from "./Conversation";
 import { CreateChannelDialog, CreateTeamDialog, NewChatDialog, TeamMembersDialog } from "./Dialogs";
@@ -202,6 +203,7 @@ export function ChatApp({ initial, initialId }: { initial: ChatOverview; initial
   return (
     <main className="sheet flex min-w-0 flex-1 overflow-hidden">
       <div className={`${showMain ? "hidden md:flex" : "flex"} w-full shrink-0 flex-col border-line md:w-[300px] md:border-r`}>
+        <DesktopPrompt />
         <Sidebar
           data={data}
           activeId={activeId}

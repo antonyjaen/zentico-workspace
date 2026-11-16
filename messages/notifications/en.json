@@ -35,7 +35,8 @@
       "invite": "Invitation · {when}",
       "done": "Claude finished",
       "failed": "Claude couldn't finish",
-      "confirm": "Claude needs your confirmation"
+      "confirm": "Claude needs your confirmation",
+      "missedCall": "Missed call"
     },
     "page": {
       "title": "Notifications",
@@ -66,7 +67,15 @@
       "dndTomorrow": "Until tomorrow 8:00",
       "dndUntil": "On until {time}",
       "saved": "Saved",
-      "error": "Couldn't save. Try again."
-    }
+      "error": "Couldn't save. Try again.",
+      "ringtone": "Ringtone",
+      "ringtoneHint": "Plays when someone calls you. When off, the call still shows up, silently. Do Not Disturb silences it too."
+    },
+    "titleFlash": "New message from {name}",
+    "reply": "Reply",
+    "replyPlaceholder": "Write a reply…",
+    "send": "Send",
+    "replyFailed": "Couldn't send it. Open the conversation to retry.",
+    "desktopBanner": "Turn on desktop notifications so you don't miss messages or calls."
   }
 }

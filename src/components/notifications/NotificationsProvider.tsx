@@ -8,12 +8,17 @@
 //   nothing when some visible tab is already looking at that thing; otherwise an in-app toast
 //   (high priority, in the focused tab) or a desktop notification (if the user opted in), plus an
 //   optional chime. Do Not Disturb silences all three. Each id+count is surfaced once.
-// - Unread count prefixes the tab title: "(3) Mail · Zentico Workspace".
-import { X } from "lucide-react";
+// - Unread count prefixes the tab title: "(3) Mail · Zentico Workspace". A hidden tab without
+//   desktop notifications flashes "New message from X" for direct messages until it is seen.
+// - Chat toasts show who wrote, a preview, the burst count and an inline quick reply.
+// - Call events (call.ring / call.update) are re-dispatched in every tab as CALL_EVENT for the
+//   CallsProvider; CALL_SYNC_EVENT tells it to reload calls after a (re)load of the center.
+import { Reply, Send, X } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { OPEN_CONVERSATION_EVENT, UNREAD_EVENT } from "@/app/(apps)/chat/shared";
+import { sendMessage } from "@/app/(apps)/chat/actions";
+import { avatarGradient, initials, isConversationId, OPEN_CONVERSATION_EVENT, UNREAD_EVENT } from "@/app/(apps)/chat/shared";
 import {
   DEFAULT_PREFS,
   LIST_LIMIT,
@@ -32,6 +37,14 @@ const PROBE_MS = 180;
 const FRESH_MS = 2 * 60_000;
 const UPCOMING_EVERY_MS = 10 * 60_000;
 const TOAST_MS = 10_000;
+
+/** localStorage flag: the "enable desktop notifications" prompt was answered (bell and Chat share it). */
+export const DESKTOP_PROMPT_KEY = "zw_notify_prompt_dismissed";
+
+/** Window event (detail: the NotifyEvent) for call.ring / call.update, in every tab. */
+export const CALL_EVENT = "zw-call-event";
+/** Window event: the notification center was (re)loaded; live calls may have changed meanwhile. */
+export const CALL_SYNC_EVENT = "zw-call-sync";
 
 type Claim = { visible: boolean; focused: boolean; inView: boolean; tab: string };
 type Wire =
@@ -138,6 +151,9 @@ function reducer(state: State, action: Action): State {
       return { ...state, items: state.items.map((x) => (x.read ? x : { ...x, read: true })), unread: 0 };
     case "prefs":
       return { ...state, prefs: ev.prefs };
+    case "call.ring":
+    case "call.update":
+      return state;
   }
 }
 
@@ -148,6 +164,8 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   const [{ items, unread, prefs, loaded }, dispatch] = useReducer(reducer, { items: [], unread: 0, prefs: DEFAULT_PREFS, loaded: false });
   const [permission, setPermission] = useState<Permission>("unsupported");
   const [toasts, setToasts] = useState<AppNotification[]>([]);
+  /** Sender of the newest direct message that arrived while this tab was hidden. */
+  const [flashFrom, setFlashFrom] = useState<string | null>(null);
 
   // Latest values for the long-lived handlers below.
   const live = useRef({ prefs, t, locale, router });
@@ -160,11 +178,33 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   }, []);
   const dismissToast = useCallback((id: string) => setToasts((list) => list.filter((x) => x.id !== id)), []);
 
-  const applyCenter = useCallback((data: NotificationsResponse) => dispatch({ type: "center", data }), []);
+  const applyCenter = useCallback((data: NotificationsResponse) => {
+    dispatch({ type: "center", data });
+    window.dispatchEvent(new CustomEvent(CALL_SYNC_EVENT));
+  }, []);
 
   /** Applies a server event to this tab's state. */
   const applyEvent = useCallback((ev: NotifyEvent) => {
+    if (ev.type === "call.ring" || ev.type === "call.update") {
+      window.dispatchEvent(new CustomEvent(CALL_EVENT, { detail: ev }));
+      return;
+    }
     dispatch({ type: "event", ev });
+    if (ev.type === "notification") {
+      const n = ev.notification;
+      const p = live.current.prefs;
+      if (
+        n.category === "chat" &&
+        n.priority === "high" &&
+        !n.read &&
+        Date.now() - n.created < FRESH_MS &&
+        document.visibilityState === "hidden" &&
+        !(p.desktop && currentPermission() === "granted") &&
+        !dndActive(p)
+      ) {
+        setFlashFrom(n.title.split(" · ")[0] || n.title);
+      }
+    }
     // Chat rail badge: refresh it right away.
     if (ev.type === "notification" && ev.notification.category === "chat") window.dispatchEvent(new CustomEvent(UNREAD_EVENT));
   }, []);
@@ -395,6 +435,32 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     };
   }, [applyCenter, applyEvent, openNotification, showToast, tabId]);
 
+  // Hidden tab: alternate the title with "New message from X" until the tab is seen again.
+  useEffect(() => {
+    if (!flashFrom) return;
+    const text = t("titleFlash", { name: flashFrom });
+    let base: string | null = null;
+    let on = false;
+    const strip = (s: string) => s.replace(/^\(\d+\+?\) /, "");
+    const stop = () => {
+      if (document.visibilityState === "visible") setFlashFrom(null);
+    };
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") return stop();
+      base ??= strip(document.title);
+      on = !on;
+      document.title = on ? text : base;
+    }, 1200);
+    document.addEventListener("visibilitychange", stop);
+    window.addEventListener("focus", stop);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", stop);
+      window.removeEventListener("focus", stop);
+      if (base !== null) document.title = base;
+    };
+  }, [flashFrom, t]);
+
   // "(3) Mail · Zentico Workspace": keep the prefix through Next's title updates.
   useEffect(() => {
     const strip = (s: string) => s.replace(/^\(\d+\+?\) /, "");
@@ -464,7 +530,17 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   return (
     <NotificationsContext.Provider value={value}>
       {children}
-      <Toasts toasts={toasts} onOpen={openNotification} onDismiss={dismissToast} label={t("toastRegion")} />
+      <Toasts
+        toasts={toasts}
+        onOpen={openNotification}
+        onDismiss={dismissToast}
+        onReplied={(n) => {
+          // Replying means it was read.
+          markRead([n.id]);
+          dismissToast(n.id);
+        }}
+        label={t("toastRegion")}
+      />
     </NotificationsContext.Provider>
   );
 }
@@ -473,35 +549,67 @@ function Toasts({
   toasts,
   onOpen,
   onDismiss,
+  onReplied,
   label,
 }: {
   toasts: AppNotification[];
   onOpen: (n: AppNotification) => void;
   onDismiss: (id: string) => void;
+  onReplied: (n: AppNotification) => void;
   label: string;
 }) {
   return (
     <section aria-label={label} aria-live="polite" className="pointer-events-none fixed right-4 bottom-4 z-[90] flex w-[min(360px,calc(100vw-2rem))] flex-col gap-2">
       {toasts.map((n) => (
-        <Toast key={`${n.id}:${n.count}`} n={n} onOpen={onOpen} onDismiss={onDismiss} />
+        <Toast key={`${n.id}:${n.count}`} n={n} onOpen={onOpen} onDismiss={onDismiss} onReplied={onReplied} />
       ))}
     </section>
   );
 }
 
-function Toast({ n, onOpen, onDismiss }: { n: AppNotification; onOpen: (n: AppNotification) => void; onDismiss: (id: string) => void }) {
+function Toast({
+  n,
+  onOpen,
+  onDismiss,
+  onReplied,
+}: {
+  n: AppNotification;
+  onOpen: (n: AppNotification) => void;
+  onDismiss: (id: string) => void;
+  onReplied: (n: AppNotification) => void;
+}) {
   const t = useTranslations("notifications");
   const locale = useLocale();
   const [hover, setHover] = useState(false);
+  const [replying, setReplying] = useState(false);
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [failed, setFailed] = useState(false);
   const d = describe(n, t, locale);
   const { icon: Icon, color } = CATEGORY_ICON[n.category];
   const joinable = n.href.startsWith("/meet/");
+  const chat = n.category === "chat";
+  const sender = chat ? n.title.split(" · ")[0] || n.title : "";
+  const where = chat ? n.title.slice(sender.length + 3) : "";
+  const canReply = chat && isConversationId(n.ref);
+  const preview = d.body.length > 120 ? `${d.body.slice(0, 120)}…` : d.body;
+
+  const reply = async () => {
+    const body = text.trim();
+    if (!body || sending || !n.ref) return;
+    setSending(true);
+    setFailed(false);
+    const r = await sendMessage(n.ref, body, null).catch(() => null);
+    setSending(false);
+    if (!r?.ok) return setFailed(true);
+    onReplied(n);
+  };
 
   useEffect(() => {
-    if (hover) return;
+    if (hover || replying) return;
     const id = setTimeout(() => onDismiss(n.id), n.kind === "confirm" ? TOAST_MS * 2 : TOAST_MS);
     return () => clearTimeout(id);
-  }, [hover, n.id, n.kind, onDismiss]);
+  }, [hover, replying, n.id, n.kind, onDismiss]);
 
   return (
     <div
@@ -509,22 +617,85 @@ function Toast({ n, onOpen, onDismiss }: { n: AppNotification; onOpen: (n: AppNo
       onMouseLeave={() => setHover(false)}
       className="pop pointer-events-auto flex items-start gap-3 p-3 text-[13px]"
     >
-      <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-sheet-muted" style={{ color }} aria-hidden>
-        <Icon size={15} />
-      </span>
+      {chat ? (
+        <span
+          className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full text-[12px] font-semibold text-white"
+          style={{ background: avatarGradient(sender) }}
+          aria-hidden
+        >
+          {initials(sender)}
+        </span>
+      ) : (
+        <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-sheet-muted" style={{ color }} aria-hidden>
+          <Icon size={15} />
+        </span>
+      )}
       <div className="min-w-0 flex-1">
-        <p className="text-[12px] text-ink-mute">{d.label}</p>
-        <p className="truncate font-medium text-ink">{d.title}</p>
-        {d.body && <p className="mt-0.5 line-clamp-2 text-ink-soft">{d.body}</p>}
-        <div className="mt-2 flex gap-2">
-          <button
-            type="button"
-            onClick={() => onOpen(n)}
-            className="inline-flex h-7 items-center rounded-md bg-primary px-2.5 text-[12.5px] font-medium text-primary-ink hover:bg-primary-hover"
+        <p className="truncate text-[12px] text-ink-mute">
+          {chat && where ? `${d.label} · ${where}` : d.label}
+          {n.count > 1 && <span className="ml-1 font-medium text-ink-soft">· {t("count", { count: n.count })}</span>}
+        </p>
+        <p className="truncate font-medium text-ink">{chat ? sender : d.title}</p>
+        {preview && <p className="mt-0.5 line-clamp-2 break-words text-ink-soft">{preview}</p>}
+        {replying ? (
+          <form
+            className="mt-2 flex gap-1.5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void reply();
+            }}
           >
-            {joinable && n.kind === "meeting" ? t("join") : t("open")}
-          </button>
-        </div>
+            <input
+              autoFocus
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.stopPropagation();
+                  setReplying(false);
+                }
+              }}
+              maxLength={2000}
+              placeholder={t("replyPlaceholder")}
+              aria-label={t("replyPlaceholder")}
+              className="h-8 min-w-0 flex-1 rounded-md border border-line bg-sheet px-2 text-[13px] text-ink outline-none focus:border-ink-mute"
+            />
+            <button
+              type="submit"
+              disabled={!text.trim() || sending}
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-primary text-primary-ink hover:bg-primary-hover disabled:opacity-50"
+              aria-label={t("send")}
+              title={t("send")}
+            >
+              <Send size={14} aria-hidden />
+            </button>
+          </form>
+        ) : (
+          <div className="mt-2 flex gap-2">
+            <button
+              type="button"
+              onClick={() => onOpen(n)}
+              className="inline-flex h-7 items-center rounded-md bg-primary px-2.5 text-[12.5px] font-medium text-primary-ink hover:bg-primary-hover"
+            >
+              {joinable && n.kind === "meeting" ? t("join") : t("open")}
+            </button>
+            {canReply && (
+              <button
+                type="button"
+                onClick={() => setReplying(true)}
+                className="inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px] text-ink-soft hover:bg-hover hover:text-ink"
+              >
+                <Reply size={13} aria-hidden />
+                {t("reply")}
+              </button>
+            )}
+          </div>
+        )}
+        {failed && (
+          <p role="alert" className="mt-1 text-[12px] text-danger">
+            {t("replyFailed")}
+          </p>
+        )}
       </div>
       <button type="button" onClick={() => onDismiss(n.id)} className="icon-btn h-7 w-7" aria-label={t("dismiss")} title={t("dismiss")}>
         <X size={14} aria-hidden />

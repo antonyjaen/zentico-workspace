@@ -7,9 +7,8 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { AppNotification } from "@/lib/notifications/types";
 import { usePopover } from "../usePopover";
 import { CATEGORY_ICON, describe, shortTime } from "./display";
-import { useNotifications } from "./NotificationsProvider";
+import { DESKTOP_PROMPT_KEY as PROMPT_KEY, useNotifications } from "./NotificationsProvider";
 
-const PROMPT_KEY = "zw_notify_prompt_dismissed";
 
 function dayLabel(ms: number, locale: string, t: (k: string) => string): string {
   const d = new Date(ms);

@@ -35,7 +35,8 @@
       "invite": "Invitación · {when}",
       "done": "Claude ha terminado",
       "failed": "Claude no ha podido terminar",
-      "confirm": "Claude necesita tu confirmación"
+      "confirm": "Claude necesita tu confirmación",
+      "missedCall": "Llamada perdida"
     },
     "page": {
       "title": "Notificaciones",
@@ -66,7 +67,15 @@
       "dndTomorrow": "Hasta mañana a las 8:00",
       "dndUntil": "Activado hasta las {time}",
       "saved": "Guardado",
-      "error": "No se ha podido guardar. Inténtalo de nuevo."
-    }
+      "error": "No se ha podido guardar. Inténtalo de nuevo.",
+      "ringtone": "Tono de llamada",
+      "ringtoneHint": "Suena cuando alguien te llama. Desactivado, la llamada aparece igualmente, en silencio. No molestar también la silencia."
+    },
+    "titleFlash": "Nuevo mensaje de {name}",
+    "reply": "Responder",
+    "replyPlaceholder": "Escribe una respuesta…",
+    "send": "Enviar",
+    "replyFailed": "No se ha podido enviar. Ábrelo para reintentar.",
+    "desktopBanner": "Activa las notificaciones del escritorio para no perderte mensajes ni llamadas."
   }
 }
