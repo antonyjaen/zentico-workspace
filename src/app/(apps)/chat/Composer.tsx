@@ -4,7 +4,6 @@ import { FileText, HardDrive, Loader2, Paperclip, SendHorizontal, Upload, X } fr
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { usePopover } from "@/components/usePopover";
-import { sendMessage } from "./actions";
 import { DrivePickerDialog } from "./DrivePicker";
 import { BODY_MAX, FILE_MAX_BYTES, formatSize, isPreviewableImage, type ChatMessage, type ChatUser } from "./shared";
 import { AppBadge, Avatar, fold, useErrorText, useUserName } from "./ui";
@@ -148,9 +147,14 @@ export function Composer({ conversationId, threadRoot, me, members, placeholder,
       if (!res.ok || !json.message) throw new Error(json.error ?? "failed");
       onSent(json.message);
     } else {
-      const r = await sendMessage(conversationId, body, threadRoot);
-      if (!r.ok) throw new Error(r.error);
-      onSent(r.data);
+      const res = await fetch("/api/chat/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId, text: body, threadRoot }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { message?: ChatMessage; error?: string };
+      if (!res.ok || !json.message) throw new Error(json.error ?? "failed");
+      onSent(json.message);
     }
   };
 
