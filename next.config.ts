@@ -8,6 +8,8 @@ const nextConfig: NextConfig = {
   // offer a reload when a tab outlives a deploy (its server-action ids would be stale).
   env: { NEXT_PUBLIC_BUILD_ID: process.env.BUILD_ID || String(Date.now()) },
   output: "standalone",
+  // GET /bridge.mjs serves this file (read with fs, which tracing can't see).
+  outputFileTracingIncludes: { "/bridge.mjs": ["./tools/zentico-bridge.mjs"] },
   poweredByHeader: false,
   // Composed messages (with quoted originals) can exceed the 1 MB default.
   experimental: {

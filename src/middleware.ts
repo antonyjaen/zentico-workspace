@@ -92,5 +92,5 @@ export const config = {
   // Everything except sign-in, auth endpoints, WOPI (Collabora, token-authenticated), MCP (personal
   // access tokens), the Claude bridge endpoints (/api/agent, same tokens), Chat incoming webhooks and
   // the app API (/api/chat/hooks, /api/chat/bots: their own keys/tokens), Next internals and static files.
-  matcher: ["/((?!signin|api/auth|api/wopi|api/mcp|api/agent/|api/chat/hooks/|api/chat/bots/|_next/|favicon|icon|.*\\.(?:svg|png|jpg|ico|webp|woff2?)$).*)"],
+  matcher: ["/((?!signin|bridge\\.mjs$|api/auth|api/wopi|api/mcp|api/agent/|api/chat/hooks/|api/chat/bots/|_next/|favicon|icon|.*\\.(?:svg|png|jpg|ico|webp|woff2?)$).*)"],
 };

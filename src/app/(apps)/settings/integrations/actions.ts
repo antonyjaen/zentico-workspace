@@ -10,7 +10,7 @@ import { MCP_SETUP_COOKIE, type McpSetup, type Session } from "@/lib/session";
 
 type KeyError = "authorize" | "not_allowed" | "key_quota";
 export type CreateResult =
-  | { ok: true; token: string }
+  | { ok: true; id: string; token: string }
   | { ok: false; error: "invalid_name" | "invalid_expiry" | "too_many" | KeyError | "failed" };
 export type ReauthorizeResult = { ok: boolean; error?: KeyError | "failed" };
 
@@ -52,10 +52,10 @@ export async function createTokenAction(input: { name: unknown; scope: unknown; 
   }
   const { auth, done } = await keyAuth(session);
   try {
-    const { token } = await createToken(session, { name, scope, expiresInDays }, auth);
+    const { id, token } = await createToken(session, { name, scope, expiresInDays }, auth);
     await done();
     revalidatePath("/settings/integrations");
-    return { ok: true, token };
+    return { ok: true, id, token };
   } catch (e) {
     if (e instanceof TokenError && (e.message === "too_many" || e.message === "invalid_expiry" || KEY_ERRORS.includes(e.message))) {
       return { ok: false, error: e.message as "too_many" | "invalid_expiry" | KeyError };

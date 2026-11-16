@@ -1,74 +1,101 @@
 // UI strings for Settings → Integrations (kept local so this page doesn't touch the shared
 // message catalogs).
 
+/** What the setup prompt needs: the workspace URL, its MCP endpoint and the new token. */
+export type PromptInput = { appUrl: string; endpoint: string; token: string };
+
 const en = {
   title: "Integrations",
   back: "Back",
-  intro:
-    "Connect Claude (or any MCP client) to your workspace so it can read and act on your mail, calendar, contacts, Drive, Docs, chat and meeting transcripts.",
-  tokensTitle: "Access tokens",
-  tokensHint: "Each token acts as you. Read-only tokens can't send mail, change events, write, share or delete files, or post messages.",
-  name: "Name",
-  namePlaceholder: "Claude Code on my laptop",
-  scope: "Permissions",
-  scopeRead: "Read only",
-  scopeWrite: "Read and write",
-  expiry: "Expires",
+  intro: "Connect Claude to your workspace so it can help with your mail, calendar, files, chat and meetings.",
+  // Status card
+  statusConnected: "Connected",
+  statusIdle: "Set up, no recent activity",
+  statusOff: "Not connected",
+  statusConnectedHint: "Claude is working with your workspace.",
+  statusIdleHint: "Claude has access but hasn't used it in the last few minutes. It shows as connected as soon as it does.",
+  statusOffHint: "Connect Claude so it can read your mail, check your calendar, find files and get things done for you.",
+  mcpLabel: "Claude can read and act in your workspace",
+  bridgeLabel: "Claude Code on your computer takes requests from meetings, chat and the dashboard",
+  mcpActive: (name: string, ago: string) => `Active via “${name}” · ${ago}`,
+  mcpLast: (ago: string) => `Last activity ${ago}`,
+  mcpNever: "Not used yet",
+  mcpNone: "Not set up",
+  bridgeActive: (host: string | null) => (host ? `Bridge running on ${host}` : "Bridge running"),
+  bridgeLast: (ago: string) => `Bridge last seen ${ago}`,
+  bridgeNever: "Bridge not running",
+  needsAttention: "A connection needs to be reconnected — see below.",
+  // Connect
+  connect: "Connect Claude",
+  connectAnother: "Connect another computer",
+  connecting: "Connecting…",
+  expiryLabel: "Access expires",
   never: "Never",
-  days: (n: number) => `${n} days`,
-  year: "1 year",
-  create: "Create token",
-  creating: "Creating…",
-  newToken: "Your new token",
-  newTokenHint: "Copy it now — it won't be shown again.",
-  copy: "Copy",
+  days: (n: number) => `In ${n} days`,
+  year: "In 1 year",
+  autoName: (date: string) => `Claude Code – ${date}`,
+  stepTitle: "Paste this into Claude Code",
+  stepHint: "Claude Code sets everything up on its own and tells you when it's ready.",
+  copyPrompt: "Copy prompt",
+  copyToken: "Copy token only",
   copied: "Copied",
+  copy: "Copy",
+  tokenOnce: "This prompt contains your access key and is shown only now. If you lose it, just connect again.",
+  waiting: "Waiting for Claude to connect…",
+  joined: "Claude is connected.",
+  waitingBridge: "Waiting for the bridge to start…",
+  bridgeUp: (host: string | null) => (host ? `Bridge running on ${host}.` : "Bridge running."),
   done: "Done",
-  noTokens: "No tokens yet.",
-  created: "Created",
-  lastUsed: "Last used",
-  expires: "Expires",
-  neverUsed: "Never used",
-  revoke: "Revoke",
-  revokeConfirm: (name: string) => `Revoke "${name}"? Clients using it will stop working.`,
-  reauth: "Its authorization expired. Reconnect it — the token itself stays the same.",
-  legacy: "Uses an older sign-in link that no longer works. Reconnect it to give it its own key — the token itself stays the same.",
-  reconnect: "Reconnect",
-  expired: "Expired",
-  connectTitle: "Connect Claude",
-  claudeCode: "Claude Code",
-  claudeCodeHint: "Run in a terminal:",
-  claudeDesktop: "Claude Desktop",
-  claudeDesktopHint:
-    "Add to claude_desktop_config.json (uses the mcp-remote bridge, which needs Node.js). Restart Claude Desktop afterwards.",
-  claudeAi: "claude.ai custom connectors",
-  claudeAiHint:
-    "claude.ai and Claude Desktop's “Add custom connector” dialog sign in with OAuth, which this server doesn't offer yet. Use Claude Code or the Claude Desktop config above.",
+  prompt: ({ appUrl, endpoint, token }: PromptInput) =>
+    `Connect my Zentico workspace (${appUrl}) to Claude Code. Do the setup yourself, step by step:
+
+1. Add the Zentico MCP server for my user:
+   claude mcp add --transport http zentico ${endpoint} --header "Authorization: Bearer ${token}" --scope user
+2. Check with \`claude mcp list\` that "zentico" shows as connected.
+3. Download the bridge that lets me ask you things from meetings, chat and the dashboard (needs Node 18+):
+   mkdir -p ~/.zentico && curl -fsSL ${appUrl}/bridge.mjs -o ~/.zentico/zentico-bridge.mjs
+4. Start it in the background so it keeps running after this session ends:
+   - macOS / Linux: ZENTICO_TOKEN=${token} nohup node ~/.zentico/zentico-bridge.mjs --url ${appUrl} > ~/.zentico/bridge.log 2>&1 &
+   - Windows (PowerShell): $env:ZENTICO_TOKEN="${token}"; Start-Process node -ArgumentList "$HOME\\.zentico\\zentico-bridge.mjs","--url","${appUrl}" -WindowStyle Hidden
+   Check that it says "Connected as …".
+5. Tell me when it's ready, and remind me to restart Claude Code to use the Zentico tools.`,
+  // Manual setup
+  manualTitle: "Manual setup",
+  manualHint: "For other apps, or if you'd rather do it by hand. Replace <token> with your token.",
+  manualClaudeCode: "Claude Code (terminal)",
+  manualDesktop: "Claude Desktop",
+  manualDesktopHint: "Add to claude_desktop_config.json and restart Claude Desktop (needs Node.js).",
+  manualGeneric: "Any other MCP client",
+  manualGenericHint: "Streamable HTTP server with this address and header:",
+  manualBridge: "Bridge (meetings, chat and dashboard)",
+  manualBridgeHint: "Download it and keep it running (Node 18+ and Claude Code installed):",
+  manualClaudeAi:
+    "The “Add custom connector” option in claude.ai and Claude Desktop signs in with OAuth, which isn't available yet. Use Claude Code or the Claude Desktop config above.",
   tokenPlaceholder: "<token>",
-  activityTitle: "Recent activity",
-  noActivity: "No tool calls yet.",
-  ok: "OK",
-  failed: "Failed",
-  errors: {
-    invalid_name: "Give the token a name.",
-    invalid_expiry: "Choose a valid expiry.",
-    too_many: "You have too many tokens. Revoke one first.",
-    authorize: "The mail server needs your authorization first. Try again.",
-    authorize_failed: "The mail server authorization didn't complete. Try again.",
-    not_allowed:
-      "The mail server doesn't allow creating access keys for this app. Ask your administrator to allow the Security scope for the workspace's OAuth client.",
-    key_quota: "Your mail account has reached its limit of API keys. Revoke a token (or delete an unused API key in your mail account settings) first.",
-    failed: "Something went wrong. Try again.",
-  },
+  // Connections (tokens)
+  tokensTitle: "Connections",
+  tokensHint: "Each connection is an access key that acts as you. Revoke it and that app loses access right away.",
+  noTokens: "Nothing connected yet.",
+  scopeWrite: "Can read and act",
+  scopeRead: "Can only read",
+  lastActivity: "Last activity",
+  neverUsed: "never",
+  expires: "Expires",
   neverExpires: "Never expires",
-  // What a token can access
-  capsTitle: "What a token can access",
+  expired: "Expired",
+  reauth: "Lost its access to your mail account. Reconnect it — the apps using it don't need to change anything.",
+  legacy: "Uses an older kind of access that no longer works. Reconnect it — the apps using it don't need to change anything.",
+  reconnect: "Reconnect",
+  revoke: "Revoke",
+  revokeConfirm: (name: string) => `Revoke “${name}”? Apps using it will lose access.`,
+  // Capabilities
+  capsTitle: "What Claude can do",
   capsIntro:
-    "A token acts as you, through these tools only. It sees exactly what you can see in the workspace — nothing more. Tools marked “write” change something and are only available to read and write tokens.",
-  capsFor: "Show access for",
-  capsNotIncluded: "Not included (needs read and write):",
-  writeBadge: "write",
-  showAccess: "What it can access",
+    "Claude acts as you and only sees what you can already see. Items marked “changes” need a connection that can read and act; anything that sends, posts, shares or deletes is confirmed with you first.",
+  changesBadge: "changes",
+  bridgeCapsTitle: "From meetings, chat and the dashboard",
+  bridgeCaps:
+    "With the bridge running, hold C in a Zentico Meet call (or type in “Ask my Claude”), mention your Claude in Chat, or ask from your dashboard — your own Claude Code does it on your computer. Your requests only reach your own bridge, and anything that sends or changes something waits for your OK.",
   groups: {
     account: "Account",
     mail: "Mail",
@@ -144,25 +171,27 @@ const en = {
   neverTitle: "Never has access to",
   neverList: [
     "Other people's private mail, calendars, files or chats — only what you can already see yourself.",
-    "Your password or sign-in: the token can be revoked at any time and never reveals your credentials.",
+    "Your password or sign-in: access can be revoked at any time and never reveals your credentials.",
     "Admin settings: users, domains, passwords, quotas.",
-    "Your other tokens, or creating new ones.",
+    "Your other connections, or creating new ones.",
   ],
-  // Claude in meetings (bridge)
-  bridgeTitle: "Claude in meetings",
-  bridgeIntro:
-    "In a Zentico Meet call, hold the C key (or the “Hold to talk to Claude” button) and speak, or type in “Ask my Claude”, and your own Claude Code does it on your computer. Your commands only ever reach your own bridge. Anything that sends, creates, posts or writes waits for your Approve in the call.",
-  bridgeSteps: [
-    "Create a read and write token above.",
-    "Get tools/zentico-bridge.mjs from the workspace repository (Node 18+, no dependencies) and make sure Claude Code is installed.",
-    "Run it and keep it open during your meetings:",
-    "In a call, open “My Claude” (✦) and turn on Claude commands.",
-  ],
-  bridgeTokenHint: "Tip: set the ZENTICO_TOKEN environment variable instead of --token to keep it out of your shell history.",
-  bridgeConnected: "Bridge connected",
-  bridgeLastSeen: "Bridge last seen",
-  bridgeNever: "No bridge has connected yet",
-  bridgeNeedsWrite: "You don't have an active read and write token yet.",
+  // Activity
+  activityTitle: "Recent activity",
+  noActivity: "Nothing yet.",
+  ok: "OK",
+  failed: "Failed",
+  errors: {
+    invalid_name: "Something went wrong naming the connection. Try again.",
+    invalid_expiry: "Choose a valid expiry.",
+    too_many: "You have too many connections. Revoke one first.",
+    authorize: "The mail server needs your authorization first. Try again.",
+    authorize_failed: "The mail server authorization didn't complete. Try again.",
+    not_allowed:
+      "The mail server doesn't allow creating access keys for this app. Ask your administrator to allow the Security scope for the workspace's OAuth client.",
+    key_quota:
+      "Your mail account has reached its limit of access keys. Revoke a connection (or delete an unused API key in your mail account settings) first.",
+    failed: "Something went wrong. Try again.",
+  },
 };
 
 export type Copy = typeof en;
@@ -170,70 +199,90 @@ export type Copy = typeof en;
 const es: Copy = {
   title: "Integraciones",
   back: "Volver",
-  intro:
-    "Conecta Claude (o cualquier cliente MCP) a tu espacio de trabajo para que pueda leer y actuar sobre tu correo, calendario, contactos, Drive, Docs, chat y transcripciones de reuniones.",
-  tokensTitle: "Tokens de acceso",
-  tokensHint: "Cada token actúa como tú. Los de solo lectura no pueden enviar correo, cambiar eventos, escribir, compartir ni borrar archivos, ni publicar mensajes.",
-  name: "Nombre",
-  namePlaceholder: "Claude Code en mi portátil",
-  scope: "Permisos",
-  scopeRead: "Solo lectura",
-  scopeWrite: "Lectura y escritura",
-  expiry: "Caduca",
+  intro: "Conecta Claude a tu espacio de trabajo para que te ayude con tu correo, calendario, archivos, chat y reuniones.",
+  statusConnected: "Conectado",
+  statusIdle: "Configurado, sin actividad reciente",
+  statusOff: "No conectado",
+  statusConnectedHint: "Claude está trabajando con tu espacio de trabajo.",
+  statusIdleHint: "Claude tiene acceso, pero no lo ha usado en los últimos minutos. Aparecerá como conectado en cuanto lo haga.",
+  statusOffHint: "Conecta Claude para que pueda leer tu correo, mirar tu calendario, encontrar archivos y hacer cosas por ti.",
+  mcpLabel: "Claude puede leer y actuar en tu espacio de trabajo",
+  bridgeLabel: "Claude Code en tu ordenador recibe peticiones de reuniones, chat y dashboard",
+  mcpActive: (name: string, ago: string) => `Activo con «${name}» · ${ago}`,
+  mcpLast: (ago: string) => `Última actividad ${ago}`,
+  mcpNever: "Aún sin usar",
+  mcpNone: "Sin configurar",
+  bridgeActive: (host: string | null) => (host ? `Puente activo en ${host}` : "Puente activo"),
+  bridgeLast: (ago: string) => `Puente visto por última vez ${ago}`,
+  bridgeNever: "Puente sin iniciar",
+  needsAttention: "Hay una conexión que necesita reconectarse: mira más abajo.",
+  connect: "Conectar Claude",
+  connectAnother: "Conectar otro ordenador",
+  connecting: "Conectando…",
+  expiryLabel: "El acceso caduca",
   never: "Nunca",
-  days: (n: number) => `${n} días`,
-  year: "1 año",
-  create: "Crear token",
-  creating: "Creando…",
-  newToken: "Tu nuevo token",
-  newTokenHint: "Cópialo ahora: no se volverá a mostrar.",
-  copy: "Copiar",
+  days: (n: number) => `En ${n} días`,
+  year: "En 1 año",
+  autoName: (date: string) => `Claude Code – ${date}`,
+  stepTitle: "Pega esto en Claude Code",
+  stepHint: "Claude Code lo configura todo por su cuenta y te avisa cuando esté listo.",
+  copyPrompt: "Copiar prompt",
+  copyToken: "Copiar solo el token",
   copied: "Copiado",
+  copy: "Copiar",
+  tokenOnce: "Este prompt incluye tu clave de acceso y solo se muestra ahora. Si lo pierdes, vuelve a conectar.",
+  waiting: "Esperando a que Claude se conecte…",
+  joined: "Claude se ha conectado.",
+  waitingBridge: "Esperando a que arranque el puente…",
+  bridgeUp: (host: string | null) => (host ? `Puente activo en ${host}.` : "Puente activo."),
   done: "Hecho",
-  noTokens: "Aún no hay tokens.",
-  created: "Creado",
-  lastUsed: "Último uso",
-  expires: "Caduca",
-  neverUsed: "Sin usar",
-  revoke: "Revocar",
-  revokeConfirm: (name: string) => `¿Revocar «${name}»? Los clientes que lo usen dejarán de funcionar.`,
-  reauth: "Su autorización caducó. Reconéctalo: el token sigue siendo el mismo.",
-  legacy: "Usa un enlace de sesión antiguo que ya no funciona. Reconéctalo para darle su propia clave: el token sigue siendo el mismo.",
-  reconnect: "Reconectar",
-  expired: "Caducado",
-  connectTitle: "Conectar Claude",
-  claudeCode: "Claude Code",
-  claudeCodeHint: "Ejecuta en una terminal:",
-  claudeDesktop: "Claude Desktop",
-  claudeDesktopHint:
-    "Añade a claude_desktop_config.json (usa el puente mcp-remote, que necesita Node.js). Reinicia Claude Desktop después.",
-  claudeAi: "Conectores personalizados de claude.ai",
-  claudeAiHint:
-    "claude.ai y el diálogo «Añadir conector personalizado» de Claude Desktop inician sesión con OAuth, que este servidor aún no ofrece. Usa Claude Code o la configuración de Claude Desktop de arriba.",
+  prompt: ({ appUrl, endpoint, token }: PromptInput) =>
+    `Conecta mi espacio de trabajo de Zentico (${appUrl}) a Claude Code. Hazlo tú mismo, paso a paso:
+
+1. Añade el servidor MCP de Zentico para mi usuario:
+   claude mcp add --transport http zentico ${endpoint} --header "Authorization: Bearer ${token}" --scope user
+2. Comprueba con \`claude mcp list\` que «zentico» aparece como conectado.
+3. Descarga el puente que me permite pedirte cosas desde reuniones, chat y el dashboard (necesita Node 18+):
+   mkdir -p ~/.zentico && curl -fsSL ${appUrl}/bridge.mjs -o ~/.zentico/zentico-bridge.mjs
+4. Déjalo corriendo en segundo plano, de forma que siga activo cuando termine esta sesión:
+   - macOS / Linux: ZENTICO_TOKEN=${token} nohup node ~/.zentico/zentico-bridge.mjs --url ${appUrl} > ~/.zentico/bridge.log 2>&1 &
+   - Windows (PowerShell): $env:ZENTICO_TOKEN="${token}"; Start-Process node -ArgumentList "$HOME\\.zentico\\zentico-bridge.mjs","--url","${appUrl}" -WindowStyle Hidden
+   Comprueba que dice «Connected as …».
+5. Confírmame cuando esté listo y recuérdame que reinicie Claude Code para usar las herramientas de Zentico.`,
+  manualTitle: "Configuración manual",
+  manualHint: "Para otras aplicaciones, o si prefieres hacerlo a mano. Sustituye <token> por tu token.",
+  manualClaudeCode: "Claude Code (terminal)",
+  manualDesktop: "Claude Desktop",
+  manualDesktopHint: "Añádelo a claude_desktop_config.json y reinicia Claude Desktop (necesita Node.js).",
+  manualGeneric: "Cualquier otro cliente MCP",
+  manualGenericHint: "Servidor Streamable HTTP con esta dirección y esta cabecera:",
+  manualBridge: "Puente (reuniones, chat y dashboard)",
+  manualBridgeHint: "Descárgalo y déjalo corriendo (Node 18+ y Claude Code instalado):",
+  manualClaudeAi:
+    "La opción «Añadir conector personalizado» de claude.ai y Claude Desktop inicia sesión con OAuth, que aún no está disponible. Usa Claude Code o la configuración de Claude Desktop de arriba.",
   tokenPlaceholder: "<token>",
-  activityTitle: "Actividad reciente",
-  noActivity: "Aún no hay llamadas.",
-  ok: "OK",
-  failed: "Error",
-  errors: {
-    invalid_name: "Ponle un nombre al token.",
-    invalid_expiry: "Elige una caducidad válida.",
-    too_many: "Tienes demasiados tokens. Revoca alguno primero.",
-    authorize: "El servidor de correo necesita antes tu autorización. Inténtalo de nuevo.",
-    authorize_failed: "La autorización del servidor de correo no se completó. Inténtalo de nuevo.",
-    not_allowed:
-      "El servidor de correo no permite crear claves de acceso para esta aplicación. Pide a tu administrador que permita el ámbito Security en el cliente OAuth del espacio de trabajo.",
-    key_quota: "Tu cuenta de correo alcanzó su límite de claves API. Revoca un token (o borra una clave API sin uso en los ajustes de tu cuenta de correo) primero.",
-    failed: "Algo salió mal. Inténtalo de nuevo.",
-  },
+  tokensTitle: "Conexiones",
+  tokensHint: "Cada conexión es una clave de acceso que actúa como tú. Si la revocas, esa aplicación pierde el acceso al momento.",
+  noTokens: "Aún no hay nada conectado.",
+  scopeWrite: "Puede leer y actuar",
+  scopeRead: "Solo puede leer",
+  lastActivity: "Última actividad",
+  neverUsed: "nunca",
+  expires: "Caduca",
   neverExpires: "No caduca",
-  capsTitle: "A qué puede acceder un token",
+  expired: "Caducada",
+  reauth: "Ha perdido el acceso a tu cuenta de correo. Reconéctala: las aplicaciones que la usan no tienen que cambiar nada.",
+  legacy: "Usa un tipo de acceso antiguo que ya no funciona. Reconéctala: las aplicaciones que la usan no tienen que cambiar nada.",
+  reconnect: "Reconectar",
+  revoke: "Revocar",
+  revokeConfirm: (name: string) => `¿Revocar «${name}»? Las aplicaciones que la usan perderán el acceso.`,
+  capsTitle: "Qué puede hacer Claude",
   capsIntro:
-    "Un token actúa como tú, solo a través de estas herramientas. Ve exactamente lo que tú puedes ver en el espacio de trabajo, nada más. Las marcadas como «escritura» cambian algo y solo están disponibles con tokens de lectura y escritura.",
-  capsFor: "Ver acceso de",
-  capsNotIncluded: "No incluido (requiere lectura y escritura):",
-  writeBadge: "escritura",
-  showAccess: "A qué puede acceder",
+    "Claude actúa como tú y solo ve lo que tú ya puedes ver. Lo marcado con «cambia» necesita una conexión que pueda leer y actuar; todo lo que envía, publica, comparte o borra te lo confirma antes.",
+  changesBadge: "cambia",
+  bridgeCapsTitle: "Desde reuniones, chat y dashboard",
+  bridgeCaps:
+    "Con el puente en marcha, mantén pulsada la C en una llamada de Zentico Meet (o escribe en «Pregunta a mi Claude»), menciona a tu Claude en el chat o pídeselo desde tu dashboard: tu propio Claude Code lo hace en tu ordenador. Tus peticiones solo llegan a tu puente, y todo lo que envía o cambia algo espera a que des el visto bueno.",
   groups: {
     account: "Cuenta",
     mail: "Correo",
@@ -309,24 +358,26 @@ const es: Copy = {
   neverTitle: "Nunca tiene acceso a",
   neverList: [
     "Correo, calendarios, archivos o chats privados de otras personas: solo lo que tú ya puedes ver.",
-    "Tu contraseña o tu inicio de sesión: el token se puede revocar cuando quieras y nunca revela tus credenciales.",
+    "Tu contraseña o tu inicio de sesión: el acceso se puede revocar cuando quieras y nunca revela tus credenciales.",
     "Ajustes de administración: usuarios, dominios, contraseñas, cuotas.",
-    "Tus otros tokens, ni crear tokens nuevos.",
+    "Tus otras conexiones, ni crear conexiones nuevas.",
   ],
-  bridgeTitle: "Claude en reuniones",
-  bridgeIntro:
-    "En una llamada de Zentico Meet, mantén pulsada la tecla C (o el botón «Mantén pulsado para hablar con Claude») y habla, o escríbelo en «Pregunta a mi Claude», y tu propio Claude Code lo hace en tu ordenador. Tus órdenes solo llegan a tu propio puente. Todo lo que envía, crea, publica o escribe espera a que lo apruebes en la llamada.",
-  bridgeSteps: [
-    "Crea arriba un token de lectura y escritura.",
-    "Obtén tools/zentico-bridge.mjs del repositorio del espacio de trabajo (Node 18+, sin dependencias) y asegúrate de tener Claude Code instalado.",
-    "Ejecútalo y déjalo abierto durante tus reuniones:",
-    "En una llamada, abre «Mi Claude» (✦) y activa las órdenes para Claude.",
-  ],
-  bridgeTokenHint: "Consejo: usa la variable de entorno ZENTICO_TOKEN en lugar de --token para que no quede en el historial de la terminal.",
-  bridgeConnected: "Puente conectado",
-  bridgeLastSeen: "Puente visto por última vez",
-  bridgeNever: "Aún no se ha conectado ningún puente",
-  bridgeNeedsWrite: "Aún no tienes un token activo de lectura y escritura.",
+  activityTitle: "Actividad reciente",
+  noActivity: "Aún no hay nada.",
+  ok: "OK",
+  failed: "Error",
+  errors: {
+    invalid_name: "Algo falló al nombrar la conexión. Inténtalo de nuevo.",
+    invalid_expiry: "Elige una caducidad válida.",
+    too_many: "Tienes demasiadas conexiones. Revoca alguna primero.",
+    authorize: "El servidor de correo necesita antes tu autorización. Inténtalo de nuevo.",
+    authorize_failed: "La autorización del servidor de correo no se completó. Inténtalo de nuevo.",
+    not_allowed:
+      "El servidor de correo no permite crear claves de acceso para esta aplicación. Pide a tu administrador que permita el ámbito Security en el cliente OAuth del espacio de trabajo.",
+    key_quota:
+      "Tu cuenta de correo alcanzó su límite de claves de acceso. Revoca una conexión (o borra una clave API sin uso en los ajustes de tu cuenta de correo) primero.",
+    failed: "Algo salió mal. Inténtalo de nuevo.",
+  },
 };
 
 export const copyFor = (locale: string): Copy => (locale.startsWith("es") ? es : en);

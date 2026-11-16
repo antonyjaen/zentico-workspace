@@ -3,11 +3,11 @@ import { getLocale } from "next-intl/server";
 import Link from "next/link";
 import { requireSession } from "@/lib/auth";
 import { env } from "@/lib/env";
-import { bridgeStatus } from "@/lib/mcp/agent";
-import { recentAudit, userTokens } from "@/lib/mcp/db";
+import { recentAudit } from "@/lib/mcp/db";
 import { listTools } from "@/lib/mcp/tools";
 import { copyFor } from "./copy";
-import { IntegrationsClient, type AuditView, type ToolView, type TokenView } from "./IntegrationsClient";
+import { IntegrationsClient, type AuditView, type ToolView } from "./IntegrationsClient";
+import { claudeStatus } from "./status";
 
 export const dynamic = "force-dynamic";
 
@@ -16,17 +16,6 @@ export default async function IntegrationsPage() {
   const locale = await getLocale();
   const c = copyFor(locale);
 
-  const tokens: TokenView[] = userTokens(session.sub).map((t) => ({
-    id: t.id,
-    name: t.name,
-    scope: t.scope,
-    prefix: t.tokenPrefix,
-    created: t.created,
-    lastUsed: t.lastUsed,
-    expires: t.expires,
-    needsReauth: t.needsReauth,
-    legacy: !t.credentialSealed,
-  }));
   const audit: AuditView[] = recentAudit(session.sub, 20).map((a) => ({
     id: a.id,
     tokenName: a.tokenName,
@@ -35,9 +24,7 @@ export default async function IntegrationsPage() {
     ok: a.ok,
     error: a.error,
   }));
-
   const tools: ToolView[] = listTools("write").map((t) => ({ name: t.name, write: !t.annotations.readOnlyHint }));
-  const { connected, lastSeen } = bridgeStatus(session.email);
 
   return (
     <main className="sheet flex min-h-0 flex-1 flex-col">
@@ -53,10 +40,8 @@ export default async function IntegrationsPage() {
           endpoint={`${env.appUrl}/api/mcp`}
           appUrl={env.appUrl}
           tools={tools}
-          bridge={{ connected, lastSeen }}
-          tokens={tokens}
+          initial={claudeStatus(session)}
           audit={audit}
-          now={Date.now()}
         />
       </div>
     </main>
