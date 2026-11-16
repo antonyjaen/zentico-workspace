@@ -62,8 +62,20 @@ export type VoiceKind = "command" | "context";
 export const VOICE_MAX_CLIP_MS = 20_000;
 /** Shorter presses are taps, not commands: discarded in the browser. */
 export const PTT_MIN_MS = 500;
-/** ~32 kbit/s Opus for 20 s is ~80 KB; headroom for browsers that ignore the requested bitrate. */
+/**
+ * Voice clips are 16 kHz mono 16-bit WAV (32 KB/s: a 15 s context chunk is ~480 KB, the longest
+ * command with its context tail ~960 KB), or Opus where the browser has no AudioWorklet.
+ */
 export const VOICE_MAX_BYTES = 2 * 1024 * 1024;
+export const VOICE_MIMES = ["audio/wav", "audio/webm", "audio/ogg", "audio/mp4"] as const;
+/**
+ * With "Claude listens to the meeting" on, a command clip starts with the meeting audio not yet
+ * sent as context (at most this long), then a short silence, then the command; the form field
+ * contextMs marks the boundary. One Whisper pass for both.
+ */
+export const CONTEXT_TAIL_MAX_MS = 15_000;
+/** Whisper works in 30 s windows: a command clip with its tail stays within one (one CPU pass). */
+export const VOICE_MAX_TOTAL_MS = 29_500;
 /** Server rate limit per user for command clips (a press is ≥ 500 ms plus the release). */
 export const VOICE_MIN_INTERVAL_MS = 1000;
 /**

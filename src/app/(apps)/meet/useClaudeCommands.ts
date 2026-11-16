@@ -6,7 +6,9 @@
 //   hears it) and sent to /api/meet/voice as kind=command; the whole clip is the command.
 // - "Claude listens to the meeting" (opt-in, announced to everyone over the data channel before
 //   anything is captured): their browser mixes every participant's microphone and sends ~15 s
-//   chunks as kind=context, so commands come with what was said in the meeting.
+//   chunks as kind=context, so commands come with what was said in the meeting. The part not sent
+//   yet when push to talk starts goes in front of the command, in the same clip (contextMs marks
+//   the boundary), so the last seconds before a command are never missing.
 // Also polls their commands / pending confirmations in this room. Results stay private to the
 // user (only the short spoken summary is shared, by useClaudeVoice).
 import { Room, RoomEvent, Track, type Participant, type RemoteParticipant } from "livekit-client";
@@ -15,10 +17,12 @@ import {
   CLAUDE_LISTEN_PREF,
   CLAUDE_LISTEN_TOPIC,
   CONTEXT_CHUNK_MS,
+  CONTEXT_TAIL_MAX_MS,
   isFinalStatus,
   PTT_MIN_MS,
   VOICE_MAX_BYTES,
   VOICE_MAX_CLIP_MS,
+  VOICE_MAX_TOTAL_MS,
   type ClaudeListenSignal,
   type CommandsResponse,
   type CommandView,
@@ -79,11 +83,19 @@ const timeZone = () => {
 };
 
 export function voiceSupported(): boolean {
-  return typeof window !== "undefined" && !!pickMime() && !!navigator.mediaDevices?.getUserMedia;
+  return (
+    typeof window !== "undefined" &&
+    !!navigator.mediaDevices?.getUserMedia &&
+    ((typeof AudioContext !== "undefined" && typeof AudioWorkletNode !== "undefined") || !!pickMime())
+  );
 }
 
 function listenSupported(): boolean {
-  return typeof window !== "undefined" && !!pickMime() && typeof AudioContext !== "undefined";
+  return (
+    typeof window !== "undefined" &&
+    typeof AudioContext !== "undefined" &&
+    (typeof AudioWorkletNode !== "undefined" || !!pickMime())
+  );
 }
 
 function readPref(): boolean {
@@ -107,6 +119,130 @@ function typingTarget(el: EventTarget | null): boolean {
   return el instanceof HTMLElement && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
 }
 
+/* ------------------------------------------------------------------- PCM */
+// Meeting audio and push to talk are captured as raw 16 kHz mono PCM by an AudioWorklet (so the
+// unsent end of the meeting audio can ride along with a command) and uploaded as 16-bit WAV.
+
+const PCM_RATE = 16_000;
+const msToSamples = (ms: number) => Math.round((ms * PCM_RATE) / 1000);
+const samplesToMs = (n: number) => Math.round((n * 1000) / PCM_RATE);
+/** Silence between the meeting tail and the command in one clip. */
+const TAIL_GAP_MS = 600;
+/** The ring keeps this much meeting audio (Int16: 1.9 MB). */
+const RING_SECONDS = 60;
+
+/** Downmixed mono in, 16 kHz Float32 blocks of 100 ms out (box filter + decimation). */
+const PCM_WORKLET = `class ZwPcm16k extends AudioWorkletProcessor {
+  constructor() { super(); this.step = sampleRate / ${PCM_RATE}; this.pos = 0; this.acc = 0; this.n = 0; this.out = new Float32Array(${PCM_RATE / 10}); this.len = 0; }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (ch) for (let i = 0; i < ch.length; i++) {
+      this.acc += ch[i]; this.n++;
+      if (++this.pos >= this.step) {
+        this.pos -= this.step;
+        this.out[this.len++] = this.acc / this.n; this.acc = 0; this.n = 0;
+        if (this.len === this.out.length) { this.port.postMessage(this.out, [this.out.buffer]); this.out = new Float32Array(${PCM_RATE / 10}); this.len = 0; }
+      }
+    }
+    return true;
+  }
+}
+registerProcessor("zw-pcm16k", ZwPcm16k);`;
+
+/** A worklet node posting 16 kHz blocks to `onBlock`; null without AudioWorklet support. */
+async function pcmNode(ctx: AudioContext, onBlock: (block: Float32Array) => void): Promise<AudioWorkletNode | null> {
+  if (!ctx.audioWorklet || typeof AudioWorkletNode === "undefined") return null;
+  const url = URL.createObjectURL(new Blob([PCM_WORKLET], { type: "text/javascript" }));
+  try {
+    await ctx.audioWorklet.addModule(url);
+  } catch {
+    return null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+  const node = new AudioWorkletNode(ctx, "zw-pcm16k", {
+    numberOfInputs: 1,
+    numberOfOutputs: 1,
+    outputChannelCount: [1],
+    channelCount: 1,
+    channelCountMode: "explicit",
+    channelInterpretation: "speakers",
+  });
+  node.port.onmessage = (e: MessageEvent<Float32Array>) => onBlock(e.data);
+  // A silent path to the destination keeps the graph pulled in every browser.
+  const sink = ctx.createGain();
+  sink.gain.value = 0;
+  node.connect(sink);
+  sink.connect(ctx.destination);
+  return node;
+}
+
+function toInt16(blocks: Float32Array[]): Int16Array<ArrayBuffer> {
+  const out = new Int16Array(blocks.reduce((n, b) => n + b.length, 0));
+  let i = 0;
+  for (const b of blocks) for (const v of b) out[i++] = Math.max(-1, Math.min(1, v)) * 0x7fff;
+  return out;
+}
+
+/** How much of the clip has sound, in ms (100 ms windows above SOUND_RMS). */
+function soundMs(pcm: Int16Array): number {
+  const win = PCM_RATE / 10;
+  const limit = SOUND_RMS * 0x7fff;
+  let ms = 0;
+  for (let at = 0; at + win <= pcm.length; at += win) {
+    let sum = 0;
+    for (let i = at; i < at + win; i++) sum += pcm[i] * pcm[i];
+    if (Math.sqrt(sum / win) > limit) ms += 100;
+  }
+  return ms;
+}
+
+/** 16-bit PCM WAV, 16 kHz mono. */
+function wavBlob(parts: Int16Array<ArrayBuffer>[]): Blob {
+  const bytes = parts.reduce((n, p) => n + p.byteLength, 0);
+  const v = new DataView(new ArrayBuffer(44));
+  const str = (at: number, s: string) => {
+    for (let i = 0; i < s.length; i++) v.setUint8(at + i, s.charCodeAt(i));
+  };
+  str(0, "RIFF");
+  v.setUint32(4, 36 + bytes, true);
+  str(8, "WAVE");
+  str(12, "fmt ");
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); // PCM
+  v.setUint16(22, 1, true); // mono
+  v.setUint32(24, PCM_RATE, true);
+  v.setUint32(28, PCM_RATE * 2, true);
+  v.setUint16(32, 2, true);
+  v.setUint16(34, 16, true);
+  str(36, "data");
+  v.setUint32(40, bytes, true);
+  return new Blob([v.buffer, ...parts], { type: "audio/wav" });
+}
+
+/** The last RING_SECONDS of meeting PCM, with a "sent up to" pointer (absolute sample indexes). */
+class PcmRing {
+  private buf = new Int16Array(RING_SECONDS * PCM_RATE);
+  written = 0;
+  sent = 0;
+
+  push(block: Float32Array) {
+    const len = this.buf.length;
+    for (const v of block) this.buf[this.written++ % len] = Math.max(-1, Math.min(1, v)) * 0x7fff;
+  }
+
+  oldest() {
+    return Math.max(0, this.written - this.buf.length);
+  }
+
+  slice(from: number, to: number): Int16Array<ArrayBuffer> {
+    const start = Math.max(from, this.oldest());
+    const out = new Int16Array(Math.max(0, to - start));
+    for (let i = 0; i < out.length; i++) out[i] = this.buf[(start + i) % this.buf.length];
+    return out;
+  }
+}
+
 /* ------------------------------------------------------------- meeting audio */
 
 const LISTEN_EVENTS = [
@@ -119,54 +255,79 @@ const LISTEN_EVENTS = [
   RoomEvent.TrackUnmuted,
 ] as const;
 
-/** Level (RMS) above which a sample counts as sound (≈ −40 dBFS). */
+/** Level (RMS) above which audio counts as sound (≈ −40 dBFS). */
 const SOUND_RMS = 0.01;
 /** Chunks with less sound than this are not uploaded (the server also runs VAD). */
 const MIN_SOUND_MS = 1000;
+/** A context chunk never exceeds this (the flush timer can be late in a background tab). */
+const CONTEXT_MAX_MS = CONTEXT_CHUNK_MS + 3000;
 const LEVEL_SAMPLE_MS = 200;
 
 type Chunk = { mr: MediaRecorder; parts: Blob[]; startedAt: number; soundMs: number };
+/** Where the unsent meeting audio was when push to talk started. */
+export type TailMark = { from: number; to: number };
 
 /**
  * Mixes every microphone in the room (local + each subscribed remote track, following tracks that
- * come and go) into one stream with Web Audio and records it in CONTEXT_CHUNK_MS chunks; recorders
- * are rotated so each chunk is a standalone file. Nearly silent chunks are dropped.
+ * come and go) with Web Audio. The mix goes into a PCM ring buffer (AudioWorklet) whose unsent
+ * part is uploaded every CONTEXT_CHUNK_MS as WAV unless nearly silent; push to talk can take the
+ * newest unsent part instead (beginPress / endPress). Without AudioWorklet, rotating MediaRecorders
+ * make standalone Opus chunks (and there is no tail).
  */
 class MeetingListener {
   private readonly ctx = new AudioContext();
   private readonly mix: GainNode;
-  private readonly analyser: AnalyserNode;
-  private readonly dest: MediaStreamAudioDestinationNode;
-  private readonly buf: Float32Array<ArrayBuffer>;
   private sources = new Map<string, MediaStreamAudioSourceNode>();
-  private chunk: Chunk | null = null;
   private timers: ReturnType<typeof setInterval>[] = [];
-  private lastLevel = performance.now();
   private stopped = false;
+  private ring: PcmRing | null = null;
+  /** Push to talk is held: chunks wait, so the tail isn't sent twice. */
+  private held = false;
+  // MediaRecorder fallback
+  private analyser: AnalyserNode | null = null;
+  private dest: MediaStreamAudioDestinationNode | null = null;
+  private buf: Float32Array<ArrayBuffer> | null = null;
+  private chunk: Chunk | null = null;
+  private lastLevel = performance.now();
   private readonly reconcileBound = () => this.reconcile();
 
   constructor(
     private room: Room,
-    private mime: string,
     private onChunk: (blob: Blob, mime: string, durationMs: number) => void,
   ) {
     this.mix = this.ctx.createGain();
+    for (const ev of LISTEN_EVENTS) room.on(ev, this.reconcileBound);
+    // Device switches replace the underlying MediaStreamTrack without a room event in some paths.
+    this.timers.push(setInterval(this.reconcileBound, 2000));
+    this.reconcile();
+  }
+
+  /** Starts recording the mix; false when this browser can't (no AudioWorklet nor MediaRecorder). */
+  async start(): Promise<boolean> {
+    const ring = new PcmRing();
+    const node = await pcmNode(this.ctx, (b) => ring.push(b)).catch(() => null);
+    if (this.stopped) return true;
+    if (node) {
+      this.ring = ring;
+      this.mix.connect(node);
+      this.timers.push(setInterval(() => this.flush(), CONTEXT_CHUNK_MS));
+      return true;
+    }
+    const mime = pickMime();
+    if (!mime) return false;
+    // mix → analyser → recorder stream (the analyser passes audio through, so it is always pulled).
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 2048;
     this.buf = new Float32Array(this.analyser.fftSize);
     this.dest = this.ctx.createMediaStreamDestination();
-    // mix → analyser → recorder stream (the analyser passes audio through, so it is always pulled).
     this.mix.connect(this.analyser);
     this.analyser.connect(this.dest);
-    for (const ev of LISTEN_EVENTS) room.on(ev, this.reconcileBound);
     this.timers.push(
-      // Device switches replace the underlying MediaStreamTrack without a room event in some paths.
-      setInterval(this.reconcileBound, 2000),
       setInterval(() => this.level(), LEVEL_SAMPLE_MS),
-      setInterval(() => this.rotate(), CONTEXT_CHUNK_MS),
+      setInterval(() => this.rotate(mime), CONTEXT_CHUNK_MS),
     );
-    this.reconcile();
-    this.rotate();
+    this.rotate(mime);
+    return true;
   }
 
   private reconcile() {
@@ -196,20 +357,69 @@ class MeetingListener {
     }
   }
 
+  /* --- PCM mode */
+
+  /** Uploads ring[from, to) as one context chunk if it has enough sound. */
+  private sendRange(from: number, to: number) {
+    if (!this.ring || to - from < PCM_RATE) return;
+    const pcm = this.ring.slice(from, to);
+    if (soundMs(pcm) < MIN_SOUND_MS) return;
+    const blob = wavBlob([pcm]);
+    if (blob.size <= VOICE_MAX_BYTES) this.onChunk(blob, "audio/wav", samplesToMs(pcm.length));
+  }
+
+  private flush() {
+    const r = this.ring;
+    if (this.stopped || !r || this.held) return;
+    const to = r.written;
+    const from = Math.max(r.sent, r.oldest(), to - msToSamples(CONTEXT_MAX_MS));
+    r.sent = to;
+    this.sendRange(from, to);
+  }
+
+  /** Push to talk starts: chunks wait; returns where the unsent meeting audio is (PCM mode only). */
+  beginPress(): TailMark | null {
+    if (this.stopped || !this.ring) return null;
+    this.held = true;
+    return { from: Math.max(this.ring.sent, this.ring.oldest()), to: this.ring.written };
+  }
+
+  /**
+   * Push to talk ended. With `maxTailMs` (the command is being sent) returns the newest unsent
+   * meeting audio from before the press (≤ maxTailMs, null if nearly silent) and marks it sent; an
+   * older unsent part goes out as an ordinary chunk. Audio during the press is skipped (it is the
+   * command). With null (press discarded) nothing is consumed.
+   */
+  endPress(mark: TailMark | null, maxTailMs: number | null): Int16Array<ArrayBuffer> | null {
+    this.held = false;
+    const r = this.ring;
+    if (this.stopped || !r || !mark || maxTailMs == null) return null;
+    const cut = Math.max(mark.from, mark.to - msToSamples(Math.max(0, maxTailMs)));
+    r.sent = r.written;
+    if (cut > mark.from) this.sendRange(mark.from, cut);
+    const from = Math.max(cut, r.oldest());
+    if (mark.to - from < PCM_RATE / 2) return null;
+    const tail = r.slice(from, mark.to);
+    return soundMs(tail) >= MIN_SOUND_MS ? tail : null;
+  }
+
+  /* --- MediaRecorder fallback */
+
   private level() {
     const now = performance.now();
     const dt = Math.min(1000, now - this.lastLevel);
     this.lastLevel = now;
-    if (!this.chunk) return;
+    if (!this.chunk || !this.analyser || !this.buf) return;
     this.analyser.getFloatTimeDomainData(this.buf);
     let sum = 0;
     for (const v of this.buf) sum += v * v;
     if (Math.sqrt(sum / this.buf.length) > SOUND_RMS) this.chunk.soundMs += dt;
   }
 
-  private startChunk(): Chunk | null {
+  private startChunk(mime: string): Chunk | null {
+    if (!this.dest) return null;
     try {
-      const mr = new MediaRecorder(this.dest.stream, { mimeType: this.mime, audioBitsPerSecond: AUDIO_BITRATE });
+      const mr = new MediaRecorder(this.dest.stream, { mimeType: mime, audioBitsPerSecond: AUDIO_BITRATE });
       const c: Chunk = { mr, parts: [], startedAt: performance.now(), soundMs: 0 };
       mr.ondataavailable = (e) => {
         if (e.data.size) c.parts.push(e.data);
@@ -222,19 +432,19 @@ class MeetingListener {
   }
 
   /** Starts the next chunk first, then closes the previous one, so nothing falls in between. */
-  private rotate() {
+  private rotate(mime: string) {
     if (this.stopped) return;
     const prev = this.chunk;
-    this.chunk = this.startChunk();
+    this.chunk = this.startChunk(mime);
     if (!prev) return;
     const durationMs = Math.round(performance.now() - prev.startedAt);
     prev.mr.onstop = () => {
       const parts = prev.parts;
       prev.parts = [];
       if (this.stopped || prev.soundMs < MIN_SOUND_MS) return;
-      const type = baseMime(prev.mr, this.mime);
+      const type = baseMime(prev.mr, mime);
       const blob = new Blob(parts, { type });
-      if (blob.size > 0 && blob.size <= VOICE_MAX_BYTES) this.onChunk(blob, type, Math.min(durationMs, CONTEXT_CHUNK_MS + 2000));
+      if (blob.size > 0 && blob.size <= VOICE_MAX_BYTES) this.onChunk(blob, type, Math.min(durationMs, CONTEXT_MAX_MS));
     };
     try {
       prev.mr.stop();
@@ -243,7 +453,7 @@ class MeetingListener {
     }
   }
 
-  /** Stops capturing; the chunk in progress is discarded. */
+  /** Stops capturing; audio not sent yet is discarded. */
   stop() {
     if (this.stopped) return;
     this.stopped = true;
@@ -261,6 +471,7 @@ class MeetingListener {
         // already stopped
       }
     }
+    this.ring = null;
     for (const node of this.sources.values()) node.disconnect();
     this.sources.clear();
     void this.ctx.close().catch(() => undefined);
@@ -272,16 +483,44 @@ class MeetingListener {
 type Press = {
   released: boolean;
   tracks: MediaStreamTrack[];
-  mr: MediaRecorder | null;
-  parts: Blob[];
   startedAt: number;
   timer: ReturnType<typeof setTimeout> | null;
+  /** The meeting listener when the press started, and where its unsent audio was. */
+  listener: MeetingListener | null;
+  mark: TailMark | null;
+  /** PCM capture (AudioWorklet)… */
+  ctx: AudioContext | null;
+  pcm: Float32Array[] | null;
+  /** …or the MediaRecorder fallback. */
+  mr: MediaRecorder | null;
+  parts: Blob[];
 };
 
 const stopTracks = (p: Press) => {
   for (const t of p.tracks) t.stop();
   p.tracks = [];
 };
+
+/** Releases everything a press holds; the meeting listener keeps its unsent audio. */
+function dropPress(p: Press) {
+  p.released = true;
+  if (p.timer) clearTimeout(p.timer);
+  p.timer = null;
+  if (p.mr) {
+    p.mr.ondataavailable = null;
+    p.mr.onstop = null;
+    try {
+      if (p.mr.state !== "inactive") p.mr.stop();
+    } catch {
+      // already stopped
+    }
+  }
+  void p.ctx?.close().catch(() => undefined);
+  p.ctx = null;
+  stopTracks(p);
+  p.listener?.endPress(p.mark, null);
+  p.listener = null;
+}
 
 /**
  * The local user's own voice for a command: a clone of the published microphone when it is live
@@ -336,6 +575,8 @@ export function useClaudeCommands(
   const seen = useRef(new Map<string, CommandView["status"]>());
   const first = useRef(true);
   const press = useRef<Press | null>(null);
+  /** The meeting listener while capturing (push to talk takes its unsent tail). */
+  const listenerRef = useRef<MeetingListener | null>(null);
   const dataRef = useRef(data);
   dataRef.current = data;
 
@@ -391,13 +632,14 @@ export function useClaudeCommands(
   }, [refresh, busy]);
 
   const upload = useCallback(
-    async (kind: VoiceKind, blob: Blob, mime: string, durationMs: number) => {
+    async (kind: VoiceKind, blob: Blob, mime: string, durationMs: number, contextMs = 0) => {
       const form = new FormData();
       form.set("kind", kind);
       form.set("room", roomName);
       form.set("mime", mime);
       form.set("duration", String(Math.round(durationMs)));
       form.set("timeZone", timeZone());
+      if (contextMs > 0) form.set("contextMs", String(Math.round(contextMs)));
       form.set("file", blob, "clip");
       const command = kind === "command";
       if (command) setTranscribing((n) => n + 1);
@@ -449,10 +691,35 @@ export function useClaudeCommands(
     if (!p || p.released) return;
     p.released = true;
     // Still getting the microphone: startTalk cleans up when it resolves.
-    if (!p.mr) return;
+    if (!p.pcm && !p.mr) return;
     finishPress(p);
+    const listener = p.listener;
+    p.listener = null;
+
+    if (p.pcm) {
+      const command = toInt16(p.pcm);
+      p.pcm = null;
+      void p.ctx?.close().catch(() => undefined);
+      p.ctx = null;
+      stopTracks(p);
+      const commandMs = samplesToMs(command.length);
+      if (commandMs < PTT_MIN_MS) {
+        listener?.endPress(p.mark, null);
+        return notifyRef.current({ kind: "tooShort" });
+      }
+      // The unsent meeting audio before the press rides along (one Whisper window for both).
+      const tail = listener?.endPress(p.mark, Math.min(CONTEXT_TAIL_MAX_MS, VOICE_MAX_TOTAL_MS - TAIL_GAP_MS - commandMs)) ?? null;
+      const parts = tail ? [tail, new Int16Array(msToSamples(TAIL_GAP_MS)), command] : [command];
+      const contextMs = tail ? samplesToMs(tail.length) + TAIL_GAP_MS / 2 : 0;
+      const blob = wavBlob(parts);
+      const totalMs = samplesToMs(parts.reduce((n, x) => n + x.length, 0));
+      if (blob.size <= VOICE_MAX_BYTES) void uploadRef.current("command", blob, "audio/wav", totalMs, contextMs);
+      return;
+    }
+
+    listener?.endPress(p.mark, null);
     const durationMs = performance.now() - p.startedAt;
-    const mr = p.mr;
+    const mr = p.mr!;
     mr.onstop = () => {
       stopTracks(p);
       const parts = p.parts;
@@ -460,7 +727,7 @@ export function useClaudeCommands(
       if (durationMs < PTT_MIN_MS) return notifyRef.current({ kind: "tooShort" });
       const type = baseMime(mr, "audio/webm");
       const blob = new Blob(parts, { type });
-      if (blob.size > 0 && blob.size <= VOICE_MAX_BYTES) void uploadRef.current("command", blob, type, Math.min(durationMs, VOICE_MAX_CLIP_MS));
+      if (blob.size > 0 && blob.size <= VOICE_MAX_BYTES) void uploadRef.current("command", blob, type, Math.min(durationMs, VOICE_MAX_CLIP_MS), 0);
     };
     try {
       mr.stop();
@@ -477,42 +744,73 @@ export function useClaudeCommands(
       setProblem("noToken");
       return notifyRef.current({ kind: "noToken" });
     }
-    const mime = pickMime();
-    if (!mime || !navigator.mediaDevices?.getUserMedia) {
+    if (!voiceSupported()) {
       setProblem("unsupported");
       return notifyRef.current({ kind: "unsupported" });
     }
-    const p: Press = { released: false, tracks: [], mr: null, parts: [], startedAt: 0, timer: null };
+    const listener = listenerRef.current;
+    const p: Press = {
+      released: false,
+      tracks: [],
+      startedAt: 0,
+      timer: null,
+      listener,
+      // Taken at the press: the meeting audio from before it, not what is said while holding.
+      mark: listener?.beginPress() ?? null,
+      // Created inside the key/pointer handler (user activation) so it starts running.
+      ctx: typeof AudioContext !== "undefined" ? new AudioContext() : null,
+      pcm: null,
+      mr: null,
+      parts: [],
+    };
     press.current = p;
     setTalking(true);
+    const fail = (kind: "tooShort" | "micFailed") => {
+      dropPress(p);
+      finishPress(p);
+      notifyRef.current({ kind });
+    };
     let track: MediaStreamTrack;
     try {
       track = await acquireMic(room);
     } catch {
-      finishPress(p);
-      return notifyRef.current({ kind: "micFailed" });
+      return fail("micFailed");
     }
     p.tracks = [track];
-    if (p.released || press.current !== p) {
-      // Let go before the microphone was ready.
-      stopTracks(p);
-      finishPress(p);
-      return notifyRef.current({ kind: "tooShort" });
+    // Let go before the microphone was ready.
+    if (p.released || press.current !== p) return fail("tooShort");
+
+    const ctx = p.ctx;
+    const blocks: Float32Array[] = [];
+    const node = ctx ? await pcmNode(ctx, (b) => blocks.push(b)).catch(() => null) : null;
+    if (p.released || press.current !== p) return fail("tooShort");
+    if (ctx && node) {
+      try {
+        ctx.createMediaStreamSource(new MediaStream([track])).connect(node);
+        if (ctx.state === "suspended") void ctx.resume().catch(() => undefined);
+        p.pcm = blocks;
+      } catch {
+        // falls back to MediaRecorder below
+      }
     }
-    try {
-      const mr = new MediaRecorder(new MediaStream([track]), { mimeType: mime, audioBitsPerSecond: AUDIO_BITRATE });
-      mr.ondataavailable = (e) => {
-        if (e.data.size) p.parts.push(e.data);
-      };
-      mr.start();
-      p.mr = mr;
-      p.startedAt = performance.now();
-      p.timer = setTimeout(endTalk, VOICE_MAX_CLIP_MS);
-    } catch {
-      stopTracks(p);
-      finishPress(p);
-      notifyRef.current({ kind: "micFailed" });
+    if (!p.pcm) {
+      void ctx?.close().catch(() => undefined);
+      p.ctx = null;
+      const mime = pickMime();
+      try {
+        if (!mime) throw new Error("no recorder");
+        const mr = new MediaRecorder(new MediaStream([track]), { mimeType: mime, audioBitsPerSecond: AUDIO_BITRATE });
+        mr.ondataavailable = (e) => {
+          if (e.data.size) p.parts.push(e.data);
+        };
+        mr.start();
+        p.mr = mr;
+      } catch {
+        return fail("micFailed");
+      }
     }
+    p.startedAt = performance.now();
+    p.timer = setTimeout(endTalk, VOICE_MAX_CLIP_MS);
   }, [room, endTalk, finishPress]);
 
   const talkRef = useRef({ startTalk, endTalk });
@@ -557,19 +855,7 @@ export function useClaudeCommands(
     () => () => {
       const p = press.current;
       press.current = null;
-      if (!p) return;
-      p.released = true;
-      if (p.timer) clearTimeout(p.timer);
-      if (p.mr) {
-        p.mr.ondataavailable = null;
-        p.mr.onstop = null;
-        try {
-          if (p.mr.state !== "inactive") p.mr.stop();
-        } catch {
-          // already stopped
-        }
-      }
-      stopTracks(p);
+      if (p) dropPress(p);
     },
     [],
   );
@@ -579,8 +865,7 @@ export function useClaudeCommands(
   // Announce first; capture only once the notice went out. Heartbeat for late joiners.
   useEffect(() => {
     if (!listen) return;
-    const mime = pickMime();
-    if (!mime || !listenSupported()) {
+    if (!listenSupported()) {
       setProblem("unsupported");
       setListenState(false);
       notifyRef.current({ kind: "unsupported" });
@@ -601,10 +886,18 @@ export function useClaudeCommands(
         return; // not announced: no capture; retried on the next heartbeat
       }
       if (cancelled || listener) return;
+      let next: MeetingListener | null = null;
       try {
-        listener = new MeetingListener(room, mime, (blob, type, ms) => void uploadRef.current("context", blob, type, ms));
+        next = new MeetingListener(room, (blob, type, ms) => void uploadRef.current("context", blob, type, ms));
+        listener = next;
+        if (!(await next.start())) throw new Error("unsupported");
+        if (cancelled) return;
+        listenerRef.current = next;
         setCapturing(true);
       } catch {
+        next?.stop();
+        listener = null;
+        if (cancelled) return;
         setProblem("unsupported");
         setListenState(false);
       }
@@ -622,6 +915,7 @@ export function useClaudeCommands(
       cancelled = true;
       clearInterval(beat);
       room.off(RoomEvent.ParticipantConnected, onJoined);
+      if (listenerRef.current === listener) listenerRef.current = null;
       listener?.stop();
       setCapturing(false);
       void send(false).catch(() => undefined);

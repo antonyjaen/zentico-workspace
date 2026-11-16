@@ -1,13 +1,15 @@
 // Voice clips from a call, transcribed in memory (never written to disk or logged) and dropped.
 // - kind=command: one push-to-talk clip (≤ 20 s) of the signed-in user's OWN voice. The whole
 //   transcript is the command (an optional leading "Claude, …" is stripped) for their own bridge;
-//   "confirm" / "cancel" act on pending items.
+//   "confirm" / "cancel" act on pending items. With contextMs > 0 the clip starts with the meeting
+//   audio from just before the press (not yet sent as context): segments before that boundary are
+//   stored as meeting context first, the rest is the command (one Whisper pass for both).
 // - kind=context: ~15 s of the meeting's mixed audio, sent while the user's "Claude listens to the
 //   meeting" toggle is on (announced to everyone in the call). Only stored as prompt context for
 //   that user's commands; never parsed for commands.
 // CPU Whisper takes ~11 s per clip, so clips wait in a queue where commands go first (see
 // enterClipQueue in src/lib/meetings/voice.ts).
-// Multipart fields: kind, room, file, mime, duration (ms), timeZone.
+// Multipart fields: kind, room, file, mime, duration (ms), timeZone, contextMs (command only).
 import { NextResponse, type NextRequest } from "next/server";
 import { getSession } from "@/lib/auth";
 import { createCommand, cleanTimeZone, hasWriteToken } from "@/lib/meetings/claude-commands";
@@ -26,12 +28,15 @@ import type { Session } from "@/lib/session";
 import {
   CONTEXT_CHUNK_MS,
   CONTEXT_MIN_INTERVAL_MS,
+  CONTEXT_TAIL_MAX_MS,
   VOICE_MAX_BYTES,
   VOICE_MAX_CLIP_MS,
+  VOICE_MAX_TOTAL_MS,
+  VOICE_MIMES,
   VOICE_MIN_INTERVAL_MS,
   type VoiceResponse,
 } from "@/app/(apps)/meet/claude";
-import { AUDIO_MIMES } from "@/app/(apps)/meet/recording";
+import type { TranscriptSegment } from "@/app/(apps)/meet/recording";
 import { ROOM_PATTERN } from "@/app/(apps)/meet/shared";
 
 export const dynamic = "force-dynamic";
@@ -39,10 +44,19 @@ export const runtime = "nodejs";
 
 const WHISPER_TIMEOUT_MS = 60_000;
 /** The browser stops recorders at these lengths; allow for stop latency. */
-const MAX_DURATION_MS: Record<ClipKind, number> = { command: VOICE_MAX_CLIP_MS + 2000, context: CONTEXT_CHUNK_MS + 3000 };
+const MAX_DURATION_MS: Record<ClipKind, number> = {
+  command: Math.max(VOICE_MAX_CLIP_MS, VOICE_MAX_TOTAL_MS) + 2000,
+  context: CONTEXT_CHUNK_MS + 5000,
+};
 const MIN_INTERVAL_MS: Record<ClipKind, number> = { command: VOICE_MIN_INTERVAL_MS, context: CONTEXT_MIN_INTERVAL_MS };
 
 const respond = (body: VoiceResponse) => NextResponse.json(body, { headers: NO_STORE });
+
+const joinText = (segments: TranscriptSegment[]) =>
+  segments
+    .map((s) => s.text)
+    .join(" ")
+    .trim();
 
 /** Queues a voice command; "confirm" / "cancel" act on pending items. */
 function handleCommand(session: Session, room: string, text: string, timeZone: string | null, heard: string): VoiceResponse {
@@ -93,12 +107,18 @@ export async function POST(req: NextRequest) {
   const durationMs = Number(field("duration"));
   const timeZone = cleanTimeZone(field("timeZone"));
   const file = form.get("file");
+  // Where the meeting tail ends and the command starts (ms from the start of the clip); 0 = no tail.
+  const contextMs = kind === "command" && field("contextMs") ? Number(field("contextMs")) : 0;
   if (
     !ROOM_PATTERN.test(room) ||
-    !(AUDIO_MIMES as readonly string[]).includes(mime) ||
+    !(VOICE_MIMES as readonly string[]).includes(mime) ||
     !Number.isFinite(durationMs) ||
     durationMs < 500 ||
     durationMs > MAX_DURATION_MS[kind] ||
+    !Number.isFinite(contextMs) ||
+    contextMs < 0 ||
+    contextMs > CONTEXT_TAIL_MAX_MS + 1000 ||
+    (contextMs > 0 && contextMs >= durationMs) ||
     !(file instanceof Blob) ||
     file.size === 0
   ) {
@@ -119,8 +139,8 @@ export async function POST(req: NextRequest) {
     try {
       result = await transcribeAudio(cfg, audio, mime, {
         timeoutMs: WHISPER_TIMEOUT_MS,
-        // Biases recognition towards "Claude" in commands; not for meeting audio (it invents it on noise).
-        prompt: kind === "command" ? "Claude," : undefined,
+        // Biases recognition towards "Claude" in a bare command; not for meeting audio (it invents it on noise).
+        prompt: kind === "command" && !contextMs ? "Claude," : undefined,
         language: pinned,
       });
     } finally {
@@ -137,21 +157,26 @@ export async function POST(req: NextRequest) {
   const segments = result.segments;
   const heardChars = segments.reduce((n, x) => n + x.text.length, 0);
   if (!pinned) learnLanguage(session.email, room, kind, result.language, heardChars);
-  console.info(`[voice] ${kind} lang=${result.language ?? "?"}${pinned ? " (pinned)" : ""} heard=${heardChars}ch`);
-  const heard = segments
-    .map((s) => s.text)
-    .join(" ")
-    .trim();
+  console.info(`[voice] ${kind} lang=${result.language ?? "?"}${pinned ? " (pinned)" : ""} heard=${heardChars}ch${contextMs ? " +tail" : ""}`);
 
   if (kind === "context") {
     // Meeting audio is context only: never a command, and nothing is echoed back.
-    if (heard) addUtterance(session.email, room, heard, "meeting");
+    const text = joinText(segments);
+    if (text) addUtterance(session.email, room, text, "meeting");
     return NextResponse.json({ ok: true }, { headers: NO_STORE });
   }
 
+  // A segment belongs to the side of the boundary its midpoint is on. The meeting tail is stored
+  // first (never searched for commands), so the command's prompt context includes it.
+  const boundary = contextMs / 1000;
+  const isTail = (s: TranscriptSegment) => contextMs > 0 && (s.start + s.end) / 2 < boundary;
+  const tail = joinText(segments.filter(isTail));
+  if (tail) addUtterance(session.email, room, tail, "meeting");
+  const own = segments.filter((s) => !isTail(s));
+  const heard = joinText(own);
   if (heard) addUtterance(session.email, room, heard, "command");
   try {
-    const command = commandText(segments);
+    const command = commandText(own);
     if (!command) return respond({ ok: true, heard });
     return respond(handleCommand(session, room, command, timeZone, heard));
   } catch (e) {

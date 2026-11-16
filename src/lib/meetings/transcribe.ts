@@ -30,7 +30,8 @@ type WhisperSegment = {
 /** Long recordings take a while on CPU; allow up to an hour per segment. */
 const REQUEST_TIMEOUT_MS = 60 * 60_000;
 
-const filename = (mime: string) => (mime === "audio/ogg" ? "audio.ogg" : mime === "audio/mp4" ? "audio.m4a" : "audio.webm");
+const filename = (mime: string) =>
+  mime === "audio/ogg" ? "audio.ogg" : mime === "audio/mp4" ? "audio.m4a" : mime === "audio/wav" ? "audio.wav" : "audio.webm";
 
 /** Transcribes one audio file; returns segments relative to the start of that file. */
 export async function transcribeFile(
