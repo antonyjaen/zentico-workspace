@@ -31,7 +31,7 @@ import { ContactForm } from "../contacts/ContactForm";
 import { ImportVcf } from "../contacts/SideForms";
 import { getMeetings, getPeopleDirectory, getPersonAvailability, startChat, startMeeting } from "./actions";
 import type { BusyBlock, DirectoryEntry, PeopleData } from "./shared";
-import { Avatar, BTN, BTN_MEET, BTN_PRIMARY, fold, openMeeting, timeOf, useErrorText } from "./ui";
+import { Avatar, BTN, BTN_MEET, BTN_PRIMARY, fold, openMeetNow, timeOf, useErrorText } from "./ui";
 
 export type PeopleView =
   | { kind: "person"; key: string }
@@ -460,23 +460,15 @@ function Profile({
       if (id) onOpenConversation(id);
     });
 
-  const call = () =>
-    run(async () => {
-      let convId: string | null = null;
-      const ok = await openMeeting(async () => {
-        convId = await dm();
-        if (!convId) return null;
-        const m = await getMeetings(convId);
-        if (m.ok && m.data.ongoing) return m.data.ongoing.code;
-        const s = await startMeeting(convId);
-        if (!s.ok) {
-          setError(errorText(s.error));
-          return null;
-        }
-        return s.data.code;
-      });
-      if (ok && convId) onOpenConversation(convId);
+  const call = () => {
+    if (!entry || busy) return;
+    if (!openMeetNow({ with: entry.chatEmail, name: entry.name })) return setError(errorText("failed"));
+    // The new tab creates the DM and its meeting; show that conversation here.
+    void run(async () => {
+      const id = await dm();
+      if (id) onOpenConversation(id);
     });
+  };
 
   const schedule = () =>
     run(async () => {

@@ -298,15 +298,11 @@ export function useErrorText() {
   return (code: string) => (t.has(`errors.${code}`) ? t(`errors.${code}` as "errors.failed") : t("errors.failed"));
 }
 
-/** Opens a meeting in a new tab; the tab is opened synchronously so popup blockers allow it. */
-export async function openMeeting(getCode: () => Promise<string | null>) {
-  const w = window.open("about:blank", "_blank");
-  const code = await getCode();
-  if (!code) {
-    w?.close();
-    return false;
-  }
-  if (w) w.location.href = meetHref(code);
-  else window.open(meetHref(code), "_blank");
-  return true;
+/**
+ * Opens "meet now" in a new tab, synchronously inside the click (so popup blockers allow it). The
+ * server route joins the ongoing meeting or starts one and redirects to the room.
+ */
+export function openMeetNow(params: { c: string } | { with: string; name: string }): boolean {
+  const w = window.open(`/api/chat/meet?${new URLSearchParams(params)}`, "_blank");
+  return !!w;
 }

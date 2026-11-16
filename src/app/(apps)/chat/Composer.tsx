@@ -106,40 +106,66 @@ export function Composer({ conversationId, threadRoot, me, members, placeholder,
     });
   };
 
-  const send = async () => {
-    const body = text.trim();
-    if (sending || (!body && files.length === 0)) return;
-    if (body.length > BODY_MAX) return setError(errorText("tooLong"));
+  // Messages are queued and sent one after another, in order: pressing Enter again while the
+  // previous message is still on its way must not drop (or reorder) the new one.
+  const outbox = useRef<{ body: string; files: File[] }[]>([]);
+  const flushing = useRef(false);
+
+  const deliver = async (body: string, pending: File[]) => {
+    if (pending.length) {
+      const form = new FormData();
+      form.set("conversationId", conversationId);
+      if (body) form.set("text", body);
+      if (threadRoot !== null) form.set("threadRoot", String(threadRoot));
+      for (const f of pending) form.append("file", f, f.name);
+      const res = await fetch("/api/chat/upload", { method: "POST", body: form });
+      const json = (await res.json().catch(() => ({}))) as { message?: ChatMessage; error?: string };
+      if (!res.ok || !json.message) throw new Error(json.error ?? "failed");
+      onSent(json.message);
+    } else {
+      const r = await sendMessage(conversationId, body, threadRoot);
+      if (!r.ok) throw new Error(r.error);
+      onSent(r.data);
+    }
+  };
+
+  const flush = async () => {
+    if (flushing.current) return;
+    flushing.current = true;
     setSending(true);
+    try {
+      while (outbox.current.length) {
+        const next = outbox.current[0];
+        try {
+          await deliver(next.body, next.files);
+          outbox.current.shift();
+        } catch (e) {
+          // Stop at the first failure and give the unsent text back (ahead of anything typed since).
+          const failed = outbox.current.splice(0);
+          const texts = failed.map((m) => m.body).filter(Boolean);
+          setText((current) => [...texts, current.trim()].filter(Boolean).join("\n"));
+          setFiles((current) => [...failed.flatMap((m) => m.files), ...current].slice(0, MAX_FILES));
+          setError(errorText(e instanceof Error ? e.message : "failed"));
+          break;
+        }
+      }
+    } finally {
+      flushing.current = false;
+      setSending(false);
+    }
+  };
+
+  const send = () => {
+    const body = text.trim();
+    if (!body && files.length === 0) return;
+    if (body.length > BODY_MAX) return setError(errorText("tooLong"));
     setError(null);
-    const pending = files;
+    outbox.current.push({ body, files });
     setText("");
     setFiles([]);
     lastTyping.current = 0;
-    try {
-      if (pending.length) {
-        const form = new FormData();
-        form.set("conversationId", conversationId);
-        if (body) form.set("text", body);
-        if (threadRoot !== null) form.set("threadRoot", String(threadRoot));
-        for (const f of pending) form.append("file", f, f.name);
-        const res = await fetch("/api/chat/upload", { method: "POST", body: form });
-        const json = (await res.json().catch(() => ({}))) as { message?: ChatMessage; error?: string };
-        if (!res.ok || !json.message) throw new Error(json.error ?? "failed");
-        onSent(json.message);
-      } else {
-        const r = await sendMessage(conversationId, body, threadRoot);
-        if (!r.ok) throw new Error(r.error);
-        onSent(r.data);
-      }
-    } catch (e) {
-      setText(body);
-      setFiles(pending);
-      setError(errorText(e instanceof Error ? e.message : "failed"));
-    } finally {
-      setSending(false);
-      ref.current?.focus();
-    }
+    ref.current?.focus();
+    void flush();
   };
 
   return (
@@ -290,12 +316,12 @@ export function Composer({ conversationId, threadRoot, me, members, placeholder,
           <button
             type="button"
             onClick={send}
-            disabled={sending || (!text.trim() && files.length === 0)}
+            disabled={!text.trim() && files.length === 0}
             className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-primary text-primary-ink transition-colors hover:bg-primary-hover disabled:bg-transparent disabled:text-ink-mute"
             aria-label={t("send")}
             title={t("send")}
           >
-            {sending ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <SendHorizontal size={16} aria-hidden />}
+            {sending && !text.trim() ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <SendHorizontal size={16} aria-hidden />}
           </button>
         </div>
       </div>

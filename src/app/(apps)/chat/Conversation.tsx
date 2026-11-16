@@ -12,7 +12,7 @@ import { ScheduleDialog } from "./Dialogs";
 import { MessageItem } from "./MessageItem";
 import { MembersPanel, ThreadPanel } from "./Panels";
 import { TYPING_TTL_MS, type ChatMessage, type ChatUser, type ConversationDetail, type ConversationSummary, type MeetingInfo } from "./shared";
-import { Avatar, BTN, BTN_MEET, BTN_PRIMARY, ConversationIcon, dayKey, dayLabel, openMeeting, timeOf, useErrorText } from "./ui";
+import { Avatar, BTN, BTN_MEET, BTN_PRIMARY, ConversationIcon, dayKey, dayLabel, openMeetNow, timeOf, useErrorText } from "./ui";
 
 type Props = {
   id: string;
@@ -258,21 +258,12 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
     [detail, me.id, t],
   );
 
-  const meetNow = async () => {
+  const meetNow = () => {
     if (busy) return;
-    setBusy(true);
     const ongoing = detailRef.current?.ongoing;
-    const ok = await openMeeting(async () => {
-      if (ongoing) return ongoing.code;
-      const r = await startMeeting(id);
-      if (!r.ok) {
-        flash(errorText(r.error));
-        return null;
-      }
-      return r.data.code;
-    });
-    setBusy(false);
-    if (ok && !ongoing) void refreshMeetings();
+    if (!openMeetNow({ c: id })) return flash(errorText("failed"));
+    // The new tab starts the meeting server-side; pick up its card shortly after.
+    if (!ongoing) setTimeout(() => void refreshMeetings(), 2500);
   };
 
   const join = async () => {
