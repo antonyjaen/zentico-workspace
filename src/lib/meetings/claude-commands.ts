@@ -36,11 +36,17 @@ export function createCommand(
   });
 }
 
-/** What the bridge receives for one command (see docs/PLAN.md → "Claude in meetings"). */
+/**
+ * What the bridge receives for one command (see docs/PLAN.md → "Claude in meetings"). Commands
+ * asked in Chat come with source "chat", the conversation and a ready-made `prompt` (bridges
+ * ≥ 1.2.0 use it as is; older ones wrap `text` in their meeting prompt).
+ */
 export type BridgeCommand = {
   id: string;
   text: string;
-  source: "voice" | "typed";
+  source: "voice" | "typed" | "chat";
+  prompt?: string;
+  chat?: { conversationId: string; name: string; url: string; threadRoot: number | null };
   room: string;
   title: string;
   meetingUrl: string;
@@ -76,6 +82,25 @@ function mergeRuns(list: { at: number; text: string }[], gapMs: number) {
 export function bridgePayload(c: CommandRow, appUrl: string): BridgeCommand | DashboardBridgeCommand {
   // Typed in the Dashboard's Claude chat, not in a call.
   if (c.room === DASHBOARD_ROOM) return dashboardPayload(c, appUrl);
+  // Asked in Chat by @-mentioning the user's Claude bot.
+  if (c.chat) {
+    const url = `${appUrl}/chat?c=${c.chat.conversationId}`;
+    return {
+      id: c.id,
+      text: c.text,
+      source: "chat",
+      prompt: c.chat.prompt,
+      chat: { conversationId: c.chat.conversationId, name: c.chat.conversationName, url, threadRoot: c.chat.threadRoot },
+      room: c.room,
+      title: c.title || c.chat.conversationName,
+      meetingUrl: url,
+      speaker: { name: c.userName || c.userEmail, email: c.userEmail },
+      createdAt: new Date(c.createdAt).toISOString(),
+      timeZone: c.timeZone,
+      transcript: [],
+      meeting: null,
+    };
+  }
   const recent = recentUtterances(c.userEmail, c.room, c.createdAt);
   const own = mergeRuns(
     recent.filter((u) => u.source === "command"),

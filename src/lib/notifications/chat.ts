@@ -24,11 +24,11 @@ function loadConv(id: string): Conv | null {
   };
 }
 
-/** Everyone who can read the conversation (members; plus the team for public channels). */
+/** Everyone who can read the conversation (members; plus the team for public channels). Apps never get notifications. */
 function readers(conv: Conv): Reader[] {
   const out = new Map<number, Reader>();
   for (const r of all(
-    "SELECT u.id, u.email FROM conversation_members cm JOIN users u ON u.id = cm.user_id WHERE cm.conversation_id = ?",
+    "SELECT u.id, u.email FROM conversation_members cm JOIN users u ON u.id = cm.user_id WHERE cm.conversation_id = ? AND u.bot_id IS NULL",
     conv.id,
   )) {
     out.set(num(r.id), { id: num(r.id), email: strv(r.email), member: true });
@@ -62,7 +62,7 @@ function mentionedHandles(body: string): Set<string> {
 function preview(m: ChatMessage): string {
   const files = [...(m.meta?.files ?? []), ...(m.meta?.drive ?? [])].map((f) => f.name).join(", ");
   const text = m.body.replace(/[*_`~>]/g, "").replace(/\s+/g, " ").trim();
-  return (text || files).slice(0, 200);
+  return (text || files || m.meta?.cards?.[0]?.title || "").slice(0, 200);
 }
 
 const chatHref = (convId: string) => `/chat?c=${convId}`;
@@ -145,9 +145,9 @@ export function onAddedToConversation(convId: string, actorId: number, addedIds:
     const actorName = strv(actor?.name) || strv(actor?.email);
     for (const id of new Set(addedIds)) {
       if (id === actorId) continue;
-      const u = get("SELECT email FROM users WHERE id = ?", id);
+      const u = get("SELECT email, bot_id FROM users WHERE id = ?", id);
       const email = strv(u?.email);
-      if (!email) continue;
+      if (!email || u?.bot_id != null) continue;
       notify(email, {
         category: "chat",
         kind: "added",

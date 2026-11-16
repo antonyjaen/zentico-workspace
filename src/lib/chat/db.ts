@@ -112,6 +112,66 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX meetings_conv ON meetings(conversation_id, starts_at);
   `,
+  // Apps and bots. Each one is also a `users` row (bot_id set, synthetic address on
+  // BOT_EMAIL_DOMAIN, no sub) so it can be a member and an author like anyone else.
+  // Rows are soft-deleted so old messages keep their author's identity.
+  `
+  ALTER TABLE users ADD COLUMN bot_id TEXT;
+
+  CREATE TABLE bots (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id),
+    kind TEXT NOT NULL CHECK (kind IN ('http', 'webhook', 'claude')),
+    owner_id INTEGER NOT NULL REFERENCES users(id),
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    color INTEGER,
+    avatar TEXT,
+    -- HTTP apps: event endpoint, signing secret (sealed: it is needed in clear to sign), API token (sha256).
+    endpoint_url TEXT,
+    signing_secret TEXT,
+    token_hash TEXT UNIQUE,
+    token_prefix TEXT,
+    -- Any member may add a shared app; a private one only its owner.
+    shared INTEGER NOT NULL DEFAULT 0,
+    -- Incoming webhooks: their conversation and key (sha256).
+    conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE,
+    key_hash TEXT UNIQUE,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    created INTEGER NOT NULL,
+    updated INTEGER NOT NULL
+  );
+  CREATE INDEX bots_owner ON bots(owner_id, kind);
+  CREATE INDEX bots_conv ON bots(conversation_id);
+
+  CREATE TABLE bot_commands (
+    bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (bot_id, name)
+  );
+
+  -- Last delivery attempts of each HTTP app (trimmed to 50).
+  CREATE TABLE bot_deliveries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    at INTEGER NOT NULL,
+    event TEXT NOT NULL,
+    conversation_id TEXT,
+    status INTEGER,
+    latency_ms INTEGER,
+    error TEXT
+  );
+  CREATE INDEX bot_deliveries_bot ON bot_deliveries(bot_id, id);
+
+  -- Webhook thread keys → the thread they started.
+  CREATE TABLE webhook_threads (
+    bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
+    root_id INTEGER NOT NULL REFERENCES messages(id),
+    PRIMARY KEY (bot_id, key)
+  );
+  `,
 ];
 
 function open(): Database {

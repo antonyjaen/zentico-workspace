@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Zentico bridge: runs the commands you say in Zentico Meet ("Claude, …") with YOUR OWN Claude Code.
+// Zentico bridge: runs the commands you say in Zentico Meet ("Claude, …"), type in your Dashboard or
+// ask your Claude in Chat (@-mentioning it) with YOUR OWN Claude Code.
 // Plain Node 18+, no dependencies.
 //
 //   node zentico-bridge.mjs --url https://team.zentico.dev --token <MCP token> --cwd <dir> [--claude claude]
@@ -28,7 +29,7 @@ import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-const VERSION = "1.1.0";
+const VERSION = "1.2.0";
 
 /* ----------------------------------------------------------------- options */
 
@@ -108,6 +109,9 @@ async function report(id, event) {
 
 function buildPrompt(c) {
   if (c.source === "dashboard") return buildDashboardPrompt(c);
+  // Asked in Zentico Chat by @-mentioning the user's Claude: the server builds the prompt (request,
+  // conversation context marked as untrusted data, guidance), since only it knows the conversation.
+  if (c.source === "chat" && typeof c.prompt === "string" && c.prompt.trim()) return c.prompt;
   const tz = c.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
   const fmt = (iso) => {
     try {
@@ -199,6 +203,12 @@ const DASHBOARD_PROMPT =
   "This request comes from the Claude chat panel of the user's Zentico dashboard. Keep the answer short and plain, " +
   "in the language of the request. You may end with one last line that starts with SAY: and one very short sentence summarizing the outcome.";
 if (!/^[\w .,:;'-]+$/.test(DASHBOARD_PROMPT)) throw new Error("DASHBOARD_PROMPT must stay cmd.exe-safe");
+
+// Single line, cmd.exe-safe (see SAY_PROMPT).
+const CHAT_PROMPT =
+  "This request comes from Zentico Chat. Your final answer is posted as a chat message in the conversation where you were asked, " +
+  "visible to everyone in it, so write it for them: concise, in the language of the request. Do not add a SAY line.";
+if (!/^[\w .,:;'-]+$/.test(CHAT_PROMPT)) throw new Error("CHAT_PROMPT must stay cmd.exe-safe");
 
 /* ----------------------------------------------------------- spoken reply */
 
@@ -314,7 +324,8 @@ function describeTool(name, input) {
 }
 
 async function runCommand(c) {
-  log(`▶ ${c.source === "voice" ? "said" : c.source === "dashboard" ? "dashboard" : "typed"}: ${c.text.slice(0, 120)}`);
+  const label = c.source === "voice" ? "said" : c.source === "dashboard" ? "dashboard" : c.source === "chat" ? "chat" : "typed";
+  log(`▶ ${label}: ${c.text.slice(0, 120)}`);
   const state = { id: c.id, child: null, cancelled: false };
   running = state;
   const ack = await report(c.id, { type: "started" });
@@ -346,7 +357,7 @@ async function runCommand(c) {
     "--allowedTools",
     allowedTools,
     "--append-system-prompt",
-    c.source === "dashboard" ? DASHBOARD_PROMPT : SAY_PROMPT,
+    c.source === "dashboard" ? DASHBOARD_PROMPT : c.source === "chat" ? CHAT_PROMPT : SAY_PROMPT,
   ];
   if (!args["keep-mcp"]) argv.push("--strict-mcp-config");
 

@@ -6,6 +6,7 @@ import type { Row } from "node:sqlite";
 import {
   MEETING_LIVE_MS,
   PAGE_SIZE,
+  type BotCard,
   type ChatMessage,
   type ChatOverview,
   type ChatUser,
@@ -18,11 +19,13 @@ import {
   type MeetingMeta,
   type MessageKind,
   type MessageMeta,
+  type NoticeMeta,
   type Person,
   type Reaction,
   type SystemMeta,
   type TeamSummary,
 } from "@/app/(apps)/chat/shared";
+import { botByUserId, botInfoOf, canUseBot, isBotUser } from "./bots";
 import { all, get, run, tx } from "./db";
 import { publish } from "./events";
 import { onAddedToConversation, onChatMessage, onConversationRead } from "../notifications/chat";
@@ -40,7 +43,11 @@ const strv = (v: unknown) => (typeof v === "string" ? v : "");
 
 // ---------- Users ----------
 
-const toUser = (r: Row): ChatUser => ({ id: num(r.id), name: strv(r.name) || strv(r.email), email: strv(r.email) });
+function toUser(r: Row): ChatUser {
+  const user: ChatUser = { id: num(r.id), name: strv(r.name) || strv(r.email), email: strv(r.email) };
+  const bot = r.bot_id == null ? undefined : botInfoOf(user.id);
+  return bot ? { ...user, bot } : user;
+}
 
 /** Inserts/updates the signed-in user (matched by OIDC sub, then by email). */
 export function upsertUser({ sub, email, name }: { sub: string; email: string; name: string }): ChatUser {
@@ -82,9 +89,9 @@ export function ensureUsers(people: Person[]): number[] {
   );
 }
 
-/** Everyone who has used Chat (for the people picker when the directory is unavailable). */
+/** Everyone who has used Chat (for the people picker when the directory is unavailable). Apps excluded. */
 export function knownUsers(): ChatUser[] {
-  return all("SELECT * FROM users ORDER BY name COLLATE NOCASE LIMIT 2000").map(toUser);
+  return all("SELECT * FROM users WHERE bot_id IS NULL ORDER BY name COLLATE NOCASE LIMIT 2000").map(toUser);
 }
 
 function usersByIds(ids: number[]): ChatUser[] {
@@ -118,6 +125,7 @@ const convRow = (r: Row): ConvRow => ({
 
 const isMember = (convId: string, userId: number) =>
   !!get("SELECT 1 AS x FROM conversation_members WHERE conversation_id = ? AND user_id = ?", convId, userId);
+export const isConversationMember = isMember;
 const teamRole = (teamId: string, userId: number): "owner" | "member" | null => {
   const r = get("SELECT role FROM team_members WHERE team_id = ? AND user_id = ?", teamId, userId);
   return r ? (strv(r.role) as "owner" | "member") : null;
@@ -166,7 +174,7 @@ export function canReadConversation(convId: string, userId: number): boolean {
 // ---------- Messages ----------
 
 const MESSAGE_SELECT = `
-  SELECT m.*, u.name AS author_name, u.email AS author_email,
+  SELECT m.*, u.name AS author_name, u.email AS author_email, u.bot_id AS author_bot,
     (SELECT count(*) FROM messages r WHERE r.thread_root_id = m.id AND r.deleted = 0) AS reply_count,
     (SELECT max(r.created) FROM messages r WHERE r.thread_root_id = m.id AND r.deleted = 0) AS last_reply_at
   FROM messages m LEFT JOIN users u ON u.id = m.author_id`;
@@ -197,10 +205,14 @@ function toMessages(rows: Row[]): ChatMessage[] {
   }
   return rows.map((r) => {
     const deleted = num(r.deleted) === 1;
+    const bot = r.author_bot == null || r.author_id == null ? undefined : botInfoOf(num(r.author_id));
     return {
       id: num(r.id),
       conversationId: strv(r.conversation_id),
-      author: r.author_id == null ? null : { id: num(r.author_id), name: strv(r.author_name) || strv(r.author_email), email: strv(r.author_email) },
+      author:
+        r.author_id == null
+          ? null
+          : { id: num(r.author_id), name: strv(r.author_name) || strv(r.author_email), email: strv(r.author_email), ...(bot ? { bot } : {}) },
       body: deleted ? "" : strv(r.body),
       created: num(r.created),
       edited: r.edited == null ? null : num(r.edited),
@@ -285,23 +297,168 @@ function postAndPublish(
   return message;
 }
 
+function checkThreadRoot(convId: string, threadRoot: number | null | undefined) {
+  if (threadRoot == null) return;
+  const root = get("SELECT conversation_id, thread_root_id, deleted FROM messages WHERE id = ?", threadRoot);
+  if (!root || strv(root.conversation_id) !== convId || root.thread_root_id != null) throw new ChatError("notFound");
+}
+
+/** Hands a person's message to the apps in the conversation (mentions, DMs, slash commands). */
+function dispatchToBots(message: ChatMessage) {
+  void import("./bot-events")
+    .then((m) => m.onHumanMessage(message))
+    .catch((e) => console.error("[bots] dispatch failed:", e instanceof Error ? e.message : e));
+}
+
 export function postMessage(
   convId: string,
   userId: number,
-  input: { body: string; kind?: "text" | "file"; files?: FileMeta[]; drive?: DriveRef[]; threadRoot?: number | null },
+  input: {
+    body: string;
+    kind?: "text" | "file";
+    files?: FileMeta[];
+    drive?: DriveRef[];
+    threadRoot?: number | null;
+    /** Posted by an agent on the user's behalf (MCP): apps are not triggered, so agents can't loop. */
+    fromAgent?: boolean;
+  },
 ): ChatMessage {
   const conv = writable(convId, userId);
-  if (input.threadRoot != null) {
-    const root = get("SELECT conversation_id, thread_root_id, deleted FROM messages WHERE id = ?", input.threadRoot);
-    if (!root || strv(root.conversation_id) !== convId || root.thread_root_id != null) throw new ChatError("notFound");
-  }
+  if (isBotUser(userId)) throw new ChatError("forbidden");
+  checkThreadRoot(convId, input.threadRoot);
   const meta: MessageMeta | null = input.files?.length ? { files: input.files } : input.drive?.length ? { drive: input.drive } : null;
-  return postAndPublish(conv, userId, {
+  const message = postAndPublish(conv, userId, {
     body: input.body,
     kind: meta ? "file" : "text",
     meta,
     threadRoot: input.threadRoot ?? null,
   });
+  if (!input.fromAgent) dispatchToBots(message);
+  return message;
+}
+
+// ---------- Apps & bots ----------
+
+export type ConversationBrief = { id: string; kind: ConversationKind; name: string | null; memberCount: number };
+
+export function conversationBrief(convId: string): ConversationBrief | null {
+  const r = get("SELECT * FROM conversations WHERE id = ?", convId);
+  if (!r) return null;
+  const conv = convRow(r);
+  const memberCount = num(get("SELECT count(*) AS n FROM conversation_members WHERE conversation_id = ?", convId)?.n);
+  return { id: conv.id, kind: conv.kind, name: conv.name, memberCount };
+}
+
+/**
+ * Posts as an app/bot user. HTTP apps and Claude must be members of the conversation; webhooks
+ * belong to their conversation and aren't members. Goes through the same publish + notifications
+ * path as people's messages (a bot never notifies itself: bots aren't notification readers).
+ */
+export function postBotMessage(
+  convId: string,
+  botUserId: number,
+  input: { body: string; cards?: BotCard[]; threadRoot?: number | null },
+): ChatMessage {
+  const bot = botByUserId(botUserId);
+  if (!bot || bot.deleted) throw new ChatError("forbidden");
+  const r = get("SELECT * FROM conversations WHERE id = ?", convId);
+  if (!r) throw new ChatError("notFound");
+  const conv = convRow(r);
+  if (bot.kind === "webhook" ? bot.conversationId !== convId : !isMember(convId, botUserId)) throw new ChatError("notMember");
+  checkThreadRoot(convId, input.threadRoot);
+  if (!input.body && !input.cards?.length) throw new ChatError("empty");
+  return postAndPublish(conv, botUserId, {
+    body: input.body,
+    kind: "text",
+    meta: input.cards?.length ? { cards: input.cards } : null,
+    threadRoot: input.threadRoot ?? null,
+  });
+}
+
+let ephemeralSeq = 0;
+
+/** A message from an app shown only to one person, never stored (gone after a reload). */
+export function postEphemeral(
+  convId: string,
+  toUserId: number,
+  botUserId: number,
+  input: { body?: string; notice?: NoticeMeta; threadRoot?: number | null },
+): void {
+  const author = get("SELECT * FROM users WHERE id = ?", botUserId);
+  if (!author) return;
+  const last = num(get("SELECT max(id) AS id FROM messages WHERE conversation_id = ?", convId)?.id);
+  ephemeralSeq = (ephemeralSeq % 998) + 1;
+  const message: ChatMessage = {
+    id: last + ephemeralSeq / 1000,
+    conversationId: convId,
+    author: toUser(author),
+    body: input.body ?? "",
+    created: Date.now(),
+    edited: null,
+    deleted: false,
+    threadRoot: input.threadRoot ?? null,
+    kind: "text",
+    meta: input.notice ? { notice: input.notice } : null,
+    reactions: [],
+    replyCount: 0,
+    lastReplyAt: null,
+    ephemeral: true,
+  };
+  publish([toUserId], { type: "message", message });
+}
+
+/** Tells one person's tabs that something about their Claude in this conversation changed. */
+export function signalClaude(convId: string, userId: number): void {
+  publish([userId], { type: "claude", conversationId: convId });
+}
+
+/** The latest messages of a conversation (top level) or of a thread (root + replies), oldest first. */
+export function contextMessages(convId: string, threadRoot: number | null, limit: number): ChatMessage[] {
+  const rows =
+    threadRoot === null
+      ? all(`${MESSAGE_SELECT} WHERE m.conversation_id = ? AND m.thread_root_id IS NULL AND m.deleted = 0 ORDER BY m.id DESC LIMIT ?`, convId, limit)
+      : all(
+          `${MESSAGE_SELECT} WHERE m.conversation_id = ? AND (m.id = ? OR m.thread_root_id = ?) AND m.deleted = 0 ORDER BY m.id DESC LIMIT ?`,
+          convId,
+          threadRoot,
+          threadRoot,
+          limit,
+        );
+  return toMessages(rows.reverse());
+}
+
+/** Adds apps (that I may use) to a conversation I belong to. Returns the bot user ids added. */
+export function addBots(convId: string, userId: number, botUserIds: number[]): number[] {
+  const conv = writable(convId, userId);
+  if (isBotUser(userId)) throw new ChatError("forbidden");
+  for (const id of botUserIds) {
+    const b = botByUserId(id);
+    if (!b || !canUseBot(b, userId)) throw new ChatError("forbidden");
+  }
+  const added = tx(() => addMembersRaw(convId, botUserIds));
+  if (!added.length) return [];
+  systemMessage(conv, userId, { action: "added", names: nameList(added) });
+  publish(audience(conv), { type: "conversations" });
+  return added;
+}
+
+/** Removes an app from a conversation (any member may, like in Google Chat). */
+export function removeBot(convId: string, userId: number, botUserId: number): boolean {
+  const conv = writable(convId, userId);
+  if (!isBotUser(botUserId) || isBotUser(userId)) throw new ChatError("forbidden");
+  const r = run("DELETE FROM conversation_members WHERE conversation_id = ? AND user_id = ?", convId, botUserId);
+  if (!num(r.changes)) return false;
+  systemMessage(conv, userId, { action: "removed", names: nameList([botUserId]) });
+  publish(audience(conv), { type: "conversations" });
+  return true;
+}
+
+/** Tells the members of conversations an app just left (deleted) to refresh. */
+export function conversationsChanged(convIds: string[]): void {
+  for (const id of new Set(convIds)) {
+    const r = get("SELECT * FROM conversations WHERE id = ?", id);
+    if (r) publish(audience(convRow(r)), { type: "conversations" });
+  }
 }
 
 /** Everyone who can read a conversation I can read (members; plus the team for public channels). */
@@ -412,7 +569,8 @@ export function unreadTotal(userId: number): number {
 
 function displayName(conv: ConvRow, members: ChatUser[], userId: number): { name: string; peer: ChatUser | null } {
   if (conv.kind === "dm") {
-    const peer = members.find((m) => m.id !== userId) ?? members[0] ?? null;
+    // An app added to a DM between two people doesn't replace the person.
+    const peer = members.find((m) => m.id !== userId && !m.bot) ?? members.find((m) => m.id !== userId) ?? members[0] ?? null;
     return { name: peer?.name ?? "", peer };
   }
   if (conv.name) return { name: conv.name, peer: null };
@@ -427,6 +585,10 @@ function previewOf(r: Row): string {
     return strv(r.body) || [...(meta?.files ?? []), ...(meta?.drive ?? [])].map((f) => f.name).join(", ") || "";
   }
   if (kind === "meeting") return parseMeta(r.meta)?.meeting?.title ?? "";
+  if (!strv(r.body)) {
+    const card = parseMeta(r.meta)?.cards?.[0];
+    if (card) return (card.title ?? card.sections[0]?.text ?? "").slice(0, 140);
+  }
   return strv(r.body)
     .replace(/[*_`~>]/g, "")
     .replace(/\s+/g, " ")
@@ -640,6 +802,13 @@ export function leaveConversation(convId: string, userId: number): void {
   if (conv.kind === "dm") throw new ChatError("forbidden");
   systemMessage(conv, userId, { action: "left" });
   run("DELETE FROM conversation_members WHERE conversation_id = ? AND user_id = ?", convId, userId);
+  // My Claude only works for me: it leaves with me.
+  for (const r of all(
+    "SELECT cm.user_id FROM conversation_members cm JOIN bots b ON b.user_id = cm.user_id WHERE cm.conversation_id = ? AND b.kind = 'claude' AND b.owner_id = ?",
+    convId,
+    userId,
+  ))
+    run("DELETE FROM conversation_members WHERE conversation_id = ? AND user_id = ?", convId, num(r.user_id));
   publish([...audience(conv), userId], { type: "conversations" });
 }
 

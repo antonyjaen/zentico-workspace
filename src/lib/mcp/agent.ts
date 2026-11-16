@@ -90,6 +90,9 @@ const MIGRATIONS = [
   // Where an utterance came from: the user's own push-to-talk command, or the meeting's mixed audio
   // ("Claude listens to the meeting"; every speaker, not attributed).
   `ALTER TABLE utterances ADD COLUMN source TEXT NOT NULL DEFAULT 'command';`,
+  // Commands asked in Chat (@-mentioning the user's Claude bot): where to post the result, and the
+  // prompt with the conversation context captured when it was asked. Stored with source 'typed'.
+  `ALTER TABLE commands ADD COLUMN chat TEXT;`,
 ];
 
 function open(): Database {
@@ -162,13 +165,44 @@ export function onWake(email: string, fn: () => void): () => void {
 
 /* ---------------------------------------------------------------- commands */
 
+/** A command asked in Chat: the conversation/thread to answer in and the prepared prompt. */
+export type ChatCommandRef = {
+  conversationId: string;
+  conversationName: string;
+  threadRoot: number | null;
+  messageId: number;
+  botId: string;
+  prompt: string;
+};
+
 export type CommandRow = CommandView & {
   userEmail: string;
   userName: string;
   title: string;
   timeZone: string | null;
   dispatchedAt: number | null;
+  chat: ChatCommandRef | null;
 };
+
+function parseChat(v: SQLValue | undefined): ChatCommandRef | null {
+  if (typeof v !== "string" || !v) return null;
+  try {
+    return JSON.parse(v) as ChatCommandRef;
+  } catch {
+    return null;
+  }
+}
+
+/** In-app link for a command: its meeting, or the Chat conversation it was asked in. */
+const commandHref = (c: CommandRow) => (c.chat ? `/chat?c=${c.chat.conversationId}` : meetHref(c.room));
+
+/** Chat commands: post results / refresh the owner's approval strip (loaded lazily: no import cycle). */
+function chatHook(c: CommandRow | null, what: "finished" | "changed") {
+  if (!c?.chat) return;
+  void import("../chat/claude-bot")
+    .then((m) => m.onClaudeCommand(c, what))
+    .catch((e) => console.error("[agent] chat hook:", e instanceof Error ? e.message : e));
+}
 
 function toCommand(r: Row): CommandRow {
   return {
@@ -187,6 +221,7 @@ function toCommand(r: Row): CommandRow {
     createdAt: Number(r.created),
     updatedAt: Number(r.updated),
     dispatchedAt: n(r.dispatched),
+    chat: parseChat(r.chat),
   };
 }
 
@@ -217,6 +252,14 @@ export function normalizeText(text: string): string {
 /** Fails stale commands and confirmations, prunes old speech. Cheap; called from hot paths. */
 function sweep(now = Date.now()) {
   const d = db();
+  // Chat commands about to fail get their failure posted in the conversation.
+  const failing = d
+    .prepare(
+      `SELECT * FROM commands WHERE chat IS NOT NULL AND ((status = 'queued' AND created < ?)
+         OR (status IN ('dispatched', 'needs_confirmation') AND updated < ?))`,
+    )
+    .all(now - QUEUE_TTL_MS, now - RUN_TTL_MS)
+    .map((r) => s(r.id));
   d.prepare(
     "UPDATE commands SET status = 'failed', result = 'Your Claude bridge was not connected.', updated = ? WHERE status = 'queued' AND created < ?",
   ).run(now, now - QUEUE_TTL_MS);
@@ -225,6 +268,10 @@ function sweep(now = Date.now()) {
   ).run(now, now - RUN_TTL_MS);
   d.prepare("UPDATE confirmations SET status = 'expired', decided = ? WHERE status = 'pending' AND expires < ?").run(now, now - 5000);
   d.prepare("DELETE FROM utterances WHERE at < ?").run(now - UTTERANCE_KEEP_MS);
+  for (const id of failing) {
+    const r = d.prepare("SELECT * FROM commands WHERE id = ?").get(id);
+    if (r) chatHook(toCommand(r), "finished");
+  }
 }
 
 /**
@@ -240,6 +287,7 @@ export function enqueueCommand(input: {
   text: string;
   source: "voice" | "typed";
   timeZone: string | null;
+  chat?: ChatCommandRef;
 }): { command: CommandRow; duplicate: boolean } {
   const email = norm(input.email);
   const now = Date.now();
@@ -264,10 +312,10 @@ export function enqueueCommand(input: {
   const id = randomUUID();
   db()
     .prepare(
-      `INSERT INTO commands (id, user_email, user_name, room, title, text, source, time_zone, status, created, updated)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)`,
+      `INSERT INTO commands (id, user_email, user_name, room, title, text, source, time_zone, status, created, updated, chat)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)`,
     )
-    .run(id, email, input.name, input.room, input.title, input.text, input.source, input.timeZone, now, now);
+    .run(id, email, input.name, input.room, input.title, input.text, input.source, input.timeZone, now, now, input.chat ? JSON.stringify(input.chat) : null);
   wake(email);
   return { command: getCommand(id, email)!, duplicate: false };
 }
@@ -297,7 +345,10 @@ export function claimQueued(email: string, tokenId: string): CommandRow[] {
     const r = db()
       .prepare("UPDATE commands SET status = 'dispatched', dispatched = ?, updated = ?, token_id = ? WHERE id = ? AND status = 'queued'")
       .run(now, now, tokenId, c.id);
-    if (Number(r.changes) > 0) claimed.push({ ...c, status: "dispatched", dispatchedAt: now, updatedAt: now });
+    if (Number(r.changes) > 0) {
+      claimed.push({ ...c, status: "dispatched", dispatchedAt: now, updatedAt: now });
+      chatHook(c, "changed");
+    }
   }
   return claimed;
 }
@@ -353,11 +404,12 @@ export function applyBridgeEvent(id: string, email: string, ev: BridgeEvent): Co
         kind: after.status,
         title: after.text.slice(0, 160),
         body: (after.status === "done" ? after.spoken || after.result : after.result) ?? "",
-        href: meetHref(after.room),
-        ref: after.room,
+        href: commandHref(after),
+        ref: after.chat ? after.chat.conversationId : after.room,
         key: `command:${after.id}`,
         once: true,
       });
+      chatHook(after, "finished");
     }
     return after?.status ?? null;
   }
@@ -375,6 +427,7 @@ export function cancelCommand(id: string, email: string): boolean {
   if (Number(r.changes) === 0) return false;
   db().prepare("UPDATE confirmations SET status = 'rejected', decided = ? WHERE command_id = ? AND status = 'pending'").run(now, id);
   wake(email);
+  chatHook(getCommand(id, email), "changed");
   return true;
 }
 
@@ -425,6 +478,15 @@ export function decideConfirmation(id: string, email: string, approve: boolean):
   return Number(r.changes) > 0;
 }
 
+/** Active (unfinished) commands of the user in a room, oldest first. */
+export function activeCommands(email: string, room: string): CommandRow[] {
+  sweep();
+  return db()
+    .prepare("SELECT * FROM commands WHERE user_email = ? AND room = ? AND status IN ('queued', 'dispatched', 'needs_confirmation') ORDER BY created")
+    .all(norm(email), room)
+    .map(toCommand);
+}
+
 /** The user's newest pending confirmation (for "Claude confirm" / "Claude cancel"). */
 export function latestPendingConfirmation(email: string): ConfirmationView | null {
   const list = pendingConfirmations(email);
@@ -460,12 +522,13 @@ export async function awaitConfirmation(
     kind: "confirm",
     title: command.text.slice(0, 160),
     body: summary,
-    href: meetHref(command.room),
+    href: commandHref(command),
     priority: "high",
-    ref: command.room,
+    ref: command.chat ? command.chat.conversationId : command.room,
     key: `confirm:${id}`,
     once: true,
   });
+  chatHook(command, "changed");
 
   let outcome: "approved" | "rejected" | "timeout" = "timeout";
   while (Date.now() < now + CONFIRM_TIMEOUT_MS) {
@@ -483,6 +546,7 @@ export async function awaitConfirmation(
   }
   const end = Date.now();
   if (outcome === "timeout") d.prepare("UPDATE confirmations SET status = 'expired', decided = ? WHERE id = ? AND status = 'pending'").run(end, id);
+  chatHook(command, "changed");
   // Back to running unless something else is still waiting for the user.
   d.prepare(
     `UPDATE commands SET status = 'dispatched', updated = ? WHERE id = ? AND status = 'needs_confirmation'

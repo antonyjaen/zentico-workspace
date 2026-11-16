@@ -4,7 +4,51 @@ import type { AddressBook, Contact } from "@/lib/contacts";
 export type ConversationKind = "dm" | "group" | "channel";
 export type MessageKind = "text" | "meeting" | "system" | "file";
 
-export type ChatUser = { id: number; name: string; email: string };
+/**
+ * Apps and bots are chat users too (a `users` row with a synthetic address on BOT_EMAIL_DOMAIN):
+ * "http" = an HTTP app with an endpoint (Settings → Apps & bots), "webhook" = an incoming webhook
+ * of one conversation, "claude" = a person's own Claude (runs on their bridge, only obeys them).
+ */
+export type BotKind = "http" | "webhook" | "claude";
+export type BotCommand = { name: string; description: string };
+export type BotInfo = {
+  id: string;
+  kind: BotKind;
+  description: string;
+  /** Avatar hue (0-359); null = derived from the name. */
+  color: number | null;
+  /** Optional emoji shown instead of the initials. */
+  avatar: string | null;
+  ownerId: number;
+  ownerName: string;
+  /** HTTP apps: slash commands. */
+  commands?: BotCommand[];
+  /** Deleted apps keep their identity on old messages. */
+  deleted?: boolean;
+};
+
+export type ChatUser = { id: number; name: string; email: string; bot?: BotInfo };
+
+/** Domain of the synthetic addresses of app/bot users (.invalid never resolves or receives mail). */
+export const BOT_EMAIL_DOMAIN = "apps.zentico.invalid";
+export const isBotEmail = (email: string) => email.toLowerCase().endsWith(`@${BOT_EMAIL_DOMAIN}`);
+
+/** A link button on a bot card (http/https only). */
+export type CardButton = { text: string; url: string };
+/** Normalized subset of Google Chat cards (cards / cardsV2): header + sections of text and link buttons. */
+export type BotCard = {
+  title?: string;
+  subtitle?: string;
+  sections: { header?: string; text?: string; buttons?: CardButton[] }[];
+};
+
+/** Ephemeral notices from apps (localized on the client). */
+export type NoticeMeta =
+  | { code: "claudeOwnerOnly"; owner: string }
+  | { code: "claudeWorking" }
+  | { code: "claudeQueued" }
+  | { code: "claudeNoToken" }
+  | { code: "claudeFailed"; error: string };
 
 export type FileMeta = { id: string; name: string; mime: string; size: number };
 
@@ -46,7 +90,16 @@ export type DriveRef = {
   owner?: string;
 };
 
-export type MessageMeta = { files?: FileMeta[]; drive?: DriveRef[]; meeting?: MeetingMeta; system?: SystemMeta };
+export type MessageMeta = {
+  files?: FileMeta[];
+  drive?: DriveRef[];
+  meeting?: MeetingMeta;
+  system?: SystemMeta;
+  /** Cards posted by an app or webhook. */
+  cards?: BotCard[];
+  /** Ephemeral app notice (never stored). */
+  notice?: NoticeMeta;
+};
 
 export type Reaction = { emoji: string; users: number[] };
 
@@ -64,6 +117,8 @@ export type ChatMessage = {
   reactions: Reaction[];
   replyCount: number;
   lastReplyAt: number | null;
+  /** Shown only to one person and never stored (its id is fractional: it sorts after the last message). */
+  ephemeral?: boolean;
 };
 
 export type ConversationSummary = {
@@ -117,7 +172,7 @@ export type ConversationDetail = ConversationSummary & {
   upcoming: MeetingInfo[];
 };
 
-export type Person = { email: string; name: string };
+export type Person = { email: string; name: string; bot?: BotInfo };
 
 /**
  * Stalwart principals often carry the address as their name; turn "leo.park@x" into
@@ -194,7 +249,15 @@ export type ChatEvent =
   | { type: "typing"; conversationId: string; threadRoot: number | null; user: ChatUser }
   | { type: "read"; conversationId: string; lastReadId: number }
   | { type: "meeting"; conversationId: string }
-  | { type: "conversations" };
+  | { type: "conversations" }
+  /** Something changed about my Claude's commands in a conversation (e.g. a write awaits my approval). */
+  | { type: "claude"; conversationId: string };
+
+/** GET /api/chat/claude?c=… : my Claude's running commands and approvals waiting in a conversation. */
+export type ClaudeChatState = {
+  commands: { id: string; text: string; status: string; progress: string | null }[];
+  confirmations: { id: string; commandId: string; tool: string; summary: string; expiresAt: number }[];
+};
 
 export type ActionResult<T = void> = { ok: true; data: T } | { ok: false; error: string };
 

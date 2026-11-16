@@ -4,6 +4,7 @@
 // the store authorize by conversation/team membership.
 import { unstable_rethrow } from "next/navigation";
 import { createMeetingEvent, getAvailability, getCalendarSession } from "@/lib/calendar";
+import { botByEmail, canUseBot } from "@/lib/chat/bots";
 import { directory, domainOf, errText, foldPeople, loadDirectory } from "@/lib/chat/directory";
 import * as store from "@/lib/chat/store";
 import { ChatError } from "@/lib/chat/store";
@@ -14,6 +15,7 @@ import { isDayKey, isTimeZone, zonedToUtc } from "../calendar/time";
 import { generateRoomCode } from "../meet/shared";
 import {
   BODY_MAX,
+  isBotEmail,
   isConversationId,
   NAME_MAX,
   REACTIONS,
@@ -106,6 +108,28 @@ async function resolvePeople(me: ChatUser, v: unknown, max = 100): Promise<numbe
     people.push(p);
   }
   return store.ensureUsers(people);
+}
+
+/** Picked apps (their synthetic addresses) → bot user ids, if I may use them. */
+function resolveApps(me: ChatUser, v: unknown): number[] {
+  if (!Array.isArray(v) || v.length > 100) throw new InputError("invalid");
+  const out = new Set<number>();
+  for (const p of v) {
+    const email = typeof p?.email === "string" ? p.email.trim().toLowerCase() : "";
+    if (!isBotEmail(email)) continue;
+    const b = botByEmail(email);
+    if (!b || !canUseBot(b, me.id)) throw new InputError("invalidPerson");
+    out.add(b.userId);
+  }
+  return [...out];
+}
+
+/** Tells HTTP apps they were added (async; never blocks the action). */
+function appsAdded(ids: number[], conversationId: string, me: ChatUser) {
+  if (!ids.length) return;
+  void import("@/lib/chat/bot-events")
+    .then((m) => m.onBotMembership(ids, conversationId, me, true))
+    .catch((e) => console.error("[bots] membership event failed:", e instanceof Error ? e.message : e));
 }
 
 // ---------- Reads ----------
@@ -224,10 +248,14 @@ export async function markRead(id: string, messageId: number): Promise<ActionRes
 /** One person → their DM; several → a new group (optionally named). */
 export async function startChat(people: Person[], groupName: string | null): Promise<ActionResult<string>> {
   return act(async (me) => {
-    const others = await resolvePeople(me, people);
-    if (others.length === 0) throw new InputError("pickPeople");
-    if (others.length === 1 && !groupName) return store.openDm(me.id, others[0]);
-    return store.createGroup(me.id, others, name(groupName, false));
+    const apps = resolveApps(me, people);
+    const others = await resolvePeople(me, Array.isArray(people) ? people.filter((p) => !isBotEmail(String(p?.email ?? ""))) : people);
+    if (others.length === 0 && apps.length === 0) throw new InputError("pickPeople");
+    // Just one app: a DM with it.
+    if (others.length === 0 && apps.length === 1 && !groupName) return store.openDm(me.id, apps[0]);
+    const id = others.length === 1 && !groupName ? store.openDm(me.id, others[0]) : store.createGroup(me.id, others, name(groupName, false));
+    if (apps.length) appsAdded(store.addBots(id, me.id, apps), id, me);
+    return id;
   });
 }
 
