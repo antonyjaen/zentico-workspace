@@ -37,11 +37,14 @@ export function AppsSettings({
   appUrl,
   me,
   bridgeConnected,
+  connectedApps,
 }: {
   apps: AppView[];
   appUrl: string;
   me: { id: number; name: string; email: string };
   bridgeConnected: boolean;
+  /** Settings → Connected apps (rendered by the page). */
+  connectedApps?: React.ReactNode;
 }) {
   const t = useTranslations("apps.settings");
   const router = useRouter();
@@ -69,6 +72,8 @@ export function AppsSettings({
           </div>
         </div>
       </section>
+
+      {connectedApps}
 
       {/* My apps */}
       <section>

@@ -17,6 +17,9 @@ import {
 } from "@/lib/chat/bots";
 import { botAvatar, botColor, botCommands, botDescription, BotInputError, botName, endpointUrl } from "@/lib/chat/bot-input";
 import { chatUser } from "@/lib/chat/session";
+import { requireSession } from "@/lib/auth";
+import { isProviderId } from "@/lib/connect/providers";
+import { disconnect } from "@/lib/connect/store";
 import { conversationsChanged } from "@/lib/chat/store";
 import type { ActionResult, ChatUser } from "@/app/(apps)/chat/shared";
 
@@ -82,4 +85,23 @@ export async function rotateAppToken(id: string): Promise<ActionResult<string>> 
 
 export async function getDeliveries(id: string): Promise<ActionResult<Delivery[]>> {
   return act((me) => deliveries(appId(id), me.id));
+}
+
+// ---------- Connected apps ----------
+
+/**
+ * Disconnects one of my connected apps: stops what runs on it (GitHub subscriptions), deletes the
+ * stored tokens and revokes the grant at the provider when it supports that.
+ */
+export async function disconnectApp(provider: string): Promise<ActionResult<{ revoked: boolean }>> {
+  try {
+    if (!isProviderId(provider)) return { ok: false, error: "invalid" };
+    const session = await requireSession();
+    const { revoked } = await disconnect(session.sub, provider);
+    return { ok: true, data: { revoked } };
+  } catch (e) {
+    unstable_rethrow(e);
+    console.error("[apps] disconnect failed", e instanceof Error ? e.message : e);
+    return { ok: false, error: "failed" };
+  }
 }

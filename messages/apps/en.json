@@ -10,7 +10,15 @@
       "claudeWorking": "Got it, working on it…",
       "claudeQueued": "Your Claude bridge isn't connected. I'll run this as soon as it connects (waiting up to 10 minutes).",
       "claudeNoToken": "To use your Claude here you need a read+write token and the bridge running (Settings → Integrations).",
-      "claudeFailed": "I couldn't finish this: {error}"
+      "claudeFailed": "I couldn't finish this: {error}",
+      "connectRequired": "Connect your {provider} account first: Settings → Apps & bots → Connected apps.",
+      "githubUsage": "GitHub commands:\n/github issue owner/repo Title — create an issue as you\n/github subscribe owner/repo — post new issues and pull requests here\n/github unsubscribe owner/repo — stop that\n/github list — subscriptions in this conversation",
+      "githubSubscribed": "This conversation is subscribed to {repo}: new issues and pull requests will appear here (checked every 5 minutes with your GitHub connection).",
+      "githubUnsubscribed": "Unsubscribed from {repo}.",
+      "githubNotSubscribed": "This conversation isn't subscribed to {repo}.",
+      "githubSubscriptions": "Subscribed here: {repos}",
+      "githubNoSubscriptions": "This conversation has no GitHub subscriptions.",
+      "appError": "Couldn't do it: {error}"
     },
     "remove": "Remove {name}",
     "searchPeopleOrApps": "Search people or apps",
@@ -125,6 +133,45 @@
       "limit3": "Up to 120 events per minute per app; your server must answer within 10 seconds and redirects are not followed.",
       "limit4": "Secret URLs, tokens and signing secrets are shown only once; keep them somewhere safe.",
       "limit5": "The delivery log keeps each app's last 50 attempts."
+    },
+    "builtinGithub": "Issues, pull requests and repo updates (uses your own GitHub connection)",
+    "connect": {
+      "title": "Connected apps",
+      "intro": "Connect your own accounts in other services to use them from Chat (link previews, the GitHub app) and from your Claude. Each connection is yours alone: it acts with your permissions there, and you can disconnect it at any time.",
+      "connected": "Connected",
+      "needsReconnect": "Needs reconnecting",
+      "connect": "Connect",
+      "reconnect": "Reconnect",
+      "disconnect": "Disconnect",
+      "cancel": "Cancel",
+      "confirmDisconnect": "Disconnect {name}? Your Claude loses its tools and your subscriptions stop.",
+      "scopes": "Permissions:",
+      "lastUsed": "Last used:",
+      "never": "never",
+      "notConfigured": "Not configured — ask your admin",
+      "notConfiguredHint": "The admin registers an OAuth app with this callback URL and sets {prefix}_CLIENT_ID and {prefix}_CLIENT_SECRET.",
+      "connectedOk": "{name} connected.",
+      "revokeYourself": "Disconnected here. {name} doesn't let us revoke the access automatically; you can remove it in your account.",
+      "manageAt": "Manage apps in {name}",
+      "about": {
+        "github": "Issues, pull requests and notifications; previews of GitHub links; the GitHub chat app.",
+        "google": "Google Calendar events (read and create) and Google Drive files (read-only).",
+        "atlassian": "Search, create and comment on Jira issues; previews of Jira links.",
+        "notion": "Search and read the pages you share, and append to them; previews of Notion links.",
+        "slack": "List channels and post messages as you."
+      },
+      "errors": {
+        "denied": "You cancelled the {name} authorization.",
+        "state": "The connection attempt expired or didn't match your session. Try again.",
+        "notConfigured": "{name} isn't configured on this workspace.",
+        "exchangeFailed": "{name} didn't accept the authorization. Try again.",
+        "accountFailed": "Connected, but your {name} account couldn't be read. Try again.",
+        "noSite": "No Jira site was authorized. Pick a site when connecting.",
+        "timeout": "{name} took too long to answer. Try again.",
+        "unreachable": "{name} couldn't be reached. Try again later.",
+        "providerError": "{name} returned an error.",
+        "failed": "Something went wrong connecting {name}."
+      }
     }
   }
 }

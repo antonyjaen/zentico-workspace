@@ -10,7 +10,15 @@
       "claudeWorking": "Entendido, estoy en ello…",
       "claudeQueued": "Tu bridge de Claude no está conectado. Lo haré en cuanto se conecte (esperaré hasta 10 minutos).",
       "claudeNoToken": "Para usar tu Claude aquí necesitas un token de lectura y escritura y el bridge en marcha (Ajustes → Integraciones).",
-      "claudeFailed": "No pude terminarlo: {error}"
+      "claudeFailed": "No pude terminarlo: {error}",
+      "connectRequired": "Primero conecta tu cuenta de {provider}: Ajustes → Apps y bots → Apps conectadas.",
+      "githubUsage": "Comandos de GitHub:\n/github issue owner/repo Título — crea una issue a tu nombre\n/github subscribe owner/repo — publica aquí las nuevas issues y pull requests\n/github unsubscribe owner/repo — deja de hacerlo\n/github list — suscripciones de esta conversación",
+      "githubSubscribed": "Esta conversación está suscrita a {repo}: las nuevas issues y pull requests aparecerán aquí (se revisa cada 5 minutos con tu conexión de GitHub).",
+      "githubUnsubscribed": "Suscripción a {repo} cancelada.",
+      "githubNotSubscribed": "Esta conversación no está suscrita a {repo}.",
+      "githubSubscriptions": "Suscripciones aquí: {repos}",
+      "githubNoSubscriptions": "Esta conversación no tiene suscripciones de GitHub.",
+      "appError": "No se pudo hacer: {error}"
     },
     "remove": "Quitar a {name}",
     "searchPeopleOrApps": "Busca personas o apps",
@@ -125,6 +133,45 @@
       "limit3": "Hasta 120 eventos por minuto por app; tu servidor debe responder en 10 segundos y no seguimos redirecciones.",
       "limit4": "Las URL secretas, los tokens y los secretos de firma solo se muestran una vez; guárdalos en un lugar seguro.",
       "limit5": "El historial de entregas guarda los últimos 50 intentos de cada app."
+    },
+    "builtinGithub": "Issues, pull requests y novedades de repos (usa tu propia conexión de GitHub)",
+    "connect": {
+      "title": "Apps conectadas",
+      "intro": "Conecta tus propias cuentas de otros servicios para usarlas desde Chat (vistas previas de enlaces, la app de GitHub) y desde tu Claude. Cada conexión es solo tuya: actúa con tus permisos allí y puedes desconectarla cuando quieras.",
+      "connected": "Conectada",
+      "needsReconnect": "Hay que reconectar",
+      "connect": "Conectar",
+      "reconnect": "Reconectar",
+      "disconnect": "Desconectar",
+      "cancel": "Cancelar",
+      "confirmDisconnect": "¿Desconectar {name}? Tu Claude pierde sus herramientas y se detienen tus suscripciones.",
+      "scopes": "Permisos:",
+      "lastUsed": "Último uso:",
+      "never": "nunca",
+      "notConfigured": "Sin configurar — pídeselo a tu administrador",
+      "notConfiguredHint": "El administrador registra una app OAuth con esta URL de callback y define {prefix}_CLIENT_ID y {prefix}_CLIENT_SECRET.",
+      "connectedOk": "{name} conectada.",
+      "revokeYourself": "Desconectada aquí. {name} no permite revocar el acceso automáticamente; puedes quitarlo desde tu cuenta.",
+      "manageAt": "Gestionar apps en {name}",
+      "about": {
+        "github": "Issues, pull requests y notificaciones; vistas previas de enlaces de GitHub; la app de GitHub en el chat.",
+        "google": "Eventos de Google Calendar (leer y crear) y archivos de Google Drive (solo lectura).",
+        "atlassian": "Buscar, crear y comentar issues de Jira; vistas previas de enlaces de Jira.",
+        "notion": "Buscar y leer las páginas que compartas y añadirles texto; vistas previas de enlaces de Notion.",
+        "slack": "Listar canales y publicar mensajes a tu nombre."
+      },
+      "errors": {
+        "denied": "Cancelaste la autorización de {name}.",
+        "state": "El intento de conexión caducó o no coincide con tu sesión. Inténtalo de nuevo.",
+        "notConfigured": "{name} no está configurada en este espacio de trabajo.",
+        "exchangeFailed": "{name} no aceptó la autorización. Inténtalo de nuevo.",
+        "accountFailed": "Conectada, pero no se pudo leer tu cuenta de {name}. Inténtalo de nuevo.",
+        "noSite": "No se autorizó ningún sitio de Jira. Elige un sitio al conectar.",
+        "timeout": "{name} tardó demasiado en responder. Inténtalo de nuevo.",
+        "unreachable": "No se pudo contactar con {name}. Inténtalo más tarde.",
+        "providerError": "{name} devolvió un error.",
+        "failed": "Algo salió mal al conectar {name}."
+      }
     }
   }
 }
