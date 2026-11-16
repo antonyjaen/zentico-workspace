@@ -1,3 +1,4 @@
+import { initials as initialsOf } from "@/app/(apps)/contacts/hrefs";
 // Small formatting helpers shared by the thread reader's client components.
 
 export function formatBytes(n: number) {
@@ -15,18 +16,11 @@ export function avatarGradient(seed: string) {
   return `linear-gradient(135deg, oklch(0.72 0.16 ${a}), oklch(0.62 0.18 ${b}))`;
 }
 
-/** One or two letters for an avatar: "Ada Lovelace" → "AL", "ops@x.io" → "O". */
+/** One or two letters for an avatar: "Ada Lovelace" → "AL", "Ana (x.dev)" → "A", "ops@x.io" → "O". */
 export function initials(name: string | null, email: string) {
-  const words = (name ?? "")
-    .replace(/["'()<>[\]]/g, " ")
-    .split(/\s+/)
-    .filter((w) => /\p{L}|\p{N}/u.test(w));
-  if (words.length >= 2) return (first(words[0]) + first(words[words.length - 1])).toUpperCase();
-  if (words.length === 1) return first(words[0]).toUpperCase();
-  return first(email).toUpperCase() || "?";
+  return initialsOf(name?.trim() ? name : email.split("@")[0]);
 }
 
-const first = (s: string) => Array.from(s.replace(/^[^\p{L}\p{N}]+/u, ""))[0] ?? "";
 
 /** "3:02 PM" today, "Nov 14, 3:02 PM" this year, "Nov 14, 2024" before. */
 export function formatShort(d: Date, locale: string) {

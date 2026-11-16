@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTransition } from "react";
 import type { AccountSummary } from "@/lib/auth";
+import { initials as initialsOf } from "@/app/(apps)/contacts/hrefs";
 import { usePopover } from "./usePopover";
 
 /** Deterministic two-hue gradient per account, so every user gets a recognizable avatar. */
@@ -18,9 +19,7 @@ function avatarGradient(seed: string) {
 }
 
 function initials(name: string, email: string) {
-  const words = name.trim().split(/\s+/).filter((w) => w && !w.includes("@"));
-  const letters = words.length ? words.slice(0, 2).map((w) => w[0]) : [email[0] ?? "?"];
-  return letters.join("").toUpperCase();
+  return initialsOf(name.trim() && !name.includes("@") ? name : email);
 }
 
 const domainOf = (email: string) => email.split("@")[1] ?? email;
