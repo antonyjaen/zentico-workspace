@@ -82,6 +82,35 @@ export function takeClipSlot(email: string, minIntervalMs: number): boolean {
   return true;
 }
 
+/* --------------------------------------------------------- language memory */
+// Detecting the language costs Whisper an extra encoder pass (~2x slower on CPU). Each speaker's
+// language in a room is detected on their first clips and then reused; it is re-detected every
+// REDETECT_EVERY clips so a switch to another language is picked up.
+
+const REDETECT_EVERY = 6;
+const MIN_CHARS_TO_LEARN = 12;
+
+type LangState = { lang: string | null; sinceDetect: number };
+const langs = ((g as typeof g & { __zwVoiceLang?: Map<string, LangState> }).__zwVoiceLang ??= new Map());
+
+const langKey = (email: string, room: string) => `${email.toLowerCase()}
+${room}`;
+
+/** The language to pin for this speaker's next clip, or null to let Whisper detect it. */
+export function clipLanguage(email: string, room: string): string | null {
+  const st = langs.get(langKey(email, room));
+  if (!st?.lang || st.sinceDetect >= REDETECT_EVERY) return null;
+  st.sinceDetect++;
+  return st.lang;
+}
+
+/** Records the language Whisper detected on a clip that had enough speech to trust it. */
+export function learnLanguage(email: string, room: string, detected: string | null, heardChars: number): void {
+  if (!detected || heardChars < MIN_CHARS_TO_LEARN) return;
+  if (langs.size > 5000) langs.clear();
+  langs.set(langKey(email, room), { lang: detected, sinceDetect: 0 });
+}
+
 /* ------------------------------------------------------------- clip queue */
 // Whisper on CPU is slow (~20 s per clip whatever its length) and keeps working on requests we
 // abandon, so clips are queued instead of dropped: each user's clips are transcribed one at a

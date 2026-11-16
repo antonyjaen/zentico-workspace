@@ -9,7 +9,7 @@ import { getSession } from "@/lib/auth";
 import { createCommand, cleanTimeZone, hasWriteToken } from "@/lib/meetings/claude-commands";
 import { jsonError, NO_STORE, sameOrigin } from "@/lib/meetings/http";
 import { transcribeAudio, whisperConfig } from "@/lib/meetings/transcribe";
-import { controlOf, enterClipQueue, findCommand, takeClipSlot } from "@/lib/meetings/voice";
+import { clipLanguage, controlOf, enterClipQueue, findCommand, learnLanguage, takeClipSlot } from "@/lib/meetings/voice";
 import {
   addUtterance,
   cancelCommand,
@@ -95,13 +95,13 @@ export async function POST(req: NextRequest) {
   const release = await enterClipQueue(session.email, req.signal);
   if (!release) return jsonError("superseded", 429);
 
+  // Pinned after the speaker's first clips in this room (detection doubles Whisper's time).
+  const pinned = clipLanguage(session.email, room);
   let result;
   try {
     let audio: Uint8Array | null = new Uint8Array(await file.arrayBuffer());
     try {
-      // Language is auto-detected per clip (large-v3-turbo detects reliably and people switch
-      // between Spanish and English); WHISPER_LANGUAGE pins it when set.
-      result = await transcribeAudio(cfg, audio, mime, { timeoutMs: WHISPER_TIMEOUT_MS, prompt: "Claude," });
+      result = await transcribeAudio(cfg, audio, mime, { timeoutMs: WHISPER_TIMEOUT_MS, prompt: "Claude,", language: pinned });
     } finally {
       audio = null; // drop the clip right away
     }
@@ -114,7 +114,9 @@ export async function POST(req: NextRequest) {
   }
 
   const segments = result.segments;
-  console.info(`[voice] lang=${result.language ?? "?"} heard=${segments.reduce((n, x) => n + x.text.length, 0)}ch`);
+  const heardChars = segments.reduce((n, x) => n + x.text.length, 0);
+  if (!pinned) learnLanguage(session.email, room, result.language, heardChars);
+  console.info(`[voice] lang=${result.language ?? "?"}${pinned ? " (pinned)" : ""} heard=${heardChars}ch`);
   const heard = segments.map((s) => s.text).join(" ").trim();
   if (heard) addUtterance(session.email, room, heard);
 

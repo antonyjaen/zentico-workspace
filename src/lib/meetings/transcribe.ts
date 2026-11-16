@@ -61,6 +61,9 @@ export async function transcribeAudio(
   const language = opts.language ?? cfg.language;
   if (language) form.set("language", language);
   if (opts.prompt) form.set("prompt", opts.prompt);
+  // Silero VAD before decoding: silent or noise-only audio returns in well under a second instead of
+  // a full ~10 s CPU pass, and Whisper no longer invents text ("Thank you.") on silence.
+  form.set("vad_filter", "true");
 
   const res = await fetch(`${cfg.url}/v1/audio/transcriptions`, {
     method: "POST",
