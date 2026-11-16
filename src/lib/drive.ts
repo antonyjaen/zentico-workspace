@@ -457,8 +457,11 @@ export async function searchNodes(q: string, accountId?: string | null): Promise
 export async function recentFiles(limit = 50, accountId?: string | null): Promise<DriveNode[]> {
   const [all, trashId] = await Promise.all([getAllNodes(accountId), getTrashId(accountId)]);
   const inTrash = trashId ? descendantsOf(all, trashId) : new Set<string>();
+  // The dashboard's own config files (top-level "Zentico UI" folder) aren't the user's recent work.
+  const uiFolder = all.find((n) => n.isFolder && n.name === "Zentico UI");
+  const inUi = uiFolder ? descendantsOf(all, uiFolder.id) : new Set<string>();
   return all
-    .filter((n) => !n.isFolder && !inTrash.has(n.id))
+    .filter((n) => !n.isFolder && !inTrash.has(n.id) && !inUi.has(n.id))
     .sort((a, b) => (b.modified ?? "").localeCompare(a.modified ?? ""))
     .slice(0, limit);
 }
