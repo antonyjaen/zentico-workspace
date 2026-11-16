@@ -1,7 +1,8 @@
 // Mail read view: thread loading, HTML sanitizing and blob download helpers (server only).
 import { headers } from "next/headers";
 import { cache } from "react";
-import { requireSession } from "./auth";
+import { actingAccountId, requireSession } from "./auth";
+import { actAs } from "./delegation";
 import { env } from "./env";
 import { CAP, JmapError, jmap, primaryAccount } from "./jmap";
 
@@ -31,14 +32,16 @@ type MailSession = { downloadUrl: string; accountId: string; token: string };
  * Fetches the JMAP session to get Stalwart's `downloadUrl` template. Kept here (instead of
  * extending jmap.ts) so blob downloads don't depend on the shared client's internals.
  */
-export const getMailSession = cache(async (): Promise<MailSession> => {
+export const getMailSession = async () => mailSessionFor(await actingAccountId());
+
+const mailSessionFor = cache(async (acting: string | null): Promise<MailSession> => {
   const { accessToken } = await requireSession();
   const res = await fetch(`${env.issuer}/jmap/session`, {
     headers: { Authorization: `Bearer ${accessToken}` },
     cache: "no-store",
   });
   if (!res.ok) throw new JmapError(`JMAP session failed: ${res.status}`);
-  const s = (await res.json()) as { downloadUrl?: string; primaryAccounts?: Record<string, string> };
+  const s = actAs((await res.json()) as { downloadUrl?: string; primaryAccounts?: Record<string, string> }, acting);
   const accountId = s.primaryAccounts?.[CAP.mail];
   if (!s.downloadUrl || !accountId) throw new JmapError("JMAP session has no mail download URL");
   return { downloadUrl: s.downloadUrl, accountId, token: accessToken };

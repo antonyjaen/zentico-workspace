@@ -4,8 +4,10 @@ import { redirect } from "next/navigation";
 import { cache } from "react";
 import { exceedsLifetime, isGated } from "./security/store";
 import {
+  ACTING_COOKIE,
   isSignedOut,
   LEGACY_SESSION_COOKIE,
+  parseActing,
   readAccounts,
   unsealSession,
   type Session,
@@ -22,7 +24,28 @@ export function runWithSession<T>(session: Session, fn: () => T): T {
   return context.run(session, fn);
 }
 
-const cookieAccounts = cache(async () => readAccounts(await cookies()));
+/** Every account cookie of this browser (sealed sessions per slot), memoized per request. */
+export const cookieAccounts = cache(async () => readAccounts(await cookies()));
+
+// Code that must use the person's own (master) account even while the browser acts as a delegated
+// one: chat, meetings. Same globalThis pattern as the session context above.
+const gm = globalThis as typeof globalThis & { __zwMasterOnly?: AsyncLocalStorage<true> };
+const masterOnly = (gm.__zwMasterOnly ??= new AsyncLocalStorage<true>());
+
+/** Runs `fn` ignoring the acting (delegated) account: JMAP calls inside use the master account. */
+export function asMaster<T>(fn: () => T): T {
+  return masterOnly.run(true, fn);
+}
+
+/**
+ * The delegated JMAP account id the active browser account acts as (unverified: callers check it
+ * against the JMAP session with lib/delegation). Never set for explicit sessions (MCP tokens).
+ */
+export async function actingAccountId(): Promise<string | null> {
+  if (context.getStore() || masterOnly.getStore()) return null;
+  const { order } = await cookieAccounts();
+  return parseActing((await cookies()).get(ACTING_COOKIE)?.value, order[0]);
+}
 
 /**
  * Signed out for the workspace: a failed refresh, or older than the admin's session lifetime
@@ -79,6 +102,10 @@ export type AccountSummary = {
   active: boolean;
   /** Needs a fresh sign-in before it can be used. */
   expired: boolean;
+  /** Delegated account reached through the slot's sign-in (JMAP account id); absent for the slot's own. */
+  account?: string;
+  /** Email of the signed-in (master) account a delegated entry goes through. */
+  via?: string;
 };
 
 /** Every account signed in on this browser, active first, then most recently used. */

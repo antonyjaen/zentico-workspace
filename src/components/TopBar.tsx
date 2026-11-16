@@ -1,6 +1,6 @@
 import { getTranslations } from "next-intl/server";
 import Link from "next/link";
-import { listAccounts } from "@/lib/auth";
+import { listAccountsWithDelegated } from "@/lib/jmap";
 import { env } from "@/lib/env";
 import type { Session } from "@/lib/session";
 import { AccountMenu } from "./AccountMenu";
@@ -15,7 +15,7 @@ import { TopSlot } from "./WorkspaceUi";
 
 export async function TopBar({ session, query }: { session: Session; query?: string }) {
   const t = await getTranslations("topbar");
-  const accounts = await listAccounts();
+  const accounts = await listAccountsWithDelegated();
   // Explicit sessions without account cookies still show the signed-in user.
   if (!accounts.some((a) => a.active)) {
     accounts.unshift({ slot: -1, email: session.email, name: session.name, active: true, expired: false });

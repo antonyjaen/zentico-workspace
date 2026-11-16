@@ -3,6 +3,7 @@
 // recent mail correspondents on the org's domains. One person's mailboxes across the org's
 // domains fold into one entry. Server-only; used by Chat actions and the MCP server.
 import { unstable_rethrow } from "next/navigation";
+import { asMaster } from "../auth";
 import {
   readableName,
   type ChatUser,
@@ -80,7 +81,8 @@ const directoryCache = (gDir.__zwChatDirectory ??= new Map());
 export function loadDirectory(me: ChatUser, fresh = false): Promise<DirectoryResult> {
   const hit = directoryCache.get(me.id);
   if (!fresh && hit && Date.now() - hit.at < DIRECTORY_TTL_MS) return hit.value;
-  const value = buildDirectory(me);
+  // Chat is the person's own identity: build from the master account even while acting as a delegated one.
+  const value = asMaster(() => buildDirectory(me));
   value.catch(() => {
     if (directoryCache.get(me.id)?.value === value) directoryCache.delete(me.id);
   });

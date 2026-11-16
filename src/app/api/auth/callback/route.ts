@@ -6,6 +6,7 @@ import { exchangeCode, fetchUserInfo, revokeGrant, safeReturnTo, type AuthTransa
 import { otpEnabled } from "@/lib/security/stalwart";
 import { getPolicy, isGated, recordStatus } from "@/lib/security/store";
 import {
+  ACTING_COOKIE,
   ACTIVE_COOKIE,
   SECURITY_COOKIE,
   SECURITY_MAX_AGE,
@@ -33,10 +34,14 @@ function fail(reason: string) {
   return res;
 }
 
-/** Back to Settings → Integrations after the MCP setup authorization (`mcp=ok` or `mcp_error=…`). */
-function integrations(result: { ok: true } | { error: string }) {
+/**
+ * Back to Settings → Integrations after the MCP setup authorization (`mcp=ok` or `mcp_error=…`), or
+ * to Calendar → Booking pages when that is where it was started (its API key is made the same way).
+ */
+function integrations(result: { ok: true } | { error: string }, returnTo?: string) {
   const q = "ok" in result ? "mcp=ok" : `mcp_error=${encodeURIComponent(result.error.slice(0, 40))}`;
-  const res = NextResponse.redirect(`${env.appUrl}/settings/integrations?${q}`);
+  const page = returnTo === "/calendar/booking" ? returnTo : "/settings/integrations";
+  const res = NextResponse.redirect(`${env.appUrl}${page}?${q}`);
   res.cookies.delete(TX_COOKIE);
   return res;
 }
@@ -51,19 +56,19 @@ async function mcpCallback(tx: AuthTransaction, code: string) {
     const [user, active] = await Promise.all([fetchUserInfo(tokens.access_token), getSession()]);
     if (!active || !sameAccount(active, { sub: user.sub, email: user.email ?? "" })) {
       await revokeGrant(tokens.access_token);
-      return integrations({ error: "account_mismatch" });
+      return integrations({ error: "account_mismatch" }, tx.returnTo);
     }
     const setup: McpSetup = {
       sub: active.sub,
       accessToken: tokens.access_token,
       expiresAt: Date.now() + Math.min(tokens.expires_in ?? 3600, MCP_SETUP_MAX_AGE) * 1000,
     };
-    const res = integrations({ ok: true });
+    const res = integrations({ ok: true }, tx.returnTo);
     res.cookies.set(MCP_SETUP_COOKIE, await seal(setup), cookieOptions(MCP_SETUP_MAX_AGE));
     return res;
   } catch (error) {
     console.error("[auth] MCP setup callback failed:", error instanceof Error ? error.message : error);
-    return integrations({ error: "failed" });
+    return integrations({ error: "failed" }, tx.returnTo);
   }
 }
 
@@ -119,7 +124,7 @@ export async function GET(req: NextRequest) {
   if (params.get("error")) {
     const error = params.get("error") ?? "denied";
     if (tx?.security) return securityFailed(tx, error);
-    return tx?.mcp ? integrations({ error }) : fail(error);
+    return tx?.mcp ? integrations({ error }, tx.returnTo) : fail(error);
   }
 
   const code = params.get("code");
@@ -153,6 +158,8 @@ export async function GET(req: NextRequest) {
     res.cookies.delete(SECURITY_COOKIE);
     writeCookie(res, slotCookie(slot), sealed);
     writeCookie(res, ACTIVE_COOKIE, serializeOrder(promote(accounts.order, slot)));
+    // A fresh sign-in lands on the account itself, not on a delegated account it can act as.
+    if (req.cookies.has(ACTING_COOKIE)) writeCookie(res, ACTING_COOKIE, null);
     if (req.cookies.has(LEGACY_SESSION_COOKIE)) writeCookie(res, LEGACY_SESSION_COOKIE, null);
     return res;
   } catch (error) {

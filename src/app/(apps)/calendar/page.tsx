@@ -3,7 +3,7 @@ import { getLocale, getTranslations } from "next-intl/server";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { unstable_rethrow } from "next/navigation";
-import { requireSession } from "@/lib/auth";
+import { selfIdentity } from "@/lib/jmap";
 import { getCalendars, getEvents } from "@/lib/calendar";
 import { CalendarApp } from "./CalendarApp";
 import { parsePeople, PEOPLE_COOKIE } from "./shared";
@@ -20,7 +20,7 @@ export default async function CalendarPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
-  const session = await requireSession();
+  const session = await selfIdentity();
   const locale = await getLocale();
   const jar = await cookies();
   const cookieTz = jar.get(TZ_COOKIE)?.value;

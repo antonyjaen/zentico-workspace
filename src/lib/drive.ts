@@ -11,7 +11,8 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { cache } from "react";
-import { getSession } from "./auth";
+import { actingAccountId, getSession } from "./auth";
+import { actAs, personalAccountId } from "./delegation";
 import { env } from "./env";
 import { CAP, jmap, JmapError, type Invocation } from "./jmap";
 
@@ -120,8 +121,13 @@ type DriveSession = {
   apiUrl: string;
   uploadUrl: string;
   downloadUrl: string;
-  /** Primary FileNode account. */
+  /** Primary FileNode account (the delegated one while acting as it). */
   accountId: string;
+  /**
+   * The token owner's own account: uploads always go there (Stalwart only accepts uploads into an
+   * account you own); FileNode/set in a shared account can then reference the blob.
+   */
+  uploadAccountId: string;
   /** Every account with FileNode support (primary first). */
   accounts: SessionAccount[];
   quotaAccountId: string | null;
@@ -152,7 +158,9 @@ function ownerPrincipal(a: RawAccount | undefined): string | null {
 }
 
 /** JMAP session details for Drive; null when the server has no FileNode support. */
-export const getDriveSession = cache(async (): Promise<DriveSession | null> => {
+export const getDriveSession = async () => driveSessionFor(await actingAccountId());
+
+const driveSessionFor = cache(async (acting: string | null): Promise<DriveSession | null> => {
   const session = await getSession();
   if (!session) return null;
   const res = await fetch(`${env.issuer}/jmap/session`, {
@@ -160,15 +168,16 @@ export const getDriveSession = cache(async (): Promise<DriveSession | null> => {
     cache: "no-store",
   });
   if (!res.ok) throw new JmapError(`JMAP session failed: ${res.status}`);
-  const s = (await res.json()) as RawSession;
+  const raw = (await res.json()) as RawSession;
+  const s = actAs(raw, acting);
   if (!s.capabilities?.[FILENODE] || !s.apiUrl || !s.uploadUrl || !s.downloadUrl) return null;
-  const raw = s.accounts ?? {};
+  const all = s.accounts ?? {};
   const accountId =
     s.primaryAccounts?.[FILENODE] ??
-    Object.entries(raw).find(([, a]) => a.accountCapabilities?.[FILENODE] && a.isPersonal !== false)?.[0] ??
+    Object.entries(all).find(([, a]) => a.accountCapabilities?.[FILENODE] && a.isPersonal !== false)?.[0] ??
     s.primaryAccounts?.[CAP.mail];
   if (!accountId) return null;
-  const accounts: SessionAccount[] = Object.entries(raw)
+  const accounts: SessionAccount[] = Object.entries(all)
     .filter(([id, a]) => id === accountId || (ID.test(id) && a.accountCapabilities?.[FILENODE]))
     .map(([id, a]) => ({
       id,
@@ -187,10 +196,11 @@ export const getDriveSession = cache(async (): Promise<DriveSession | null> => {
     uploadUrl: s.uploadUrl,
     downloadUrl: s.downloadUrl,
     accountId,
+    uploadAccountId: personalAccountId(raw) ?? accountId,
     accounts,
     quotaAccountId: s.capabilities?.[QUOTA] ? (s.primaryAccounts?.[QUOTA] ?? accountId) : null,
     principalsAccountId: s.capabilities?.[PRINCIPALS] ? (s.primaryAccounts?.[PRINCIPALS] ?? accountId) : null,
-    selfPrincipalId: ownerPrincipal(raw[accountId]),
+    selfPrincipalId: ownerPrincipal(all[accountId]),
     token: session.accessToken,
   };
 });
@@ -855,7 +865,7 @@ export async function destroyNodes(ids: string[], accountId?: string | null): Pr
 
 /* ------------------------------------------------------------------ blobs */
 
-/** Streams `body` to the JMAP upload endpoint of `accountId`, aborting past `max` bytes. */
+/** Streams `body` to the JMAP upload endpoint (own account, usable from `accountId`), aborting past `max` bytes. */
 export async function uploadStream(
   body: ReadableStream<Uint8Array> | ArrayBuffer,
   type: string,
@@ -864,7 +874,8 @@ export async function uploadStream(
 ): Promise<{ blobId: string; type: string; size: number }> {
   const s = await getDriveSession();
   if (!s) throw new DriveError("Drive not available", "unavailable");
-  const acc = await account(opts.accountId);
+  // Validates the target account; the blob always goes to the own account (see uploadAccountId).
+  await account(opts.accountId);
   const max = opts.max ?? MAX_UPLOAD_BYTES;
   let total = 0;
   if (body instanceof ArrayBuffer && body.byteLength > max) throw new DriveError("File too large", "too_large");
@@ -881,7 +892,7 @@ export async function uploadStream(
       },
     }),
   );
-  const url = s.uploadUrl.replace("{accountId}", encodeURIComponent(acc));
+  const url = s.uploadUrl.replace("{accountId}", encodeURIComponent(s.uploadAccountId));
   let res: Response;
   try {
     res = await fetch(url, {
@@ -917,11 +928,12 @@ export async function uploadFile(
 ): Promise<{ blobId: string; type: string; size: number }> {
   const s = await getDriveSession();
   if (!s) throw new DriveError("Drive not available", "unavailable");
-  const acc = await account(opts.accountId);
+  // Validates the target account; the blob always goes to the own account (see uploadAccountId).
+  await account(opts.accountId);
   const { size } = await stat(path);
   if (size > (opts.max ?? 2 * 1024 ** 3)) throw new DriveError("File too large", "too_large");
   const file = createReadStream(path);
-  const url = s.uploadUrl.replace("{accountId}", encodeURIComponent(acc));
+  const url = s.uploadUrl.replace("{accountId}", encodeURIComponent(s.uploadAccountId));
   let res: Response;
   try {
     res = await fetch(url, {

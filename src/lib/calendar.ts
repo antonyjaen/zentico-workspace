@@ -3,9 +3,10 @@
 import { addDays, DAY_MS, formatDuration, parseDuration, zonedToUtc } from "@/app/(apps)/calendar/time";
 import { unstable_rethrow } from "next/navigation";
 import { cache } from "react";
-import { requireSession } from "./auth";
+import { actingAccountId, requireSession } from "./auth";
+import { actAs } from "./delegation";
 import { env } from "./env";
-import { CAP, jmap, JmapError, primaryAccount } from "./jmap";
+import { CAP, jmap, JmapError, primaryAccount, selfIdentity } from "./jmap";
 
 export const CAP_PRINCIPALS = "urn:ietf:params:jmap:principals";
 export const CAP_AVAILABILITY = "urn:ietf:params:jmap:principals:availability";
@@ -102,15 +103,17 @@ type RawSession = {
 export type CalAccount = { id: string; name: string; primary: boolean };
 
 /** Calendar accounts in the JMAP session: mine first, then accounts other users shared with me. */
-export const getCalendarSession = cache(
-  async (): Promise<{ accounts: CalAccount[]; principalsAccount: string | null; availability: boolean }> => {
+export const getCalendarSession = async () => calendarSessionFor(await actingAccountId());
+
+const calendarSessionFor = cache(
+  async (acting: string | null): Promise<{ accounts: CalAccount[]; principalsAccount: string | null; availability: boolean }> => {
     const { accessToken } = await requireSession();
     const res = await fetch(`${env.issuer}/jmap/session`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: "no-store",
     });
     if (!res.ok) throw new JmapError(`JMAP session failed: ${res.status}`);
-    const s = (await res.json()) as RawSession;
+    const s = actAs((await res.json()) as RawSession, acting);
     const primary = s.primaryAccounts?.[CAP.calendars];
     if (!primary) throw new JmapError(`No account for ${CAP.calendars}`);
     const shared = Object.entries(s.accounts ?? {})
@@ -471,7 +474,7 @@ export type MeetingEventInput = {
  * Inputs must already be validated by the caller.
  */
 export async function createMeetingEvent(input: MeetingEventInput): Promise<{ id: string; calendarId: string }> {
-  const session = await requireSession();
+  const session = await selfIdentity();
   const me = { email: session.email.toLowerCase(), name: session.name };
   const accountId = await calendarAccount();
   const own = (await getCalendars()).filter((c) => c.accountId === accountId && c.mayWrite);

@@ -1,10 +1,11 @@
 // Server-side composer logic: identities, prefill for reply/forward/drafts, draft autosave,
 // sending (Email/set + EmailSubmission/set), blob upload and contact autocomplete.
 import { cache } from "react";
-import { getSession } from "./auth";
+import { actingAccountId, getSession } from "./auth";
 import { env } from "./env";
 import { suggestRecipients } from "./contacts";
-import { CAP, jmap, JmapError, primaryAccount } from "./jmap";
+import { actAs, personalAccountId, type RawJmapSession } from "./delegation";
+import { actingAccount, CAP, jmap, JmapError, primaryAccount } from "./jmap";
 import { getMailboxes } from "./mail";
 
 /* ------------------------------------------------------------------ types */
@@ -146,16 +147,20 @@ export function validateInput(raw: unknown): ComposeInput {
 
 /* ---------------------------------------------------------------- session */
 
-type ComposeSession = {
+type ComposeSession = RawJmapSession & {
   apiUrl: string;
   uploadUrl: string;
   capabilities: Record<string, unknown>;
   primaryAccounts: Record<string, string>;
+  /** The token owner's own account: uploads go there even while acting as a delegated account. */
+  uploadAccountId: string | null;
   token: string;
 };
 
 /** JMAP session for compose-specific needs (upload URL, capability checks). */
-export const getComposeSession = cache(async (): Promise<ComposeSession | null> => {
+export const getComposeSession = async () => composeSessionFor(await actingAccountId());
+
+const composeSessionFor = cache(async (acting: string | null): Promise<ComposeSession | null> => {
   const session = await getSession();
   if (!session) return null;
   const res = await fetch(`${env.issuer}/jmap/session`, {
@@ -163,15 +168,27 @@ export const getComposeSession = cache(async (): Promise<ComposeSession | null> 
     cache: "no-store",
   });
   if (!res.ok) throw new JmapError(`JMAP session failed: ${res.status}`);
-  const s = (await res.json()) as Omit<ComposeSession, "token">;
-  return { ...s, token: session.accessToken };
+  const raw = (await res.json()) as Omit<ComposeSession, "token" | "uploadAccountId">;
+  return { ...actAs(raw, acting), uploadAccountId: personalAccountId(raw), token: session.accessToken };
 });
 
 /* ------------------------------------------------------------- identities */
 
 const USING_SUBMIT = [CAP.core, CAP.mail, CAP.submission];
 
-export const getIdentities = cache(async (): Promise<Identity[]> => {
+/** Identity id standing for the delegated account's own address (it has no JMAP identities). */
+const DELEGATED_IDENTITY = "delegated";
+
+export const getIdentities = async () => identitiesFor(await actingAccountId());
+
+const identitiesFor = cache(async (acting: string | null): Promise<Identity[]> => {
+  // Acting as a delegated account: Stalwart keeps Identity/* owner-only, so drafts carry the
+  // account's own address (its Drafts are writable through the share); sending is refused below.
+  const delegated = acting ? await actingAccount() : null;
+  if (delegated) {
+    const { name } = (await getSession()) ?? { name: "" };
+    return [{ id: DELEGATED_IDENTITY, email: delegated.email, name, textSignature: "", htmlSignature: "" }];
+  }
   const accountId = await primaryAccount(CAP.submission);
   const r = await jmap(
     [
@@ -449,6 +466,12 @@ export async function sendMessage(
   const rcpt = [...input.to, ...input.cc, ...input.bcc];
   if (!rcpt.length) fail("Add at least one recipient");
   const identity = await resolveIdentity(input.identityId);
+  if (identity.id === DELEGATED_IDENTITY) {
+    // Stalwart only lets an account's owner (or a group member) submit mail from it; a delegated
+    // share can read and write the mailbox but not send. Keep the message as a draft instead.
+    const draftId = await saveDraft(raw, prev);
+    return { ok: false, error: `Sending as ${identity.email} needs a sign-in to that account. The message was saved in its Drafts.`, draftId };
+  }
   const { drafts, sent } = await roleBoxes();
   const accountId = await primaryAccount(CAP.mail);
 
@@ -518,7 +541,8 @@ export async function uploadBlob(
 ): Promise<{ blobId: string; type: string; size: number }> {
   const session = await getComposeSession();
   if (!session) fail("Not signed in");
-  const accountId = session.primaryAccounts[CAP.mail];
+  // Own account: Stalwart only accepts uploads there; Email/set in a shared account can use the blob.
+  const accountId = session.uploadAccountId ?? session.primaryAccounts[CAP.mail];
   if (!accountId || !session.uploadUrl) fail("Upload not available");
   const url = session.uploadUrl.replace("{accountId}", encodeURIComponent(accountId));
   const res = await fetch(url, {

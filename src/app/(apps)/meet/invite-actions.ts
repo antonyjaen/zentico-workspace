@@ -6,6 +6,7 @@
 import { getTranslations } from "next-intl/server";
 import { unstable_rethrow } from "next/navigation";
 import type { ActionResult, Person } from "../chat/shared";
+import { asMaster } from "@/lib/auth";
 import { get } from "@/lib/chat/db";
 import { domainOf, EMAIL, foldPeople, loadDirectory } from "@/lib/chat/directory";
 import { chatUser } from "@/lib/chat/session";
@@ -145,7 +146,8 @@ export async function inviteToMeeting(
     if (byMail.length) {
       let identity: Identity | undefined;
       try {
-        const ids = await getIdentities();
+        // Invites come from the person's own address, even while acting as a delegated account.
+        const ids = await asMaster(getIdentities);
         identity = ids.find((i) => i.email.toLowerCase() === me.email) ?? ids[0];
       } catch (e) {
         unstable_rethrow(e);
@@ -169,9 +171,11 @@ export async function inviteToMeeting(
           continue;
         }
         try {
-          const r = await sendMail(
-            { identityId: identity.id, to: [email], cc: [], bcc: [], subject, html, text, attachments: [], inReplyTo: null, references: null },
-            null,
+          const r = await asMaster(() =>
+            sendMail(
+              { identityId: identity.id, to: [email], cc: [], bcc: [], subject, html, text, attachments: [], inReplyTo: null, references: null },
+              null,
+            ),
           );
           results.set(email, r.ok ? "email" : "failed");
           if (!r.ok) console.error("[meet] invite mail rejected:", r.error);

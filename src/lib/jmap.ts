@@ -1,7 +1,9 @@
 // Server-side JMAP client (RFC 8620/8621) talking to Stalwart with the user's OAuth token.
 import { cache } from "react";
-import { requireSession } from "./auth";
+import { actingAccountId, cookieAccounts, listAccounts, requireSession, type AccountSummary } from "./auth";
+import { actAs, delegatedAccounts, findDelegated, type DelegatedAccount, type RawJmapSession } from "./delegation";
 import { env } from "./env";
+import { needsRefresh } from "./session";
 
 export const CAP = {
   core: "urn:ietf:params:jmap:core",
@@ -11,7 +13,7 @@ export const CAP = {
   contacts: "urn:ietf:params:jmap:contacts",
 } as const;
 
-type JmapSession = {
+type JmapSession = RawJmapSession & {
   apiUrl: string;
   primaryAccounts: Record<string, string>;
   username: string;
@@ -26,7 +28,8 @@ export class JmapError extends Error {}
 const SESSION_TTL_MS = 60_000;
 const sessions = new Map<string, { at: number; value: Promise<JmapSession> }>();
 
-function fetchJmapSession(accessToken: string): Promise<JmapSession> {
+/** The raw JMAP session resource for a token (briefly cached per token). */
+export function fetchJmapSession(accessToken: string): Promise<JmapSession> {
   const now = Date.now();
   const hit = sessions.get(accessToken);
   if (hit && now - hit.at < SESSION_TTL_MS) return hit.value;
@@ -45,10 +48,53 @@ function fetchJmapSession(accessToken: string): Promise<JmapSession> {
   return value;
 }
 
-const getJmapSession = cache(async (): Promise<JmapSession & { token: string }> => {
+// Keyed by the acting account so asMaster() inside the same request gets the master's view.
+const jmapSessionFor = cache(async (acting: string | null): Promise<JmapSession & { token: string }> => {
   const { accessToken } = await requireSession();
-  return { ...(await fetchJmapSession(accessToken)), token: accessToken };
+  return { ...actAs(await fetchJmapSession(accessToken), acting), token: accessToken };
 });
+
+const getJmapSession = async () => jmapSessionFor(await actingAccountId());
+
+/** The delegated account this request acts as, verified against the JMAP session; else null. */
+export async function actingAccount(): Promise<DelegatedAccount | null> {
+  const acting = await actingAccountId();
+  if (!acting) return null;
+  const { accessToken } = await requireSession();
+  return findDelegated(await fetchJmapSession(accessToken), acting);
+}
+
+/** Who mail/calendar act for: the delegated account's address while acting, else the user's. */
+export async function selfIdentity(): Promise<{ email: string; name: string }> {
+  const [session, acting] = await Promise.all([requireSession(), actingAccount()]);
+  return { email: acting?.email ?? session.email, name: session.name };
+}
+
+/**
+ * Signed-in accounts plus, under each, the delegated accounts its sign-in reaches (for the account
+ * switcher). Only slots with a live access token are asked (others are refreshed on switch).
+ */
+export async function listAccountsWithDelegated(): Promise<AccountSummary[]> {
+  const [base, { sessions }, acting] = await Promise.all([listAccounts(), cookieAccounts(), actingAccountId()]);
+  const signedIn = new Set(base.map((a) => a.email.toLowerCase()));
+  const groups = await Promise.all(
+    base.map(async (a): Promise<AccountSummary[]> => {
+      const s = sessions[a.slot];
+      const delegated =
+        s && !a.expired && !needsRefresh(s)
+          ? delegatedAccounts(await fetchJmapSession(s.accessToken).catch(() => ({}) as RawJmapSession))
+          : [];
+      const current = a.active ? delegated.find((d) => d.id === acting) : undefined;
+      return [
+        { ...a, active: a.active && !current },
+        ...delegated
+          .filter((d) => d === current || !signedIn.has(d.email))
+          .map((d) => ({ slot: a.slot, email: d.email, name: a.name, active: d === current, expired: false, account: d.id, via: a.email })),
+      ];
+    }),
+  );
+  return groups.flat().sort((x, y) => Number(y.active) - Number(x.active));
+}
 
 export async function primaryAccount(capability: string): Promise<string> {
   const session = await getJmapSession();

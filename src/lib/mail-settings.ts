@@ -2,7 +2,8 @@
 // display preferences. Server-only (uses the user's access token).
 import { cookies } from "next/headers";
 import { cache } from "react";
-import { requireSession } from "./auth";
+import { actingAccountId, requireSession } from "./auth";
+import { actAs } from "./delegation";
 import { env } from "./env";
 import { CAP, jmap, JmapError } from "./jmap";
 import type { Mailbox } from "./mail";
@@ -39,14 +40,16 @@ type FullSession = {
   capabilities: Record<string, unknown>;
 };
 
-export const getFullSession = cache(async (): Promise<FullSession & { token: string }> => {
+export const getFullSession = async () => fullSessionFor(await actingAccountId());
+
+const fullSessionFor = cache(async (acting: string | null): Promise<FullSession & { token: string }> => {
   const { accessToken } = await requireSession();
   const res = await fetch(`${env.issuer}/jmap/session`, {
     headers: { Authorization: `Bearer ${accessToken}` },
     cache: "no-store",
   });
   if (!res.ok) throw new JmapError(`JMAP session failed: ${res.status}`);
-  return { ...(await res.json()), token: accessToken };
+  return { ...actAs((await res.json()) as FullSession, acting), token: accessToken };
 });
 
 /** The account id for a capability, or null when the server does not offer it. */

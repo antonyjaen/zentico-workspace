@@ -44,6 +44,7 @@
     "otherAccounts": "Other accounts",
     "switchTo": "Switch to {email}",
     "signedOut": "Signed out",
+    "via": "Via {email}",
     "addAccount": "Add another account",
     "signoutCurrent": "Sign out of this account",
     "signoutAll": "Sign out of all accounts",

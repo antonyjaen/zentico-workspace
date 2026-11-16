@@ -90,6 +90,7 @@ export function AccountMenu({ accounts, accountUrl }: { accounts: AccountSummary
             <span className="min-w-0">
               <span className="block truncate text-[15px] font-medium text-ink">{active.name}</span>
               <span className="block truncate text-[13px] text-ink-mute">{active.email}</span>
+              {active.via && <span className="block truncate text-[12px] text-ink-mute">{t("via", { email: active.via })}</span>}
             </span>
           </div>
 
@@ -107,15 +108,20 @@ export function AccountMenu({ accounts, accountUrl }: { accounts: AccountSummary
             {others.length > 0 && (
               <ul aria-label={t("otherAccounts")}>
                 {others.map((account) => (
-                  <li key={account.slot}>
+                  <li key={`${account.slot}:${account.account ?? ""}`}>
                     <form action="/api/auth/switch" method="post">
                       <input type="hidden" name="slot" value={account.slot} />
+                      {/* Delegated account reached through this slot's sign-in (checked server-side). */}
+                      {account.account && <input type="hidden" name="account" value={account.account} />}
                       <input type="hidden" name="returnTo" value={pathname} />
                       <button type="submit" aria-label={t("switchTo", { email: account.email })} className={itemClass}>
                         <Avatar account={account} size={28} />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-[13.5px] text-ink">{account.name}</span>
                           <span className="block truncate text-[12.5px] text-ink-mute">{account.email}</span>
+                          {account.via && (
+                            <span className="block truncate text-[11.5px] text-ink-mute">{t("via", { email: account.via })}</span>
+                          )}
                         </span>
                         {account.expired && (
                           <span className="shrink-0 rounded-md border border-line bg-sheet-muted px-1.5 py-0.5 text-[11px] text-ink-mute">

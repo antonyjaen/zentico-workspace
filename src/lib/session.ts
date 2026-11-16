@@ -35,6 +35,20 @@ export const MAX_ACCOUNTS = 5;
 export const SLOTS: readonly number[] = Array.from({ length: MAX_ACCOUNTS }, (_, i) => i);
 export const slotCookie = (slot: number) => `zw_s${slot}`;
 
+/**
+ * Delegated account the active slot acts as ("<slot>.<jmapAccountId>"), set by /api/auth/switch.
+ * Only a hint: every request re-checks the id against the slot's own JMAP session (lib/delegation).
+ */
+export const ACTING_COOKIE = "zw_act";
+
+export const serializeActing = (slot: number, accountId: string) => `${slot}.${accountId}`;
+
+/** The acting account id when the cookie belongs to `activeSlot` and is well formed, else null. */
+export function parseActing(value: string | undefined, activeSlot: number | undefined): string | null {
+  const m = /^(\d)\.([A-Za-z0-9_-]{1,255})$/.exec(value ?? "");
+  return m && activeSlot !== undefined && parseSlot(m[1]) === activeSlot ? m[2] : null;
+}
+
 export type Session = {
   sub: string;
   email: string;

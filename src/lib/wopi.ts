@@ -7,6 +7,7 @@
 import { getSession } from "./auth";
 import { seal, sha256, base64url, randomToken, unseal } from "./crypto";
 import { env } from "./env";
+import { actingAccount } from "./jmap";
 
 /* ------------------------------------------------------------------ config */
 
@@ -77,6 +78,11 @@ export type Creds = {
   accessToken: string;
   /** Epoch ms when the access token expires (if known). */
   accessExpiresAt?: number;
+  /**
+   * FileNode account to work in when it isn't the token's own: the delegated account the user acts
+   * as (verified against the JMAP session before it gets here). File ids are per account.
+   */
+  accountId?: string;
 };
 
 type JmapSession = {
@@ -130,10 +136,15 @@ export class FilesClient {
     return (this.session = session);
   }
 
-  async accountId(): Promise<string> {
+  /** The token owner's own FileNode account (uploads must go there). */
+  private async ownAccountId(): Promise<string> {
     const id = (await this.getSession()).primaryAccounts[FILENODE_CAP];
     if (!id) throw new FilesError("File storage is not available for this account", 503);
     return id;
+  }
+
+  async accountId(): Promise<string> {
+    return this.creds.accountId ?? this.ownAccountId();
   }
 
   private async call(calls: [string, Record<string, unknown>, string][]) {
@@ -190,7 +201,7 @@ export class FilesClient {
 
   async upload(body: ArrayBuffer | Uint8Array, type: string): Promise<{ blobId: string; size: number }> {
     const session = await this.getSession();
-    const accountId = await this.accountId();
+    const accountId = await this.ownAccountId();
     const url = session.uploadUrl.replace("{accountId}", encodeURIComponent(accountId));
     const res = await this.authed(url, {
       method: "POST",
@@ -252,7 +263,8 @@ export class FilesClient {
 export async function userFiles(): Promise<{ client: FilesClient; creds: Creds; email: string; name: string } | null> {
   const s = await getSession();
   if (!s) return null;
-  const creds = { accessToken: s.accessToken, accessExpiresAt: s.expiresAt };
+  const acting = await actingAccount();
+  const creds: Creds = { accessToken: s.accessToken, accessExpiresAt: s.expiresAt, ...(acting && { accountId: acting.id }) };
   return { client: new FilesClient(creds), creds, email: s.email, name: s.name };
 }
 
@@ -264,6 +276,8 @@ export type WopiToken = {
   sid?: string;
   accessToken: string;
   accessExpiresAt?: number;
+  /** Delegated FileNode account (Creds.accountId), when not the token's own. */
+  accountId?: string;
   email: string;
   name: string;
   /** Epoch ms. */
@@ -280,6 +294,7 @@ export async function mintWopiToken(
     sid: randomToken(16),
     accessToken: user.creds.accessToken,
     accessExpiresAt: user.creds.accessExpiresAt,
+    ...(user.creds.accountId && { accountId: user.creds.accountId }),
     email: user.email,
     name: user.name,
     exp,
@@ -309,8 +324,9 @@ const renewed = (g.__zwWopiCreds ??= new Map());
 /** Client for a WOPI request: the most recently renewed access token of its editing session. */
 export function clientFor(t: WopiToken): FilesClient {
   const fresh = t.sid ? renewed.get(t.sid) : undefined;
-  if (fresh && fresh.accessExpiresAt > (t.accessExpiresAt ?? 0)) return new FilesClient(fresh);
-  return new FilesClient({ accessToken: t.accessToken, accessExpiresAt: t.accessExpiresAt });
+  const accountId = typeof t.accountId === "string" && ID.test(t.accountId) ? t.accountId : undefined;
+  if (fresh && fresh.accessExpiresAt > (t.accessExpiresAt ?? 0)) return new FilesClient({ ...fresh, accountId });
+  return new FilesClient({ accessToken: t.accessToken, accessExpiresAt: t.accessExpiresAt, accountId });
 }
 
 /**

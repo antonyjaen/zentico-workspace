@@ -3,7 +3,6 @@
 // Calendar mutations (CalendarEvent/set, Calendar/set). Every input is validated here.
 import { revalidatePath } from "next/cache";
 import { unstable_rethrow } from "next/navigation";
-import { requireSession } from "@/lib/auth";
 import {
   CAL_USING,
   calendarAccount,
@@ -20,7 +19,7 @@ import {
   type Principal,
   type ShareRole,
 } from "@/lib/calendar";
-import { jmap } from "@/lib/jmap";
+import { jmap, selfIdentity } from "@/lib/jmap";
 import { addDays, diffDays, formatDuration, isDayKey, isTimeZone, utcToLocal, zonedToUtc } from "./time";
 
 export type ActionResult<T = void> = { ok: true; data?: T } | { ok: false; error: string };
@@ -197,7 +196,7 @@ async function loadOwned(id: string, myEmail: string, accountId: string) {
 /** Creates (id = null) or updates an event. */
 export async function saveEvent(id: string | null, input: EventInput): Promise<ActionResult<string>> {
   return wrap(async () => {
-    const session = await requireSession();
+    const session = await selfIdentity();
     const me = { email: session.email.toLowerCase(), name: session.name };
     if (id !== null) assertId(id);
     const v = validate(input);
@@ -264,7 +263,7 @@ export async function moveEvent(
     if (!isTimeZone(displayTz)) throw new InputError("Invalid time zone");
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs || endMs - startMs > 366 * 86_400_000)
       throw new InputError("Invalid range");
-    const session = await requireSession();
+    const session = await selfIdentity();
     const { raw, ev } = await loadOwned(id, session.email, acc);
     if (!ev.isOrganizer) throw new InputError("Only the organizer can move this event");
     if (ev.allDay || ev.recurrence !== "none") throw new InputError("Event cannot be moved here");
@@ -281,7 +280,7 @@ export async function shiftEventDays(id: string, days: number, accountId?: strin
     const acc = await account(accountId);
     if (!Number.isInteger(days) || Math.abs(days) > 3660) throw new InputError("Invalid shift");
     if (days === 0) return;
-    const session = await requireSession();
+    const session = await selfIdentity();
     const { raw, ev } = await loadOwned(id, session.email, acc);
     if (!ev.isOrganizer) throw new InputError("Only the organizer can move this event");
     if (ev.recurrence !== "none") throw new InputError("Event cannot be moved here");
@@ -303,7 +302,7 @@ export async function deleteEvent(id: string, accountIdIn?: string): Promise<Act
   return wrap(async () => {
     assertId(id);
     const accountId = await account(accountIdIn);
-    const session = await requireSession();
+    const session = await selfIdentity();
     const { ev } = await loadOwned(id, session.email, accountId);
     const sendSchedulingMessages = ev.isOrganizer && ev.participants.some((p) => !p.isMe);
     const r = await jmap(
@@ -324,7 +323,7 @@ export async function respond(
     assertId(id);
     if (!["accepted", "tentative", "declined"].includes(status)) throw new InputError("Invalid status");
     const accountId = await account(accountIdIn);
-    const session = await requireSession();
+    const session = await selfIdentity();
     const { ev } = await loadOwned(id, session.email, accountId);
     const mine = ev.participants.find((p) => p.isMe);
     if (!mine) throw new InputError("You are not invited to this event");
@@ -361,7 +360,7 @@ export async function loadEvent(id: string, displayTz: string, accountIdIn?: str
     if (!isTimeZone(displayTz)) throw new InputError("Invalid time zone");
     const accountId = await account(accountIdIn);
     const primary = accountId === (await calendarAccount());
-    const session = await requireSession();
+    const session = await selfIdentity();
     const raw = await getRawEvent(id, accountId);
     if (!raw) throw new InputError("Event not found");
     return { ok: true, data: normalizeEvent(raw, displayTz, session.email, accountId, primary) };

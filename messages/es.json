@@ -44,6 +44,7 @@
     "otherAccounts": "Otras cuentas",
     "switchTo": "Cambiar a {email}",
     "signedOut": "Sesión cerrada",
+    "via": "Con {email}",
     "addAccount": "Agregar otra cuenta",
     "signoutCurrent": "Cerrar sesión en esta cuenta",
     "signoutAll": "Cerrar sesión en todas las cuentas",

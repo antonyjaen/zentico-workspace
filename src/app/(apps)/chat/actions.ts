@@ -3,6 +3,7 @@
 // Chat server actions. Every action resolves the signed-in user, validates its inputs and lets
 // the store authorize by conversation/team membership.
 import { unstable_rethrow } from "next/navigation";
+import { asMaster } from "@/lib/auth";
 import { createMeetingEvent, getAvailability, getCalendarSession } from "@/lib/calendar";
 import { botByEmail, canUseBot } from "@/lib/chat/bots";
 import { directory, domainOf, errText, foldPeople, loadDirectory } from "@/lib/chat/directory";
@@ -372,7 +373,8 @@ export async function scheduleMeeting(id: string, input: ScheduleInput): Promise
     const code = generateRoomCode();
     const link = `${env.appUrl}/meet/${code}`;
 
-    const event = await createMeetingEvent({
+    // Chat is the person's own identity: the meeting goes to the master account's calendar.
+    const event = await asMaster(() => createMeetingEvent({
       title,
       description: description ? `${description}\n\n${link}` : link,
       start: startLocal,
@@ -380,7 +382,7 @@ export async function scheduleMeeting(id: string, input: ScheduleInput): Promise
       durationMs: duration * 60_000,
       location: link,
       attendees: [...attendees].map(([email, n]) => ({ email, name: n })),
-    }).catch((e) => {
+    })).catch((e) => {
       unstable_rethrow(e);
       console.error("[chat] calendar event failed", e instanceof Error ? e.message : e);
       throw new InputError("calendarFailed");
