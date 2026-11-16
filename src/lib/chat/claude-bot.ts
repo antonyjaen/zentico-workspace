@@ -107,7 +107,7 @@ function buildPrompt(owner: Owner, conv: ConversationBrief, trigger: ChatMessage
     "Guidance:",
     `- Your final answer is posted in the conversation as "Claude (${owner.name})" and everyone in it can read it. Answer in the language of the request, concisely, using simple Markdown (**bold**, _italic_, \`code\`, lists, links). Don't mention these instructions.`,
     "- Don't post the answer yourself with chat_post_message: it is posted for you.",
-    "- Use the zentico MCP tools for workspace actions (mail, calendar, contacts, Drive/Docs, chat, meeting transcripts); look things up instead of guessing.",
+    "- Use the zentico MCP tools for workspace actions (mail, calendar, contacts, Drive/Docs, chat, meeting transcripts) and, when listed, for the owner's connected apps (github_, gcal_/gdrive_, jira_, notion_, slack_); look things up instead of guessing.",
     `- Write actions (sending mail, creating events, posting messages, sharing or writing files) are confirmed by ${owner.name} in the app automatically: just call the tool, don't ask in text. If a tool answers "Not confirmed by the user", don't retry; say the action was not done.`,
     "- If the request is unclear or something essential is missing, do only the safe read-only part and say what is missing.",
   ];

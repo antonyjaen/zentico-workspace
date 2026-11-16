@@ -11,6 +11,7 @@ import { ComposeError } from "@/lib/mail-compose";
 import { writeAudit, type TokenRow } from "@/lib/mcp/db";
 import { noteUse, RATE_LIMIT, rateLimit, ReauthError, sessionForToken, verifyToken } from "@/lib/mcp/tokens";
 import { listTools, runTool } from "@/lib/mcp/tools";
+import { connectedProviders } from "@/lib/connect/store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,7 +23,8 @@ const INSTRUCTIONS = `Zentico Workspace: the user's mail, calendar, contacts, Dr
 Read tools are safe to call freely. Before sending mail, posting chat messages, inviting people, sharing files or deleting anything, confirm with the user unless they explicitly asked you to act directly; prefer drafts (mail_create_draft, mail_reply/mail_forward without send) when unsure. drive_delete needs confirm=true.
 Calendar times default to the user's time zone and come back with their UTC offset.
 To change a file, read it with drive_read_text and edit it with drive_edit_text passing expectedModified, rather than rewriting it whole.
-Typical flow for a meeting: meetings_list → meetings_get_summary_inputs → summarize / extract action items → docs_create (markdown) for notes, mail_reply or mail_create_draft for follow-ups, calendar_find_free_time + calendar_create_event for next meetings.`;
+Typical flow for a meeting: meetings_list → meetings_get_summary_inputs → summarize / extract action items → docs_create (markdown) for notes, mail_reply or mail_create_draft for follow-ups, calendar_find_free_time + calendar_create_event for next meetings.
+Tools prefixed github_, gcal_/gdrive_, jira_, notion_ and slack_ act on the user's own connected third-party accounts (only those they connected appear); they act as the user there, so confirm before creating, commenting or posting.`;
 
 function jsonRpcError(status: number, code: number, message: string, headers: Record<string, string> = {}) {
   return Response.json({ jsonrpc: "2.0", error: { code, message }, id: null }, { status, headers });
@@ -53,7 +55,7 @@ function buildServer(row: TokenRow, commandId: string | null): Server {
     { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: listTools(row.scope) }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: listTools(row.scope, connectedProviders(row.userSub)) }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const name = request.params.name;

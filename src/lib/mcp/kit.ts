@@ -33,6 +33,8 @@ export type Tool = {
   destructive?: boolean;
   /** Reaches people outside the workspace UI, e.g. sends mail or invitations (MCP openWorldHint). */
   openWorld?: boolean;
+  /** Runs on the user's connected app (lib/connect): only listed when it is connected. */
+  provider?: import("../connect/providers").ProviderId;
   run(args: Args, ctx: ToolContext): Promise<unknown>;
 };
 

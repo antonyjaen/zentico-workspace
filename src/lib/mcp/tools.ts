@@ -7,12 +7,15 @@ import { ToolError, type Args } from "./args";
 import { awaitConfirmation } from "./agent";
 import { CALENDAR_TOOLS } from "./calendar-tools";
 import { CHAT_TOOLS, MEETING_TOOLS } from "./collab-tools";
+import { CONNECT_TOOLS } from "./connect-tools";
 import { DASHBOARD_TOOLS } from "./dashboard-tools";
 import type { Scope } from "./db";
 import { DRIVE_TOOLS } from "./drive-tools";
 import { appUrl, iso, type Tool } from "./kit";
 import { MAIL_TOOLS } from "./mail-tools";
 import { PEOPLE_TOOLS } from "./people-tools";
+import { connectedProviders } from "../connect/store";
+import type { ProviderId } from "../connect/providers";
 
 export type { ToolContext } from "./kit";
 import type { ToolContext } from "./kit";
@@ -38,15 +41,19 @@ const TOOLS: Tool[] = [
   ...CHAT_TOOLS,
   ...MEETING_TOOLS,
   ...DASHBOARD_TOOLS,
+  ...CONNECT_TOOLS,
 ];
 
 /* ----------------------------------------------------------------- registry */
 
 const BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));
 
-/** Tool listing for a token: write tools are only offered to read+write tokens. */
-export function listTools(scope: Scope) {
-  return TOOLS.filter((t) => scope === "write" || !t.write).map((t) => ({
+/**
+ * Tool listing for a token: write tools are only offered to read+write tokens, and connected-app
+ * tools only for the providers its user has connected.
+ */
+export function listTools(scope: Scope, connected: ReadonlySet<ProviderId> = new Set()) {
+  return TOOLS.filter((t) => (scope === "write" || !t.write) && (!t.provider || connected.has(t.provider))).map((t) => ({
     name: t.name,
     description: t.description,
     inputSchema: t.inputSchema,
@@ -162,6 +169,36 @@ export function describeWrite(name: string, args: Args): string {
       add("", `share ${count(args.fileIds)} Drive item(s) in chat`);
       add("granting", clip(args.grant, 10));
       break;
+    case "github_create_issue":
+      add("", `GitHub issue in ${clip(args.repo, 120)}: "${clip(args.title, 160)}"`);
+      add("", clip(args.body, 200));
+      add("assign", people(args.assignees));
+      break;
+    case "github_comment":
+      add("", `GitHub comment on ${clip(args.repo, 120)}#${clip(String(args.number ?? ""), 12)}`);
+      add("", `"${clip(args.body, 240)}"`);
+      break;
+    case "gcal_create_event":
+      add("", `Google Calendar event "${clip(args.title, 120)}"`);
+      add("at", `${clip(args.start, 40)}${args.timeZone ? ` (${clip(args.timeZone, 40)})` : ""}`);
+      add("inviting", people(args.attendees));
+      break;
+    case "jira_create_issue":
+      add("", `Jira ${clip(args.issueType, 30) || "Task"} in ${clip(args.project, 30)}: "${clip(args.summary, 160)}"`);
+      add("", clip(args.description, 200));
+      break;
+    case "jira_comment":
+      add("", `Jira comment on ${clip(args.issue, 60)}`);
+      add("", `"${clip(args.body, 240)}"`);
+      break;
+    case "notion_append":
+      add("", `append to Notion page ${clip(args.page, 120)}`);
+      add("", `"${clip(args.text, 240)}"`);
+      break;
+    case "slack_post_message":
+      add("", `Slack message to ${clip(args.channel, 80)}`);
+      add("", `"${clip(args.text, 240)}"`);
+      break;
     default:
       add("", clip(JSON.stringify(args), 300));
   }
@@ -176,6 +213,9 @@ export async function runTool(name: string, args: Args, ctx: ToolContext): Promi
   if (!tool) return { ok: false, error: `Unknown tool "${name}"` };
   if (tool.write && ctx.scope !== "write") {
     return { ok: false, error: "This token is read-only; create a read+write token in Settings → Integrations." };
+  }
+  if (tool.provider && !connectedProviders(ctx.session.sub).has(tool.provider)) {
+    return { ok: false, error: "This app is not connected (or needs reconnecting). Connect it in Settings → Apps & bots → Connected apps." };
   }
   // Meeting / dashboard commands: reads run immediately, writes wait for the user's confirmation
   // (self-service tools such as dashboard edits only touch the user's own UI and don't).
