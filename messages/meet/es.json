@@ -159,7 +159,7 @@
     "claudeOnDevice": "en este dispositivo",
     "claudeOnServer": "en el servidor",
     "claudeLocalStt": "Transcribir en este dispositivo (GPU)",
-    "claudeLocalSttHint": "Tu tarjeta gráfica convierte la voz en texto, así que no se envía audio al servidor y las respuestas llegan antes. La primera vez se descarga el modelo de voz (unos 1,6 GB) y el navegador lo guarda.",
+    "claudeLocalSttHint": "Tu tarjeta gráfica convierte la voz en texto, así que no se envía audio al servidor y las respuestas llegan antes. La primera vez se descarga el modelo de voz (hasta 1,6 GB) y el navegador lo guarda.",
     "claudeLocalSttLoading": "Preparando la transcripción local…",
     "claudeLocalSttLoadingPct": "Preparando la transcripción local… {percent}%",
     "claudeLocalSttReady": "Listo: se transcribe en este dispositivo",

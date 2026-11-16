@@ -159,7 +159,7 @@
     "claudeOnDevice": "on this device",
     "claudeOnServer": "on the server",
     "claudeLocalStt": "Transcribe on this device (GPU)",
-    "claudeLocalSttHint": "Your graphics card turns speech into text, so no audio is sent to the server and answers come faster. The first time, the speech model (about 1.6 GB) is downloaded once and kept by your browser.",
+    "claudeLocalSttHint": "Your graphics card turns speech into text, so no audio is sent to the server and answers come faster. The first time, the speech model (up to 1.6 GB) is downloaded once and kept by your browser.",
     "claudeLocalSttLoading": "Preparing local transcription…",
     "claudeLocalSttLoadingPct": "Preparing local transcription… {percent}%",
     "claudeLocalSttReady": "Ready: transcribing on this device",

@@ -50,12 +50,13 @@ async function load() {
   const gpu = (navigator as Navigator & { gpu?: Gpu }).gpu;
   const adapter = gpu ? await gpu.requestAdapter() : null;
   if (!adapter) throw new Error("no WebGPU adapter");
-  // fp16 halves the encoder (1.3 GB vs 2.5 GB) but needs shader-f16.
+  // fp16 halves the encoder (1.3 GB vs 2.5 GB) but needs shader-f16; without it the q4 encoder
+  // (~425 MB) keeps the download and GPU memory reasonable instead of a 2.5 GB fp32 one.
   const f16 = adapter.features.has("shader-f16");
   const create = pipeline as unknown as (task: string, model: string, opts: object) => Promise<AutomaticSpeechRecognitionPipeline>;
   const pipe = await create("automatic-speech-recognition", MODEL, {
     device: "webgpu",
-    dtype: { encoder_model: f16 ? "fp16" : "fp32", decoder_model_merged: "q4" },
+    dtype: { encoder_model: f16 ? "fp16" : "q4", decoder_model_merged: "q4" },
     progress_callback: progressTracker(),
   });
   // Compiles the GPU shaders now rather than on the first command.
