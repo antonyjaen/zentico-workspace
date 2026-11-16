@@ -44,6 +44,13 @@ type Props = {
   me: ChatUser;
   /** Continuation of the previous message by the same author (no avatar/name). */
   grouped: boolean;
+  /**
+   * "list": classic left-aligned rows (channels). "dm" / "group": chat bubbles — mine on the
+   * right, others on the left (names only in groups).
+   */
+  variant?: "list" | "dm" | "group";
+  /** Last message of its group: bubbles show the time under it. */
+  last?: boolean;
   nameOf: (userId: number) => string;
   onUpdate: (m: ChatMessage) => void;
   /** Opens the thread panel; omitted inside the thread itself. */
@@ -51,7 +58,17 @@ type Props = {
   canInteract: boolean;
 };
 
-export const MessageItem = memo(function MessageItem({ m, me, grouped, nameOf, onUpdate, onReply, canInteract }: Props) {
+export const MessageItem = memo(function MessageItem({
+  m,
+  me,
+  grouped,
+  variant = "list",
+  last = true,
+  nameOf,
+  onUpdate,
+  onReply,
+  canInteract,
+}: Props) {
   const t = useTranslations("chat");
   const locale = useLocale();
   const errorText = useErrorText();
@@ -88,6 +105,218 @@ export const MessageItem = memo(function MessageItem({ m, me, grouped, nameOf, o
   };
 
   const highlighted = !mine && !m.deleted && mentionsMe(m.body, meHandle);
+  const bubbles = variant !== "list";
+  // Bubble layout: meeting/call cards stay centered, like system lines.
+  const side = m.kind === "meeting" ? "center" : mine ? "right" : "left";
+  const fullTime = new Date(m.created).toLocaleString(locale);
+  const timeLabel =
+    shortTime(m.created, locale) === timeOf(m.created, locale)
+      ? timeOf(m.created, locale)
+      : `${shortTime(m.created, locale)} ${timeOf(m.created, locale)}`;
+
+  const editBox = (
+    <EditBox
+      initial={m.body}
+      onCancel={() => setEditing(false)}
+      onSave={async (text) => {
+        const r = await editMessage(m.id, text);
+        if (r.ok) {
+          onUpdate(r.data);
+          setEditing(false);
+        } else setError(errorText(r.error));
+      }}
+    />
+  );
+
+  // Cards, ephemeral hint, files and Drive files: below the text (outside any bubble).
+  const extras = (
+    <>
+      {m.meta?.cards && m.meta.cards.length > 0 && <BotCards cards={m.meta.cards} meHandle={meHandle} />}
+      {m.ephemeral && <OnlyYou />}
+      {m.meta?.files && m.meta.files.length > 0 && <Attachments files={m.meta.files} />}
+      <DriveCards m={m} me={me} canInteract={canInteract} />
+    </>
+  );
+
+  const meetingCard =
+    m.kind === "meeting" && m.meta?.meeting ? (
+      <MeetingCard created={m.created} meeting={m.meta.meeting} author={m.author} description={m.body} canInteract={canInteract} me={me} />
+    ) : null;
+
+  const reactions = m.reactions.length > 0 && (
+    <div className={`mt-1 flex flex-wrap gap-1 ${bubbles && side === "right" ? "justify-end" : ""}`}>
+      {m.reactions.map((r) => {
+        const reacted = r.users.includes(me.id);
+        return (
+          <button
+            key={r.emoji}
+            type="button"
+            disabled={!canInteract}
+            onClick={() => toggleReaction(r.emoji)}
+            title={r.users.map(nameOf).join(", ")}
+            aria-pressed={reacted}
+            className={`flex h-6 items-center gap-1 rounded-full border px-2 text-[12px] tabular-nums transition-colors ${
+              reacted ? "border-accent/50 bg-accent/10 text-ink" : "border-line text-ink-soft hover:border-line-strong"
+            }`}
+          >
+            <span aria-hidden>{r.emoji}</span>
+            {r.users.length}
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const replies = onReply && m.replyCount > 0 && (
+    <button type="button" onClick={onReply} className="mt-1 flex items-center gap-1.5 text-[12.5px] font-medium text-accent hover:underline">
+      <MessageSquareReply size={13} aria-hidden />
+      {t("replies", { count: m.replyCount })}
+      {m.lastReplyAt && <span className="font-normal text-ink-mute">· {shortTime(m.lastReplyAt, locale)}</span>}
+    </button>
+  );
+
+  // Hover toolbar. Rows: top-right corner. Bubbles: beside the bubble on its inner side when the
+  // message column is wide enough (@xl container), otherwise just above it. The wider delete
+  // confirmation always sits above so it never overflows the column.
+  const toolbarPos = !bubbles
+    ? "-top-3 right-4"
+    : side === "right"
+      ? `bottom-full right-0 mb-1 ${confirmDelete ? "" : "@xl:top-0 @xl:right-full @xl:bottom-auto @xl:mr-1.5 @xl:mb-0"}`
+      : "bottom-full left-0 mb-1 @xl:top-0 @xl:bottom-auto @xl:left-full @xl:ml-1.5 @xl:mb-0";
+  const toolbar = canInteract && !m.deleted && !editing && (
+    <div
+      ref={picker.ref}
+      className={`absolute z-10 items-center gap-0.5 rounded-md border border-line bg-sheet p-0.5 whitespace-nowrap shadow-sm ${toolbarPos} ${
+        picker.open || confirmDelete ? "flex" : "hidden group-focus-within:flex group-hover:flex"
+      }`}
+    >
+      {confirmDelete ? (
+        <>
+          <span className="px-1.5 text-[12px] text-ink-soft">{t("confirmDelete")}</span>
+          <button type="button" onClick={remove} className="h-7 rounded px-2 text-[12px] font-medium text-danger hover:bg-hover">
+            {t("delete")}
+          </button>
+          <button type="button" onClick={() => setConfirmDelete(false)} className="h-7 rounded px-2 text-[12px] text-ink-soft hover:bg-hover">
+            {t("cancel")}
+          </button>
+        </>
+      ) : (
+        <>
+          <button type="button" onClick={picker.toggle} className="icon-btn h-7 w-7" aria-label={t("addReaction")} title={t("addReaction")} aria-expanded={picker.open}>
+            <SmilePlus size={15} aria-hidden />
+          </button>
+          {onReply && (
+            <button type="button" onClick={onReply} className="icon-btn h-7 w-7" aria-label={t("replyInThread")} title={t("replyInThread")}>
+              <MessageSquareReply size={15} aria-hidden />
+            </button>
+          )}
+          {mine && (m.kind === "text" || m.kind === "file") && (
+            <button type="button" onClick={() => setEditing(true)} className="icon-btn h-7 w-7" aria-label={t("edit")} title={t("edit")}>
+              <Pencil size={14} aria-hidden />
+            </button>
+          )}
+          {mine && (
+            <button type="button" onClick={() => setConfirmDelete(true)} className="icon-btn h-7 w-7 hover:text-danger" aria-label={t("delete")} title={t("delete")}>
+              <Trash2 size={14} aria-hidden />
+            </button>
+          )}
+        </>
+      )}
+      {picker.open && (
+        <div role="menu" className={`pop absolute top-9 z-20 flex gap-0.5 p-1 ${bubbles && side !== "right" ? "left-0" : "right-0"}`}>
+          {REACTIONS.map((e) => (
+            <button
+              key={e}
+              type="button"
+              role="menuitem"
+              onClick={() => toggleReaction(e)}
+              className="grid h-8 w-8 place-items-center rounded-md text-[18px] transition-transform hover:scale-110 hover:bg-hover"
+              aria-label={e}
+            >
+              {e}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  if (bubbles) {
+    // Names only in groups (and for apps posting into a DM, e.g. an ephemeral notice).
+    const showName = side === "left" && !grouped && (variant === "group" || !!m.author?.bot);
+    // Square the corners on the author's side where the bubble joins its neighbours.
+    const corners =
+      side === "right"
+        ? `${grouped ? "rounded-tr-md" : ""} ${last ? "" : "rounded-br-md"}`
+        : `${grouped ? "rounded-tl-md" : ""} ${last ? "" : "rounded-bl-md"}`;
+    const text = m.deleted ? (
+      <p className="text-[13.5px] text-ink-mute italic">{t("deleted")}</p>
+    ) : m.meta?.notice ? (
+      <Notice notice={m.meta.notice} />
+    ) : m.body ? (
+      <div className="text-[14px] leading-relaxed break-words whitespace-pre-wrap text-ink">
+        <Markdown text={m.body} meHandle={meHandle} />
+        {m.edited && <span className="ml-1.5 text-[11px] text-ink-mute">{t("edited")}</span>}
+      </div>
+    ) : null;
+
+    return (
+      <div
+        className={`group relative flex gap-2 px-3 md:px-4 ${grouped ? "pt-0.5" : "pt-2.5"} ${
+          side === "right" ? "justify-end" : side === "center" ? "justify-center" : ""
+        }`}
+        data-message-id={m.id}
+      >
+        {side === "left" && (
+          <div className="w-8 shrink-0">
+            {!grouped && m.author && (
+              <Avatar name={m.author.name} email={m.author.email} bot={m.author.bot} size={32} className={showName ? "mt-[18px]" : ""} />
+            )}
+          </div>
+        )}
+        <div
+          className={`relative flex max-w-[85%] min-w-0 flex-col @xl:max-w-[75%] ${
+            side === "right" ? "items-end" : side === "center" ? "items-center" : "items-start"
+          } ${editing ? "w-full" : ""}`}
+        >
+          {showName && (
+            <div className="mb-0.5 flex max-w-full items-baseline gap-1.5 px-1">
+              <span className="truncate text-[12.5px] font-medium text-ink-soft">{m.author ? userName(m.author) : t("someone")}</span>
+              {m.author?.bot && <AppBadge bot={m.author.bot} />}
+            </div>
+          )}
+
+          {editing ? (
+            <div className="w-full">{editBox}</div>
+          ) : meetingCard && !m.deleted ? (
+            meetingCard
+          ) : (
+            text && (
+              <div
+                title={fullTime}
+                className={`chat-bubble max-w-full rounded-2xl px-3 py-1.5 ${corners} ${
+                  m.deleted ? "border border-line" : side === "right" ? "bg-bubble-mine" : "bg-bubble-other"
+                } ${highlighted ? "ring-1 ring-amber/60" : ""}`}
+              >
+                {text}
+              </div>
+            )
+          )}
+          {!m.deleted && !editing && extras}
+
+          {error && <p className="mt-1 px-1 text-[12px] text-danger">{error}</p>}
+          {reactions}
+          {replies}
+          {last && !editing && (
+            <time dateTime={new Date(m.created).toISOString()} title={fullTime} className="mt-0.5 px-1 text-[11px] text-ink-mute tabular-nums">
+              {timeLabel}
+            </time>
+          )}
+          {toolbar}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -108,8 +337,8 @@ export const MessageItem = memo(function MessageItem({ m, me, grouped, nameOf, o
           <div className="flex items-baseline gap-2">
             <span className="truncate text-[13.5px] font-semibold text-ink">{m.author ? userName(m.author) : t("someone")}</span>
             {m.author?.bot && <AppBadge bot={m.author.bot} />}
-            <time dateTime={new Date(m.created).toISOString()} className="shrink-0 text-[11px] text-ink-mute tabular-nums" title={new Date(m.created).toLocaleString(locale)}>
-              {shortTime(m.created, locale) === timeOf(m.created, locale) ? timeOf(m.created, locale) : `${shortTime(m.created, locale)} ${timeOf(m.created, locale)}`}
+            <time dateTime={new Date(m.created).toISOString()} className="shrink-0 text-[11px] text-ink-mute tabular-nums" title={fullTime}>
+              {timeLabel}
             </time>
           </div>
         )}
@@ -117,130 +346,30 @@ export const MessageItem = memo(function MessageItem({ m, me, grouped, nameOf, o
         {m.deleted ? (
           <p className="text-[13.5px] text-ink-mute italic">{t("deleted")}</p>
         ) : editing ? (
-          <EditBox
-            initial={m.body}
-            onCancel={() => setEditing(false)}
-            onSave={async (text) => {
-              const r = await editMessage(m.id, text);
-              if (r.ok) {
-                onUpdate(r.data);
-                setEditing(false);
-              } else setError(errorText(r.error));
-            }}
-          />
+          editBox
         ) : (
           <>
-            {m.kind === "meeting" && m.meta?.meeting ? (
-              <MeetingCard created={m.created} meeting={m.meta.meeting} author={m.author} description={m.body} canInteract={canInteract} me={me} />
-            ) : m.meta?.notice ? (
-              <Notice notice={m.meta.notice} />
-            ) : (
-              m.body && (
-                <div className="text-[14px] leading-relaxed break-words whitespace-pre-wrap text-ink">
-                  <Markdown text={m.body} meHandle={meHandle} />
-                  {m.edited && <span className="ml-1.5 text-[11px] text-ink-mute">{t("edited")}</span>}
-                </div>
-              )
-            )}
-            {m.meta?.cards && m.meta.cards.length > 0 && <BotCards cards={m.meta.cards} meHandle={meHandle} />}
-            {m.ephemeral && <OnlyYou />}
-            {m.meta?.files && m.meta.files.length > 0 && <Attachments files={m.meta.files} />}
-            <DriveCards m={m} me={me} canInteract={canInteract} />
+            {meetingCard ??
+              (m.meta?.notice ? (
+                <Notice notice={m.meta.notice} />
+              ) : (
+                m.body && (
+                  <div className="text-[14px] leading-relaxed break-words whitespace-pre-wrap text-ink">
+                    <Markdown text={m.body} meHandle={meHandle} />
+                    {m.edited && <span className="ml-1.5 text-[11px] text-ink-mute">{t("edited")}</span>}
+                  </div>
+                )
+              ))}
+            {extras}
           </>
         )}
 
         {error && <p className="mt-1 text-[12px] text-danger">{error}</p>}
-
-        {m.reactions.length > 0 && (
-          <div className="mt-1 flex flex-wrap gap-1">
-            {m.reactions.map((r) => {
-              const reacted = r.users.includes(me.id);
-              return (
-                <button
-                  key={r.emoji}
-                  type="button"
-                  disabled={!canInteract}
-                  onClick={() => toggleReaction(r.emoji)}
-                  title={r.users.map(nameOf).join(", ")}
-                  aria-pressed={reacted}
-                  className={`flex h-6 items-center gap-1 rounded-full border px-2 text-[12px] tabular-nums transition-colors ${
-                    reacted ? "border-accent/50 bg-accent/10 text-ink" : "border-line text-ink-soft hover:border-line-strong"
-                  }`}
-                >
-                  <span aria-hidden>{r.emoji}</span>
-                  {r.users.length}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {onReply && m.replyCount > 0 && (
-          <button type="button" onClick={onReply} className="mt-1 flex items-center gap-1.5 text-[12.5px] font-medium text-accent hover:underline">
-            <MessageSquareReply size={13} aria-hidden />
-            {t("replies", { count: m.replyCount })}
-            {m.lastReplyAt && <span className="font-normal text-ink-mute">· {shortTime(m.lastReplyAt, locale)}</span>}
-          </button>
-        )}
+        {reactions}
+        {replies}
       </div>
 
-      {canInteract && !m.deleted && !editing && (
-        <div
-          ref={picker.ref}
-          className={`absolute -top-3 right-4 z-10 items-center gap-0.5 rounded-md border border-line bg-sheet p-0.5 shadow-sm ${
-            picker.open || confirmDelete ? "flex" : "hidden group-focus-within:flex group-hover:flex"
-          }`}
-        >
-          {confirmDelete ? (
-            <>
-              <span className="px-1.5 text-[12px] text-ink-soft">{t("confirmDelete")}</span>
-              <button type="button" onClick={remove} className="h-7 rounded px-2 text-[12px] font-medium text-danger hover:bg-hover">
-                {t("delete")}
-              </button>
-              <button type="button" onClick={() => setConfirmDelete(false)} className="h-7 rounded px-2 text-[12px] text-ink-soft hover:bg-hover">
-                {t("cancel")}
-              </button>
-            </>
-          ) : (
-            <>
-              <button type="button" onClick={picker.toggle} className="icon-btn h-7 w-7" aria-label={t("addReaction")} title={t("addReaction")} aria-expanded={picker.open}>
-                <SmilePlus size={15} aria-hidden />
-              </button>
-              {onReply && (
-                <button type="button" onClick={onReply} className="icon-btn h-7 w-7" aria-label={t("replyInThread")} title={t("replyInThread")}>
-                  <MessageSquareReply size={15} aria-hidden />
-                </button>
-              )}
-              {mine && (m.kind === "text" || m.kind === "file") && (
-                <button type="button" onClick={() => setEditing(true)} className="icon-btn h-7 w-7" aria-label={t("edit")} title={t("edit")}>
-                  <Pencil size={14} aria-hidden />
-                </button>
-              )}
-              {mine && (
-                <button type="button" onClick={() => setConfirmDelete(true)} className="icon-btn h-7 w-7 hover:text-danger" aria-label={t("delete")} title={t("delete")}>
-                  <Trash2 size={14} aria-hidden />
-                </button>
-              )}
-            </>
-          )}
-          {picker.open && (
-            <div role="menu" className="pop absolute top-9 right-0 z-20 flex gap-0.5 p-1">
-              {REACTIONS.map((e) => (
-                <button
-                  key={e}
-                  type="button"
-                  role="menuitem"
-                  onClick={() => toggleReaction(e)}
-                  className="grid h-8 w-8 place-items-center rounded-md text-[18px] transition-transform hover:scale-110 hover:bg-hover"
-                  aria-label={e}
-                >
-                  {e}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {toolbar}
     </div>
   );
 });

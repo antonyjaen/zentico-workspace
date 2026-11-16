@@ -11,6 +11,9 @@ import { MessageItem } from "./MessageItem";
 import { NAME_MAX, TYPING_TTL_MS, type ChatMessage, type ChatUser, type ConversationDetail, type Person } from "./shared";
 import { AppBadge, appsAsPeople, Avatar, BTN, BTN_PRIMARY, FIELD, Label, PeoplePicker, useApps, usePeople, useErrorText, useUserName } from "./ui";
 
+const groupedWith = (prev: ChatMessage | undefined, m: ChatMessage | undefined) =>
+  !!prev && !!m && prev.author?.id === m.author?.id && !prev.deleted && m.created - prev.created < 5 * 60_000;
+
 export function PanelHeader({ title, sub, onClose }: { title: string; sub?: string; onClose: () => void }) {
   const t = useTranslations("chat");
   return (
@@ -42,6 +45,8 @@ export function ThreadPanel({
   onClose: () => void;
 }) {
   const t = useTranslations("chat");
+  // Same look as the conversation: bubbles in DMs and groups, the classic list in channels.
+  const variant = conversation.kind === "channel" ? "list" : conversation.kind;
   const [root, setRoot] = useState<ChatMessage | null>(null);
   const [replies, setReplies] = useState<ChatMessage[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -99,7 +104,7 @@ export function ThreadPanel({
   return (
     <>
       <PanelHeader title={t("thread")} sub={conversation.kind === "channel" ? `#${conversation.name}` : conversation.name} onClose={onClose} />
-      <div className="min-h-0 flex-1 overflow-y-auto py-2">
+      <div className="min-h-0 flex-1 overflow-y-auto py-2 @container">
         {failed ? (
           <p className="p-6 text-center text-[13px] text-ink-mute">{t("errors.notFound")}</p>
         ) : !root || !replies ? (
@@ -108,16 +113,24 @@ export function ThreadPanel({
           </div>
         ) : (
           <>
-            <MessageItem m={root} me={me} grouped={false} nameOf={nameOf} onUpdate={upsert} canInteract={conversation.joined} />
+            <MessageItem m={root} me={me} grouped={false} variant={variant} nameOf={nameOf} onUpdate={upsert} canInteract={conversation.joined} />
             <div className="flex items-center gap-3 px-5 py-2">
               <span className="text-[12px] text-ink-mute">{t("replies", { count: replies.filter((r) => !r.deleted).length })}</span>
               <span className="h-px flex-1 bg-line" />
             </div>
-            {replies.map((m, i) => {
-              const prev = replies[i - 1];
-              const grouped = !!prev && prev.author?.id === m.author?.id && !prev.deleted && m.created - prev.created < 5 * 60_000;
-              return <MessageItem key={m.id} m={m} me={me} grouped={grouped} nameOf={nameOf} onUpdate={upsert} canInteract={conversation.joined} />;
-            })}
+            {replies.map((m, i) => (
+              <MessageItem
+                key={m.id}
+                m={m}
+                me={me}
+                grouped={groupedWith(replies[i - 1], m)}
+                last={!groupedWith(m, replies[i + 1])}
+                variant={variant}
+                nameOf={nameOf}
+                onUpdate={upsert}
+                canInteract={conversation.joined}
+              />
+            ))}
           </>
         )}
       </div>

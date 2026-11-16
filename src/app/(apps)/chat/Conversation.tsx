@@ -37,6 +37,19 @@ type Panel = { kind: "thread"; root: number } | { kind: "members" } | { kind: "a
 
 const GROUP_GAP_MS = 5 * 60_000;
 const groupable = (m: ChatMessage) => m.kind === "text" || m.kind === "file";
+/** `m` continues `prev`'s group: same author, same day, within 5 min, no unread line between. */
+const groupedWith = (prev: ChatMessage | undefined, m: ChatMessage | undefined, firstUnread: number | null) =>
+  !!prev &&
+  !!m &&
+  dayKey(prev.created) === dayKey(m.created) &&
+  m.id !== firstUnread &&
+  groupable(m) &&
+  groupable(prev) &&
+  !prev.deleted &&
+  prev.author?.id === m.author?.id &&
+  m.created - prev.created < GROUP_GAP_MS;
+/** Max width of the centered message column and the composer (Google Chat–like). */
+const COLUMN = "mx-auto w-full max-w-[900px]";
 
 export function Conversation({ id, me, summary, subscribe, onBack, onChanged, onOpen, onRead, autoSchedule = false }: Props) {
   const t = useTranslations("chat");
@@ -304,6 +317,8 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
 
   const view = detail ?? (summary ? ({ ...summary, members: [], description: "", teamName: null } as Partial<ConversationDetail> & ConversationSummary) : null);
   const title = view?.name ?? "";
+  // DMs and groups read as chat bubbles; channels keep the classic list.
+  const variant = !view || view.kind === "channel" ? "list" : view.kind;
   const subtitle = detail
     ? detail.kind === "channel"
       ? [detail.teamName, detail.description].filter(Boolean).join(" · ")
@@ -456,7 +471,7 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
 
         {/* Messages */}
         <div ref={scroller} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto overscroll-contain" aria-live="polite" aria-relevant="additions">
-          <div ref={content} className="flex min-h-full flex-col justify-end pt-4 pb-2">
+          <div ref={content} className={`${COLUMN} flex min-h-full flex-col justify-end pt-4 pb-2 @container`}>
             {messages === null ? (
               <Skeleton />
             ) : (
@@ -472,15 +487,8 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
                   const prev = messages[i - 1];
                   const newDay = !prev || dayKey(prev.created) !== dayKey(m.created);
                   const unreadLine = m.id === firstUnread;
-                  const grouped =
-                    !!prev &&
-                    !newDay &&
-                    !unreadLine &&
-                    groupable(m) &&
-                    groupable(prev) &&
-                    !prev.deleted &&
-                    prev.author?.id === m.author?.id &&
-                    m.created - prev.created < GROUP_GAP_MS;
+                  const grouped = groupedWith(messages[i - 1], m, firstUnread);
+                  const last = !groupedWith(m, messages[i + 1], firstUnread);
                   return (
                     <Fragment key={m.id}>
                       {newDay && (
@@ -501,6 +509,8 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
                         m={m}
                         me={me}
                         grouped={grouped}
+                        last={last}
+                        variant={variant}
                         nameOf={nameOf}
                         onUpdate={(x) => upsert(x, false)}
                         onReply={joined || m.replyCount > 0 ? () => setPanel({ kind: "thread", root: m.id }) : undefined}
@@ -514,7 +524,7 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
           </div>
         </div>
 
-        <div className="h-5 shrink-0 truncate px-5 text-[12px] text-ink-mute" aria-live="polite">
+        <div className={`${COLUMN} h-5 shrink-0 truncate px-4 text-[12px] text-ink-mute md:px-5`} aria-live="polite">
           {typingNames.length > 0 &&
             (typingNames.length === 1
               ? t("typingOne", { name: typingNames[0] })
@@ -532,7 +542,7 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
           </div>
         ) : (
           detail && (
-            <>
+            <div className={COLUMN}>
               {myClaudeHere && <ClaudeStrip conversationId={id} subscribe={subscribe} />}
               <Composer
                 conversationId={id}
@@ -543,7 +553,7 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
                 onSent={onSent}
                 addFilesRef={addFilesRef}
               />
-            </>
+            </div>
           )
         )}
 
