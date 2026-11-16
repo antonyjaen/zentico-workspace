@@ -9,6 +9,7 @@ import { CALENDAR_TOOLS } from "./calendar-tools";
 import { CHAT_TOOLS, MEETING_TOOLS } from "./collab-tools";
 import { CONNECT_TOOLS } from "./connect-tools";
 import { DASHBOARD_TOOLS } from "./dashboard-tools";
+import { isExtToolName, runExtTool } from "./ext-tools";
 import type { Scope } from "./db";
 import { DRIVE_TOOLS } from "./drive-tools";
 import { appUrl, iso, type Tool } from "./kit";
@@ -209,6 +210,8 @@ export type ToolOutcome = { ok: true; value: unknown } | { ok: false; error: str
 
 /** Runs a tool by name. Throws only for unexpected failures; user-facing problems come back as errors. */
 export async function runTool(name: string, args: Args, ctx: ToolContext): Promise<ToolOutcome> {
+  // The user's connected MCP servers (ext_<server>__<tool>): own listing, gating and confirmation.
+  if (!BY_NAME.has(name) && isExtToolName(name)) return runExtTool(name, args ?? {}, ctx);
   const tool = BY_NAME.get(name);
   if (!tool) return { ok: false, error: `Unknown tool "${name}"` };
   if (tool.write && ctx.scope !== "write") {
