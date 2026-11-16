@@ -90,12 +90,14 @@ export type CallMeta = {
 };
 
 export type SystemMeta = {
-  action: "created" | "added" | "joined" | "left" | "renamed" | "removed" | "call";
+  action: "created" | "added" | "joined" | "left" | "renamed" | "removed" | "call" | "task";
   names?: string[];
   name?: string;
   /** action "call": how an unanswered call ended. */
   outcome?: "missed" | "declined";
   media?: CallMedia;
+  /** action "task": what happened to which task (names = people it was assigned to). */
+  task?: { id: string; title: string; event: "created" | "assigned" | "completed"; subtask?: boolean };
 };
 
 // ---------- Calls (ringing) ----------
@@ -311,7 +313,9 @@ export type ChatEvent =
   | { type: "meeting"; conversationId: string }
   | { type: "conversations" }
   /** Something changed about my Claude's commands in a conversation (e.g. a write awaits my approval). */
-  | { type: "claude"; conversationId: string };
+  | { type: "claude"; conversationId: string }
+  /** Tasks of a conversation changed (created, edited, deleted…): views refetch them. */
+  | { type: "tasks"; conversationId: string };
 
 /** GET /api/chat/claude?c=… : my Claude's running commands and approvals waiting in a conversation. */
 export type ClaudeChatState = {

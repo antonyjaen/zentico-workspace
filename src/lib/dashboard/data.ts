@@ -184,6 +184,37 @@ export async function runQuery(session: Session, name: DataQuery, rawArgs: unkno
         items: list.slice(-limit).map((m) => ({ id: m.id, author: m.author, at: m.at, body: String(m.body ?? "").slice(0, 500), kind: m.kind ?? "text" })),
       };
     }
+    case "tasks.mine": {
+      onlyKeys(args, ["includeDone", "limit"]);
+      const r = await tool(session, "tasks_list", { includeDone: boolArg(args, "includeDone"), limit: intArg(args, "limit", 1, 50, 20), timeZone: tz });
+      const list =
+        (r.tasks as {
+          id: string;
+          title: string;
+          status: string;
+          priority?: string;
+          due?: string;
+          overdue?: boolean;
+          subtasks?: string;
+          conversation?: { id: string; name: string };
+          parentTitle?: string;
+        }[]) ?? [];
+      return {
+        timeZone: tz,
+        items: list.map((t) => ({
+          id: t.id,
+          title: t.title,
+          status: t.status,
+          priority: t.priority ?? null,
+          due: t.due ?? null,
+          overdue: !!t.overdue,
+          subtasks: t.subtasks ?? null,
+          conversation: t.conversation?.name ?? "",
+          parentTitle: t.parentTitle ?? null,
+          href: t.conversation ? `/chat?c=${encodeURIComponent(t.conversation.id)}&task=${encodeURIComponent(t.id)}` : "/chat",
+        })),
+      };
+    }
     case "drive.recent": {
       onlyKeys(args, ["limit"]);
       const limit = intArg(args, "limit", 1, 50, 10);

@@ -7,7 +7,8 @@ export type NotificationCategory = "chat" | "meet" | "mail" | "calendar" | "clau
  * What happened. chat: dm, group, channel (any channel message), mention, reply (thread I'm in),
  * added (to a conversation); meet: meeting (started in one of my conversations); mail: mail,
  * missedCall (a call to me nobody answered); mailBatch (several at once; title is the count);
- * calendar: reminder, invite; claude: done, failed, confirm.
+ * calendar: reminder, invite; claude: done, failed, confirm; chat tasks: task (assigned to me),
+ * taskDue (due within a day), taskOverdue.
  */
 export type NotificationKind =
   | "dm"
@@ -24,7 +25,10 @@ export type NotificationKind =
   | "invite"
   | "done"
   | "failed"
-  | "confirm";
+  | "confirm"
+  | "task"
+  | "taskDue"
+  | "taskOverdue";
 
 export type AppNotification = {
   id: string;

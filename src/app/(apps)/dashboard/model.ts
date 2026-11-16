@@ -400,6 +400,7 @@ export const DATA_QUERIES = {
   },
   "chat.conversations": { args: "{ unreadOnly?: boolean, limit?: 1-50 }", description: "Chat conversations with unread counts and last message." },
   "chat.messages": { args: "{ conversationId: string, limit?: 1-50 }", description: "Latest messages of one conversation." },
+  "tasks.mine": { args: "{ includeDone?: boolean, limit?: 1-50 }", description: "Chat tasks assigned to the user, soonest due first." },
   "drive.recent": { args: "{ limit?: 1-50 }", description: "Recently modified Drive files." },
   "drive.folder": { args: "{ folderId: string, limit?: 1-50 }", description: "Contents of a Drive folder." },
   "meetings.upcoming": { args: "{ days?: 1-14, limit?: 1-20 }", description: "Upcoming calendar events with other people." },

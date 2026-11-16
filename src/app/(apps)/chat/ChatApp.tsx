@@ -12,6 +12,8 @@ import { CreateChannelDialog, CreateTeamDialog, NewChatDialog, TeamMembersDialog
 import { AddressBookMenu, PeopleList, PeoplePane, usePeopleData, type PeopleView } from "./People";
 import { Sidebar, type SidebarTab } from "./Sidebar";
 import { isConversationId, OPEN_CONVERSATION_EVENT, UNREAD_EVENT, type ChatEvent, type ChatOverview, type ConversationSummary } from "./shared";
+import { MyTasks } from "./TasksPanel";
+import { isTaskId, OPEN_TASK_EVENT, type OpenTaskDetail } from "./tasks-shared";
 
 export type Subscribe = (fn: (e: ChatEvent) => void) => () => void;
 
@@ -25,7 +27,7 @@ type DialogState =
 const urlFor = (id: string | null) => (id ? `/chat?c=${id}` : "/chat");
 const TAB_KEY = "zw_chat_tab";
 
-export function ChatApp({ initial, initialId }: { initial: ChatOverview; initialId: string | null }) {
+export function ChatApp({ initial, initialId, initialTask = null }: { initial: ChatOverview; initialId: string | null; initialTask?: string | null }) {
   const t = useTranslations("chat");
   const [data, setData] = useState(initial);
   const [activeId, setActiveId] = useState<string | null>(initialId);
@@ -34,6 +36,10 @@ export function ChatApp({ initial, initialId }: { initial: ChatOverview; initial
   const [tab, setTabState] = useState<SidebarTab>("chats");
   const [person, setPerson] = useState<PeopleView | null>(null);
   const [scheduleIn, setScheduleIn] = useState<string | null>(null);
+  // Open the Tasks panel of a conversation (on a task): from a link, a notification or My tasks.
+  const [focusTask, setFocusTask] = useState<{ conversationId: string; taskId: string | null; n: number } | null>(() =>
+    initialId && initialTask ? { conversationId: initialId, taskId: initialTask, n: 0 } : null,
+  );
   const people = usePeopleData(tab === "people" || person !== null);
   const listeners = useRef(new Set<(e: ChatEvent) => void>());
   const activeRef = useRef(activeId);
@@ -153,7 +159,8 @@ export function ChatApp({ initial, initialId }: { initial: ChatOverview; initial
   }, []);
   useEffect(() => {
     try {
-      if (!initialId && localStorage.getItem(TAB_KEY) === "people") setTabState("people");
+      const saved = localStorage.getItem(TAB_KEY);
+      if (!initialId && (saved === "people" || saved === "tasks")) setTabState(saved);
     } catch {}
   }, [initialId]);
 
@@ -161,6 +168,7 @@ export function ChatApp({ initial, initialId }: { initial: ChatOverview; initial
     (id: string | null) => {
       setPerson(null);
       setScheduleIn(null);
+      setFocusTask(null);
       open(id);
     },
     [open],
@@ -183,6 +191,24 @@ export function ChatApp({ initial, initialId }: { initial: ChatOverview; initial
     window.addEventListener(OPEN_CONVERSATION_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_CONVERSATION_EVENT, onOpen);
   }, [openConversation]);
+
+  const openTask = useCallback(
+    (conversationId: string, taskId: string | null) => {
+      if (activeRef.current !== conversationId) openConversation(conversationId);
+      setFocusTask((f) => ({ conversationId, taskId, n: (f?.n ?? 0) + 1 }));
+    },
+    [openConversation],
+  );
+
+  // System lines and notifications ask to open a task.
+  useEffect(() => {
+    const onTask = (e: Event) => {
+      const d = (e as CustomEvent<OpenTaskDetail>).detail;
+      if (d && isConversationId(d.conversationId) && (d.taskId === null || isTaskId(d.taskId))) openTask(d.conversationId, d.taskId);
+    };
+    window.addEventListener(OPEN_TASK_EVENT, onTask);
+    return () => window.removeEventListener(OPEN_TASK_EVENT, onTask);
+  }, [openTask]);
 
   useEffect(() => {
     const onPop = () => setActiveId(new URLSearchParams(window.location.search).get("c"));
@@ -212,6 +238,14 @@ export function ChatApp({ initial, initialId }: { initial: ChatOverview; initial
           tab={tab}
           onTab={setTab}
           renderPeople={(query) => <PeopleList query={query} people={people} view={person} onSelect={selectPerson} />}
+          renderTasks={(query) => (
+            <MyTasks
+              query={query}
+              subscribe={subscribe}
+              activeId={focusTask && focusTask.conversationId === activeId ? focusTask.taskId : null}
+              onOpenTask={openTask}
+            />
+          )}
           peopleActions={
             <>
               <button
@@ -246,6 +280,7 @@ export function ChatApp({ initial, initialId }: { initial: ChatOverview; initial
             onOpen={openConversation}
             onRead={() => patch(activeId, (c) => ({ ...c, unread: 0 }))}
             autoSchedule={scheduleIn === activeId}
+            focusTask={focusTask?.conversationId === activeId ? focusTask : null}
           />
         ) : person ? (
           <PeoplePane

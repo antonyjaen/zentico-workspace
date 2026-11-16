@@ -903,6 +903,72 @@ $("run").onclick = function () {
 load();
 `;
 
+/* ----------------------------------------------------------------- my-tasks */
+
+const TASKS_BODY = `<div class="mt">
+  <div class="row"><h2 id="hTitle" class="grow"></h2><span id="status" class="muted"></span></div>
+  <div id="list" class="list"></div>
+</div>`;
+
+const TASKS_CSS = `.mt { padding: 10px; display: flex; flex-direction: column; gap: 8px; height: 100%; }
+.list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.list h2 { margin: 8px 0 2px; }
+.list h2.late { color: #dc2626; }
+.task { display: flex; flex-direction: column; gap: 2px; cursor: pointer; }
+.task:hover { border-color: var(--zw-accent); }
+.task .t { font-size: 12.5px; font-weight: 600; overflow-wrap: anywhere; }
+.task .m { display: flex; gap: 8px; font-size: 11.5px; color: var(--zw-ink-mute); }
+.task .m .due.late { color: #dc2626; font-weight: 600; }
+`;
+
+const TASKS_JS = String.raw`
+var T = ES
+  ? { title: "Mis tareas", groups: { overdue: "Vencidas", today: "Hoy", upcoming: "Próximas", none: "Sin fecha" }, none: "No tienes tareas pendientes.", failed: "No se pudieron cargar las tareas" }
+  : { title: "My tasks", groups: { overdue: "Overdue", today: "Today", upcoming: "Upcoming", none: "No due date" }, none: "Nothing assigned to you.", failed: "Couldn't load tasks" };
+$("hTitle").textContent = T.title;
+function bucket(t) {
+  if (!t.due) return "none";
+  if (t.overdue) return "overdue";
+  return t.due.slice(0, 10) <= ymd(new Date()) ? "today" : "upcoming";
+}
+function dueText(d) {
+  if (!d) return "";
+  var day = d.slice(0, 10), today = ymd(new Date());
+  var label = day === today ? T.groups.today : new Date(day + "T12:00:00Z").toLocaleDateString(zentico.locale, { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" });
+  return d.length > 10 ? label + " " + d.slice(11, 16) : label;
+}
+var busy = false;
+function load() {
+  if (busy) return; busy = true;
+  zentico.query("tasks.mine", { limit: 50 }).then(function (r) {
+    var items = r.items || [], list = $("list"); list.textContent = "";
+    if (!items.length) list.appendChild(el("div", "empty", T.none));
+    ["overdue", "today", "upcoming", "none"].forEach(function (b) {
+      var group = items.filter(function (t) { return bucket(t) === b; });
+      if (!group.length) return;
+      list.appendChild(el("h2", b === "overdue" ? "late" : "", T.groups[b] + " · " + group.length));
+      group.forEach(function (t) {
+        var c = el("div", "item task");
+        c.appendChild(el("span", "t", t.title));
+        var m = el("span", "m");
+        if (t.due) m.appendChild(el("span", "due" + (t.overdue ? " late" : ""), dueText(t.due)));
+        m.appendChild(el("span", "ell grow", t.conversation + (t.parentTitle ? " › " + t.parentTitle : "")));
+        if (t.subtasks) m.appendChild(el("span", "", t.subtasks.split(" ")[0]));
+        c.appendChild(m);
+        c.tabIndex = 0;
+        c.onclick = function () { zentico.ui.openApp(t.href); };
+        c.onkeydown = function (e) { if (e.key === "Enter") zentico.ui.openApp(t.href); };
+        list.appendChild(c);
+      });
+    });
+    $("status").textContent = "";
+  }, function () { $("status").textContent = T.failed; }).then(function () { busy = false; });
+}
+zentico.on("chat", debounce(load, 2000));
+setInterval(load, 2 * 60000);
+load();
+`;
+
 /* ----------------------------------------------------------------- library */
 
 export const LIBRARY_MODS: Record<string, ModFiles> = {
@@ -1018,6 +1084,20 @@ export const LIBRARY_MODS: Record<string, ModFiles> = {
     }),
     "index.html": page(HELPDESK_BODY, HELPDESK_CSS, HELPDESK_JS),
   },
+  "my-tasks": {
+    "manifest.json": json({
+      name: "My tasks",
+      version: "1.0.0",
+      description: "Chat tasks assigned to you across conversations: overdue, today and upcoming. Click one to open it in Chat.",
+      entry: "index.html",
+      icon: "circle-check",
+      permissions: ["chat.read"],
+      commands: [],
+      size: { w: 4, h: 10, height: 440 },
+      config: {},
+    }),
+    "index.html": page(TASKS_BODY, TASKS_CSS, TASKS_JS),
+  },
   "mcp-explorer": {
     "manifest.json": json({
       name: "MCP tools (example)",
@@ -1076,6 +1156,11 @@ export const LIBRARY_INFO: Record<string, { icon: string; name: { en: string; es
     icon: "inbox",
     name: { en: "Helpdesk board", es: "Tablero de soporte" },
     description: { en: "A shared-inbox query as tickets: assign, track and resolve.", es: "Una búsqueda del buzón compartido como tickets: asigna, sigue y resuelve." },
+  },
+  "my-tasks": {
+    icon: "circle-check",
+    name: { en: "My tasks", es: "Mis tareas" },
+    description: { en: "Tasks assigned to you in any chat: overdue, today and upcoming.", es: "Las tareas que te asignan en cualquier chat: vencidas, de hoy y próximas." },
   },
   "mcp-explorer": {
     icon: "terminal",

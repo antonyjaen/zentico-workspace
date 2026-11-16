@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { sendMessage } from "@/app/(apps)/chat/actions";
 import { avatarGradient, initials, isConversationId, OPEN_CONVERSATION_EVENT, UNREAD_EVENT } from "@/app/(apps)/chat/shared";
+import { OPEN_TASK_EVENT, type OpenTaskDetail } from "@/app/(apps)/chat/tasks-shared";
 import {
   DEFAULT_PREFS,
   LIST_LIMIT,
@@ -217,9 +218,10 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       }
       dismissToast(n.id);
       // Chat already on screen: let it switch conversations itself (it keeps its own URL state).
-      const conv = n.href.match(/^\/chat\?c=([a-z0-9]{16})$/)?.[1];
+      const [, conv, task] = n.href.match(/^\/chat\?c=([a-z0-9]{16})(?:&task=([a-z0-9]{16}))?$/) ?? [];
       if (conv && window.location.pathname === "/chat") {
-        window.dispatchEvent(new CustomEvent(OPEN_CONVERSATION_EVENT, { detail: conv }));
+        if (task) window.dispatchEvent(new CustomEvent<OpenTaskDetail>(OPEN_TASK_EVENT, { detail: { conversationId: conv, taskId: task } }));
+        else window.dispatchEvent(new CustomEvent(OPEN_CONVERSATION_EVENT, { detail: conv }));
         return;
       }
       live.current.router.push(n.href);

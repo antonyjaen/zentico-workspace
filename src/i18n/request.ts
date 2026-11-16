@@ -6,7 +6,7 @@ export type Locale = (typeof LOCALES)[number];
 export const LOCALE_COOKIE = "zw_locale";
 
 /** Per-feature message files (messages/<feature>/<locale>.json), merged over the base file. */
-const FEATURES = ["mailRead", "compose", "mailActions", "mailSettings", "calendar", "contacts", "drive", "docs", "meet", "chat", "notifications", "dashboard", "apps", "security"] as const;
+const FEATURES = ["mailRead", "compose", "mailActions", "mailSettings", "calendar", "contacts", "drive", "docs", "meet", "chat", "notifications", "dashboard", "apps", "security", "tasks"] as const;
 
 type Tree = { [key: string]: unknown };
 const isTree = (v: unknown): v is Tree => typeof v === "object" && v !== null && !Array.isArray(v);

@@ -5,11 +5,12 @@ import { chatUser } from "@/lib/chat/session";
 import { overview } from "@/lib/chat/store";
 import { ChatApp } from "./ChatApp";
 import { isConversationId, type ChatOverview } from "./shared";
+import { isTaskId } from "./tasks-shared";
 
 export const dynamic = "force-dynamic";
 
-export default async function ChatPage({ searchParams }: { searchParams: Promise<{ c?: string }> }) {
-  const { c } = await searchParams;
+export default async function ChatPage({ searchParams }: { searchParams: Promise<{ c?: string; task?: string }> }) {
+  const { c, task } = await searchParams;
   let data: ChatOverview;
   try {
     data = overview(await chatUser());
@@ -32,5 +33,5 @@ export default async function ChatPage({ searchParams }: { searchParams: Promise
       </main>
     );
   }
-  return <ChatApp initial={data} initialId={isConversationId(c) ? c : null} />;
+  return <ChatApp initial={data} initialId={isConversationId(c) ? c : null} initialTask={isConversationId(c) && isTaskId(task) ? task : null} />;
 }

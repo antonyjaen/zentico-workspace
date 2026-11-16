@@ -234,6 +234,43 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX call_members_user ON call_members(user_id, state);
   `,
+  // Shared tasks (lib/chat/tasks.ts): they live in a conversation; subtasks point at their task
+  // (one level). due_at is the due instant (end of the day for date-only tasks); due_date/due_time
+  // are the wall clock in due_tz as entered. due_notified: 1 = "due soon" sent, 2 = "overdue" sent.
+  `
+  CREATE TABLE tasks (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    parent_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL CHECK (status IN ('todo', 'in_progress', 'done')),
+    priority TEXT CHECK (priority IN ('low', 'medium', 'high')),
+    due_at INTEGER,
+    due_date TEXT,
+    due_time TEXT,
+    due_tz TEXT,
+    due_notified INTEGER NOT NULL DEFAULT 0,
+    position REAL NOT NULL,
+    created_by INTEGER NOT NULL REFERENCES users(id),
+    created INTEGER NOT NULL,
+    updated INTEGER NOT NULL,
+    completed_at INTEGER,
+    completed_by INTEGER REFERENCES users(id)
+  );
+  CREATE INDEX tasks_conv ON tasks(conversation_id, parent_id, position);
+  CREATE INDEX tasks_parent ON tasks(parent_id);
+  CREATE INDEX tasks_due ON tasks(status, due_at);
+
+  CREATE TABLE task_assignees (
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    assigned_by INTEGER REFERENCES users(id),
+    assigned INTEGER NOT NULL,
+    PRIMARY KEY (task_id, user_id)
+  );
+  CREATE INDEX task_assignees_user ON task_assignees(user_id);
+  `,
 ];
 
 function open(): Database {

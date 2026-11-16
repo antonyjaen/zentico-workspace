@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Blocks, CalendarClock, CalendarPlus, Loader2, Upload, Video } from "lucide-react";
+import { ArrowLeft, Blocks, CalendarClock, CalendarPlus, ListChecks, Loader2, Upload, Video } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -17,6 +17,7 @@ import { Composer } from "./Composer";
 import { ScheduleDialog } from "./Dialogs";
 import { MessageItem } from "./MessageItem";
 import { MembersPanel, ThreadPanel } from "./Panels";
+import { TasksPanel } from "./TasksPanel";
 import { TYPING_TTL_MS, type CallMedia, type ChatMessage, type ChatUser, type ConversationDetail, type ConversationSummary, type MeetingInfo } from "./shared";
 import { Avatar, BTN, BTN_MEET, BTN_PRIMARY, ConversationIcon, dayKey, dayLabel, timeOf, useErrorText } from "./ui";
 
@@ -31,9 +32,11 @@ type Props = {
   onRead: () => void;
   /** Open the "schedule a meeting" dialog once the conversation has loaded (Chat → People). */
   autoSchedule?: boolean;
+  /** Open the Tasks panel (on a task, when set); `n` changes on every request. */
+  focusTask?: { taskId: string | null; n: number } | null;
 };
 
-type Panel = { kind: "thread"; root: number } | { kind: "members" } | { kind: "apps" } | null;
+type Panel = { kind: "thread"; root: number } | { kind: "members" } | { kind: "apps" } | { kind: "tasks" } | null;
 
 const GROUP_GAP_MS = 5 * 60_000;
 const groupable = (m: ChatMessage) => m.kind === "text" || m.kind === "file";
@@ -51,8 +54,9 @@ const groupedWith = (prev: ChatMessage | undefined, m: ChatMessage | undefined, 
 /** Max width of the centered message column and the composer (Google Chat–like). */
 const COLUMN = "mx-auto w-full max-w-[1180px]";
 
-export function Conversation({ id, me, summary, subscribe, onBack, onChanged, onOpen, onRead, autoSchedule = false }: Props) {
+export function Conversation({ id, me, summary, subscribe, onBack, onChanged, onOpen, onRead, autoSchedule = false, focusTask = null }: Props) {
   const t = useTranslations("chat");
+  const tt = useTranslations("tasks");
   const locale = useLocale();
   const errorText = useErrorText();
   const router = useRouter();
@@ -92,6 +96,14 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
     if (r.ok) setDetail(r.data);
     return r;
   }, [id]);
+
+  // The task asked for when the panel was opened that way (opening it from the header shows the list).
+  const [taskFocus, setTaskFocus] = useState<{ taskId: string | null; n: number } | null>(null);
+  useEffect(() => {
+    if (!focusTask) return;
+    setPanel({ kind: "tasks" });
+    setTaskFocus(focusTask);
+  }, [focusTask]);
 
   useEffect(() => {
     if (autoSchedule && detail?.joined && !autoScheduled.current) {
@@ -403,6 +415,22 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
           {joined && (
             <button
               type="button"
+              onClick={() => {
+                setTaskFocus(null);
+                setPanel((p) => (p?.kind === "tasks" ? null : { kind: "tasks" }));
+              }}
+              className="icon-btn h-8 w-8"
+              aria-label={tt("title")}
+              aria-pressed={panel?.kind === "tasks"}
+              title={tt("title")}
+            >
+              <ListChecks size={17} aria-hidden />
+            </button>
+          )}
+
+          {joined && (
+            <button
+              type="button"
               onClick={() => setPanel((p) => (p?.kind === "apps" ? null : { kind: "apps" }))}
               className="icon-btn h-8 w-8"
               aria-label={t("appsAndWebhooks")}
@@ -570,7 +598,9 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
 
       {panel && detail && (
         <aside className="absolute inset-0 z-20 flex flex-col bg-sheet lg:static lg:z-auto lg:w-[360px] lg:shrink-0 lg:border-l lg:border-line">
-          {panel.kind === "apps" ? (
+          {panel.kind === "tasks" ? (
+            <TasksPanel conversation={detail} me={me} subscribe={subscribe} focus={taskFocus} onClose={() => setPanel(null)} />
+          ) : panel.kind === "apps" ? (
             <AppsPanel
               conversation={detail}
               onClose={() => setPanel(null)}

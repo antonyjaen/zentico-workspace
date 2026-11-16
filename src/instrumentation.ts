@@ -1,6 +1,6 @@
 // Server start hook (Next.js instrumentation): resumes background work that must run without an
-// open page — the GitHub app's subscription poller (lib/connect/github-app.ts) and the ringing-call
-// timeouts (lib/chat/calls.ts). The imports sit inside the NEXT_RUNTIME check so the Edge build
+// open page — the GitHub app's subscription poller (lib/connect/github-app.ts), the ringing-call
+// timeouts (lib/chat/calls.ts) and task due reminders (lib/chat/tasks.ts). The imports sit inside the NEXT_RUNTIME check so the Edge build
 // drops them.
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
@@ -10,5 +10,8 @@ export async function register() {
     // Calls left ringing by a restart stop (missed) or get their timeout back.
     const { sweepCalls } = await import("./lib/chat/calls");
     sweepCalls();
+    // Shared tasks: "due soon" / "overdue" notifications for assignees.
+    const { startTaskSweeper } = await import("./lib/chat/tasks");
+    startTaskSweeper();
   }
 }

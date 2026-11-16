@@ -6,6 +6,7 @@ import {
   EyeOff,
   ExternalLink,
   FileText,
+  ListChecks,
   MessageSquareReply,
   Pencil,
   Phone,
@@ -37,6 +38,7 @@ import {
   type MeetingMeta,
   type NoticeMeta,
 } from "./shared";
+import { OPEN_TASK_EVENT, type OpenTaskDetail } from "./tasks-shared";
 import { AppBadge, Avatar, BTN, BTN_MEET, shortTime, timeOf, useErrorText, useUserName } from "./ui";
 
 type Props = {
@@ -82,7 +84,7 @@ export const MessageItem = memo(function MessageItem({
   // Ephemeral app notices can't be reacted to, replied to or edited.
   if (m.ephemeral) canInteract = false;
 
-  if (m.kind === "system") return <SystemLine m={m} />;
+  if (m.kind === "system") return m.meta?.system?.task ? <TaskLine m={m} me={me} /> : <SystemLine m={m} />;
 
   const toggleReaction = async (emoji: string) => {
     picker.setOpen(false);
@@ -463,6 +465,44 @@ function BotCards({ cards, meHandle }: { cards: BotCard[]; meHandle: string }) {
         </div>
       ))}
     </div>
+  );
+}
+
+/** "Ana assigned 'X' to you" (tasks): the title opens the task in the Tasks panel. */
+function TaskLine({ m, me }: { m: ChatMessage; me: ChatUser }) {
+  const t = useTranslations("tasks");
+  const locale = useLocale();
+  const s = m.meta!.system!;
+  const task = s.task!;
+  const who = m.author?.id === me.id ? t("you") : (m.author?.name ?? t("someone"));
+  const names = (s.names ?? []).map((n) => (n === me.name ? t("youObject") : n));
+  const open = (chunks: React.ReactNode) => (
+    <button
+      type="button"
+      onClick={() =>
+        window.dispatchEvent(new CustomEvent<OpenTaskDetail>(OPEN_TASK_EVENT, { detail: { conversationId: m.conversationId, taskId: task.id } }))
+      }
+      className="font-medium text-ink-soft underline decoration-line-strong underline-offset-2 hover:text-ink hover:decoration-ink-mute"
+    >
+      {chunks}
+    </button>
+  );
+  const values = { who, title: task.title, names: names.join(", "), task: open };
+  const text =
+    task.event === "completed"
+      ? t.rich("sys.completed", values)
+      : task.event === "assigned"
+        ? t.rich(task.subtask ? "sys.assignedSubtask" : "sys.assigned", values)
+        : names.length
+          ? t.rich("sys.createdFor", values)
+          : t.rich("sys.created", values);
+  return (
+    <p className="flex items-center justify-center gap-1.5 px-5 py-1.5 text-center text-[12px] text-ink-mute">
+      <ListChecks size={13} className="shrink-0" aria-hidden />
+      <span>
+        {text} · <span className="tabular-nums">{timeOf(m.created, locale)}</span>
+      </span>
+    </p>
   );
 }
 

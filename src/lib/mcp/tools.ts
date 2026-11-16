@@ -15,6 +15,7 @@ import { DRIVE_TOOLS } from "./drive-tools";
 import { appUrl, iso, type Tool } from "./kit";
 import { MAIL_TOOLS } from "./mail-tools";
 import { PEOPLE_TOOLS } from "./people-tools";
+import { TASK_TOOLS } from "./task-tools";
 import { UI_TOOLS } from "./ui-tools";
 import { connectedProviders } from "../connect/store";
 import type { ProviderId } from "../connect/providers";
@@ -41,6 +42,7 @@ const TOOLS: Tool[] = [
   ...PEOPLE_TOOLS,
   ...DRIVE_TOOLS,
   ...CHAT_TOOLS,
+  ...TASK_TOOLS,
   ...MEETING_TOOLS,
   ...DASHBOARD_TOOLS,
   ...CONNECT_TOOLS,
@@ -164,6 +166,20 @@ export function describeWrite(name: string, args: Args): string {
       break;
     case "docs_create":
       add("", `create ${clip(args.kind, 20)} "${clip(args.title, 120)}"`);
+      break;
+    case "tasks_create":
+      add("", `task "${clip(args.title, 160)}"`);
+      add("assign", people(args.assignees));
+      add("due", clip(args.due, 20));
+      add("", count(args.subtasks) ? `with ${count(args.subtasks)} subtask(s)` : "");
+      break;
+    case "tasks_update":
+      add("", `update task ${clip(args.taskId, 20)}`);
+      add("title", clip(args.title, 120));
+      add("status", clip(args.status, 12));
+      add("due", clip(args.due, 20));
+      add("assign", people(args.assignees ?? args.addAssignees));
+      add("unassign", people(args.removeAssignees));
       break;
     case "chat_create_conversation":
       add("chat with", people(args.people));

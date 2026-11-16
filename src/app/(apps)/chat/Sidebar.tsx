@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Contact, MessageSquare, MoreHorizontal, Plus, Search, SquarePen, UserPlus, Users, WifiOff, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Contact, ListChecks, MessageSquare, MoreHorizontal, Plus, Search, SquarePen, UserPlus, Users, WifiOff, X } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { usePopover } from "@/components/usePopover";
@@ -22,9 +22,11 @@ type Props = {
   renderPeople: (query: string) => React.ReactNode;
   /** People tab header actions. */
   peopleActions: React.ReactNode;
+  /** My tasks tab content for the current search. */
+  renderTasks: (query: string) => React.ReactNode;
 };
 
-export type SidebarTab = "chats" | "people";
+export type SidebarTab = "chats" | "people" | "tasks";
 
 const COLLAPSED_KEY = "zw_chat_collapsed";
 
@@ -49,8 +51,10 @@ export function Sidebar({
   onTab,
   renderPeople,
   peopleActions,
+  renderTasks,
 }: Props) {
   const t = useTranslations("chat");
+  const tt = useTranslations("tasks");
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   useEffect(() => setCollapsed(readCollapsed()), []);
@@ -84,7 +88,7 @@ export function Sidebar({
         )}
         {tab === "people" ? (
           peopleActions
-        ) : (
+        ) : tab === "tasks" ? null : (
           <>
             <button type="button" onClick={onNewTeam} className="icon-btn h-8 w-8" aria-label={t("newTeam")} title={t("newTeam")}>
               <Users size={17} aria-hidden />
@@ -96,8 +100,8 @@ export function Sidebar({
         )}
       </div>
 
-      <div role="tablist" aria-label={t("title")} className="mx-3 mt-3 grid shrink-0 grid-cols-2 gap-1 rounded-md bg-sheet-muted p-0.5">
-        {(["chats", "people"] as const).map((id) => (
+      <div role="tablist" aria-label={t("title")} className="mx-3 mt-3 grid shrink-0 grid-cols-3 gap-1 rounded-md bg-sheet-muted p-0.5">
+        {(["chats", "people", "tasks"] as const).map((id) => (
           <button
             key={id}
             type="button"
@@ -106,8 +110,8 @@ export function Sidebar({
             onClick={() => onTab(id)}
             className="flex h-7 items-center justify-center gap-1.5 rounded text-[12.5px] font-medium text-ink-mute transition-colors hover:text-ink aria-selected:bg-sheet aria-selected:text-ink aria-selected:shadow-sm"
           >
-            {id === "chats" ? <MessageSquare size={13} aria-hidden /> : <Contact size={13} aria-hidden />}
-            {id === "chats" ? t("tabChats") : t("tabPeople")}
+            {id === "chats" ? <MessageSquare size={13} aria-hidden /> : id === "people" ? <Contact size={13} aria-hidden /> : <ListChecks size={13} aria-hidden />}
+            {id === "chats" ? t("tabChats") : id === "people" ? t("tabPeople") : tt("tabMine")}
           </button>
         ))}
       </div>
@@ -119,7 +123,7 @@ export function Sidebar({
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={tab === "people" ? t("people.search") : t("search")}
+            placeholder={tab === "people" ? t("people.search") : tab === "tasks" ? tt("searchMine") : t("search")}
             maxLength={100}
             className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-mute"
           />
@@ -134,6 +138,10 @@ export function Sidebar({
       {tab === "people" ? (
         <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3" aria-label={t("tabPeople")}>
           {renderPeople(query)}
+        </nav>
+      ) : tab === "tasks" ? (
+        <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3" aria-label={tt("tabMine")}>
+          {renderTasks(query)}
         </nav>
       ) : (
         <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3" aria-label={t("title")}>

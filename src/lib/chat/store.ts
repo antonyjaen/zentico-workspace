@@ -1068,6 +1068,12 @@ export function callSystemMessage(convId: string, callerId: number, meta: System
   if (r) systemMessage(convRow(r), callerId, meta);
 }
 
+/** A system line authored by `actorId` in a conversation (e.g. "Ana assigned you 'X'" from tasks). */
+export function postSystemMessage(convId: string, actorId: number, meta: SystemMeta): void {
+  const r = get("SELECT * FROM conversations WHERE id = ?", convId);
+  if (r) systemMessage(convRow(r), actorId, meta);
+}
+
 export function conversationMeetings(convId: string, userId: number) {
   readable(convId, userId);
   return meetingsOf(convId);

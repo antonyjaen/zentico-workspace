@@ -120,6 +120,7 @@ export const MOD_QUERIES: Record<string, { permission: Permission | null; args: 
   "mail.thread": { permission: "mail.read", args: "{ threadId: string }", returns: "{ threadId, subject, href, messages: [{ emailId, from, to, date, unread, flagged, body (≤ 4000 chars) }] }" },
   "chat.conversations": { permission: "chat.read", args: "{ unreadOnly?: boolean, limit?: 1-50 (8) }", returns: "{ items: [{ id, kind, name, team, unread, lastMessage: { author, preview, at }, href }] }" },
   "chat.messages": { permission: "chat.read", args: "{ conversationId: string, limit?: 1-50 (8) }", returns: "{ conversationId, href, items: [{ id, author, at, body, kind }] }" },
+  "tasks.mine": { permission: "chat.read", args: "{ includeDone?: boolean, limit?: 1-50 (20) }", returns: '{ timeZone, items: [{ id, title, status, priority, due ("YYYY-MM-DD" or local ISO), overdue, subtasks ("2/5 done"), conversation, parentTitle, href }] }' },
   "drive.recent": { permission: "drive.read", args: "{ limit?: 1-50 (10) }", returns: "{ items: [{ id, name, folder, type, size, modified, href }] }" },
   "drive.folder": { permission: "drive.read", args: "{ folderId: string, limit?: 1-50 (10) }", returns: "{ folderId, href, total, items: [...] }" },
   "drive.search": { permission: "drive.read", args: "{ query: string, limit?: 1-50 (20) }", returns: "{ items: [...] }" },
