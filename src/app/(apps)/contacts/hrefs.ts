@@ -24,7 +24,9 @@ export function avatarGradient(seed: string) {
 }
 
 export function initials(name: string) {
-  const parts = name.replace(/[^\p{L}\p{N}\s]/gu, " ").trim().split(/\s+/).filter(Boolean);
+  // "Antony Jaén (zentico.dev)" → "AJ": drop parenthesized/bracketed suffixes and addresses first.
+  const base = name.replace(/\s*[([<][^)\]>]*[)\]>]\s*/g, " ").replace(/\S+@\S+/g, " ").trim() || name.split("@")[0];
+  const parts = base.replace(/[^\p{L}\p{N}\s]/gu, " ").trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return "?";
   const first = Array.from(parts[0])[0] ?? "";
   const last = parts.length > 1 ? (Array.from(parts[parts.length - 1])[0] ?? "") : "";
