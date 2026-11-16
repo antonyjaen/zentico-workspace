@@ -27,7 +27,7 @@
       "access_denied": "Se canceló el inicio de sesión.",
       "default": "Algo salió mal al iniciar sesión."
     },
-    "footer": "Privado · Código abierto · Auto-hospedado"
+    "footer": "Privado · Auto-hospedado"
   },
   "topbar": {
     "search": "Buscar en el correo",

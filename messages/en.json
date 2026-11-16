@@ -27,7 +27,7 @@
       "access_denied": "Sign-in was cancelled.",
       "default": "Something went wrong while signing in."
     },
-    "footer": "Private · Open source · Self-hosted"
+    "footer": "Private · Self-hosted"
   },
   "topbar": {
     "search": "Search mail",
