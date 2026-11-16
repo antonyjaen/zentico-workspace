@@ -168,11 +168,20 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
   // Read marker: everything visible at the bottom counts as read.
   const lastId = messages?.at(-1)?.id ?? 0;
   const joined = detail?.joined ?? false;
+  // Once per (conversation, message): onRead re-renders the parent, which hands us a new onRead,
+  // which re-ran this effect — an endless markRead loop that also queued every other server
+  // action (delete, end meeting…) behind it.
+  const readSent = useRef("");
+  const onReadRef = useRef(onRead);
+  onReadRef.current = onRead;
   const sendRead = useCallback(() => {
     if (!joined || !lastId || document.visibilityState !== "visible" || !atBottom.current) return;
+    const key = `${id}:${lastId}`;
+    if (readSent.current === key) return;
+    readSent.current = key;
     void markRead(id, lastId);
-    onRead();
-  }, [id, joined, lastId, onRead]);
+    onReadRef.current();
+  }, [id, joined, lastId]);
   useEffect(() => {
     sendRead();
     document.addEventListener("visibilitychange", sendRead);
