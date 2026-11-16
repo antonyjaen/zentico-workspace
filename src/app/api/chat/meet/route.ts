@@ -7,13 +7,23 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getMeetings, startChat, startMeeting } from "@/app/(apps)/chat/actions";
 import { meetHref } from "@/app/(apps)/meet/shared";
+import { env } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
+
+/** Public origin: behind the proxy, req.nextUrl.origin is the container's (http://0.0.0.0:3000). */
+function origin(req: NextRequest): string {
+  try {
+    return new URL(env.appUrl).origin;
+  } catch {
+    return req.nextUrl.origin;
+  }
+}
 
 const EMAIL = /^[^\s@<>"]{1,64}@[^\s@<>"]{1,190}$/;
 
 function back(req: NextRequest, error: string) {
-  const url = new URL("/chat", req.nextUrl.origin);
+  const url = new URL("/chat", origin(req));
   url.searchParams.set("meetError", error);
   return NextResponse.redirect(url, 303);
 }
@@ -43,5 +53,5 @@ export async function GET(req: NextRequest) {
     if (!started.ok) return back(req, started.error);
     code = started.data.code;
   }
-  return NextResponse.redirect(new URL(meetHref(code), req.nextUrl.origin), 303);
+  return NextResponse.redirect(new URL(meetHref(code), origin(req)), 303);
 }

@@ -56,7 +56,9 @@ export const MessageItem = memo(function MessageItem({ m, me, grouped, nameOf, o
   const remove = async () => {
     setConfirmDelete(false);
     const r = await deleteMessage(m.id);
-    if (!r.ok) setError(errorText(r.error));
+    if (!r.ok) return setError(errorText(r.error));
+    // Don't rely on the live stream alone (it may be reconnecting): show the deletion right away.
+    onUpdate({ ...m, deleted: true, body: "", meta: null, reactions: [] });
   };
 
   const highlighted = !mine && !m.deleted && mentionsMe(m.body, meHandle);
