@@ -13,6 +13,8 @@ export type ToolView = { name: string; write: boolean };
 
 /** A token used this recently counts as "connected". */
 const RECENT_MS = 10 * 60_000;
+/** A token used this recently counts as "connected": Claude only calls the workspace when asked. */
+const CONNECTED_MS = 7 * 24 * 3_600_000;
 const POLL_MS = 10_000;
 const STATUS_URL = "/api/integrations/status";
 
@@ -241,12 +243,13 @@ export function IntegrationsClient({
     .filter((t) => t.lastUsed != null && now - t.lastUsed < RECENT_MS)
     .sort((a, b) => (b.lastUsed ?? 0) - (a.lastUsed ?? 0))[0];
   const lastUse = Math.max(0, ...usable.map((t) => t.lastUsed ?? 0)) || null;
-  const tone: Tone = recent || bridge.connected ? "on" : usable.length ? "idle" : "off";
+  const inUse = lastUse != null && now - lastUse < CONNECTED_MS;
+  const tone: Tone = recent || inUse || bridge.connected ? "on" : usable.length ? "idle" : "off";
   const attention = usable.some((t) => t.needsReauth || t.legacy);
 
   const headline = { on: c.statusConnected, idle: c.statusIdle, off: c.statusOff }[tone];
   const hint = { on: c.statusConnectedHint, idle: c.statusIdleHint, off: c.statusOffHint }[tone];
-  const mcpTone: Tone = recent ? "on" : usable.length ? "idle" : "off";
+  const mcpTone: Tone = recent || inUse ? "on" : usable.length ? "idle" : "off";
   const mcpText = recent
     ? c.mcpActive(recent.name, ago(recent.lastUsed!, now, rtf))
     : !usable.length
