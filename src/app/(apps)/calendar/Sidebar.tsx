@@ -1,7 +1,8 @@
 "use client";
 
-import { Check, ChevronLeft, ChevronRight, Plus, Settings2, X } from "lucide-react";
+import { CalendarClock, Check, ChevronLeft, ChevronRight, Plus, Settings2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { Calendar } from "@/lib/calendar";
 import { Combobox, principalItem, usePrincipalMatches, usePrincipals } from "./people";
@@ -131,6 +132,7 @@ export function CalendarList({
   onEdit: (c: Calendar) => void;
 }) {
   const t = useTranslations("calendar");
+  const tBooking = useTranslations("booking.settings");
   const mine = calendars.filter((c) => c.owner === null);
   const others = useMemo(() => {
     const groups = new Map<string, Calendar[]>();
@@ -150,6 +152,13 @@ export function CalendarList({
         {mine.map((c) => (
           <CalendarRow key={c.key} c={c} on={!hidden.has(c.key)} onToggle={() => onToggle(c)} onEdit={() => onEdit(c)} />
         ))}
+        <Link
+          href="/calendar/booking"
+          className="mt-1 flex h-8 items-center gap-3 rounded-md px-3 text-[14px] text-ink-soft transition-colors hover:bg-hover hover:text-ink"
+        >
+          <CalendarClock size={16} aria-hidden className="shrink-0" />
+          {tBooking("sidebarLink")}
+        </Link>
       </nav>
       {others.length > 0 && (
         <nav aria-label={t("otherCalendars")} className="mb-4 flex flex-col gap-0.5">

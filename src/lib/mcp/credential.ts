@@ -93,14 +93,19 @@ const utc = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z")
  * Creates an API key on the user's own account, authenticated as the user with `bearer` (an OIDC
  * access token that carries Stalwart's "security" scope, or a first-party token).
  */
-export async function createApiKey(bearer: string, input: { description: string; expires: number | null }): Promise<StalwartKey> {
+export async function createApiKey(
+  bearer: string,
+  input: { description: string; expires: number | null; /** Narrows the granted data permissions further. */ exclude?: RegExp },
+): Promise<StalwartKey> {
   const [session, permissions] = await Promise.all([jmapSession(bearer), permissionsOf(bearer)]);
   const accountId = accountOf(session);
   if (!accountId) throw new CredentialError("failed", "no account");
   if (!permissions.includes("sysApiKeyCreate")) throw new CredentialError("authorize", "sysApiKeyCreate missing");
 
   const granted = Object.fromEntries(
-    permissions.filter((p) => KEEP.test(p) || p === SELF_DESTROY).map((p) => [p, true] as const),
+    permissions
+      .filter((p) => (KEEP.test(p) && !input.exclude?.test(p)) || p === SELF_DESTROY)
+      .map((p) => [p, true] as const),
   );
   const create: Record<string, unknown> = {
     description: input.description.slice(0, 100),

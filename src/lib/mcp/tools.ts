@@ -5,6 +5,7 @@
 // the read-only filter and the in-call confirmation of write tools.
 import { ToolError, type Args } from "./args";
 import { awaitConfirmation } from "./agent";
+import { BOOKING_TOOLS } from "./booking-tools";
 import { CALENDAR_TOOLS } from "./calendar-tools";
 import { CHAT_TOOLS, MEETING_TOOLS } from "./collab-tools";
 import { CONNECT_TOOLS } from "./connect-tools";
@@ -39,6 +40,7 @@ const TOOLS: Tool[] = [
   },
   ...MAIL_TOOLS,
   ...CALENDAR_TOOLS,
+  ...BOOKING_TOOLS,
   ...PEOPLE_TOOLS,
   ...DRIVE_TOOLS,
   ...CHAT_TOOLS,
@@ -110,6 +112,11 @@ export function describeWrite(name: string, args: Args): string {
       add("", `"${clip(args.title, 120)}"`);
       add("at", `${clip(args.start, 40)}${args.timeZone ? ` (${clip(args.timeZone, 40)})` : ""}`);
       add("inviting", people(args.attendees));
+      break;
+    case "booking_create_type":
+      add("", `booking page "${clip(args.title, 120)}"`);
+      add("hours", clip(args.hours, 120));
+      add("location", clip(args.location, 20));
       break;
     case "drive_write_text":
       add("", args.fileId ? `overwrite file ${clip(args.fileId, 60)}` : `create "${clip(args.name, 120)}"`);

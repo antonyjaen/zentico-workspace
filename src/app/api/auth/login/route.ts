@@ -28,7 +28,9 @@ export async function GET(req: NextRequest) {
   if (params.get("mcp") === "1") {
     const session = await getSession();
     if (!session) return NextResponse.redirect(`${env.appUrl}/signin`);
-    const { url, tx } = await buildAuthorizeUrl("/settings/integrations", { mcp: true, loginHint: safeLoginHint(session.email) });
+    // Calendar → Booking pages creates its API key through the same authorization.
+    const back = params.get("returnTo") === "/calendar/booking" ? "/calendar/booking" : "/settings/integrations";
+    const { url, tx } = await buildAuthorizeUrl(back, { mcp: true, loginHint: safeLoginHint(session.email) });
     const res = NextResponse.redirect(url);
     res.cookies.set(TX_COOKIE, await seal(tx), cookieOptions(60 * 30));
     return res;
