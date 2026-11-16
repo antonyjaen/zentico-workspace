@@ -4,6 +4,8 @@ import { isTimeZone } from "@/app/(apps)/calendar/time";
 import { COMMAND_MAX_CHARS } from "@/app/(apps)/meet/claude";
 import { enqueueCommand, recentUtterances, type CommandRow } from "../mcp/agent";
 import { userTokens } from "../mcp/db";
+import { dashboardPayload, type DashboardBridgeCommand } from "../dashboard/commands";
+import { DASHBOARD_ROOM } from "@/app/(apps)/meet/shared";
 import type { Session } from "../session";
 import { chatMeetingTitle } from "./chat-link";
 
@@ -71,7 +73,9 @@ function mergeRuns(list: { at: number; text: string }[], gapMs: number) {
   return merged;
 }
 
-export function bridgePayload(c: CommandRow, appUrl: string): BridgeCommand {
+export function bridgePayload(c: CommandRow, appUrl: string): BridgeCommand | DashboardBridgeCommand {
+  // Typed in the Dashboard's Claude chat, not in a call.
+  if (c.room === DASHBOARD_ROOM) return dashboardPayload(c, appUrl);
   const recent = recentUtterances(c.userEmail, c.room, c.createdAt);
   const own = mergeRuns(
     recent.filter((u) => u.source === "command"),

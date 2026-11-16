@@ -5,6 +5,7 @@
   },
   "apps": {
     "mail": "Correo",
+    "dashboard": "Dashboard",
     "calendar": "Calendario",
     "contacts": "Contactos",
     "drive": "Drive",

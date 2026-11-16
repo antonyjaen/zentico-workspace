@@ -7,6 +7,7 @@ import { ToolError, type Args } from "./args";
 import { awaitConfirmation } from "./agent";
 import { CALENDAR_TOOLS } from "./calendar-tools";
 import { CHAT_TOOLS, MEETING_TOOLS } from "./collab-tools";
+import { DASHBOARD_TOOLS } from "./dashboard-tools";
 import type { Scope } from "./db";
 import { DRIVE_TOOLS } from "./drive-tools";
 import { appUrl, iso, type Tool } from "./kit";
@@ -36,6 +37,7 @@ const TOOLS: Tool[] = [
   ...DRIVE_TOOLS,
   ...CHAT_TOOLS,
   ...MEETING_TOOLS,
+  ...DASHBOARD_TOOLS,
 ];
 
 /* ----------------------------------------------------------------- registry */
@@ -175,8 +177,9 @@ export async function runTool(name: string, args: Args, ctx: ToolContext): Promi
   if (tool.write && ctx.scope !== "write") {
     return { ok: false, error: "This token is read-only; create a read+write token in Settings → Integrations." };
   }
-  // Meeting commands: reads run immediately, writes wait for the speaker's confirmation in the call.
-  if (tool.write && ctx.commandId != null) {
+  // Meeting / dashboard commands: reads run immediately, writes wait for the user's confirmation
+  // (self-service tools such as dashboard edits only touch the user's own UI and don't).
+  if (tool.write && !tool.selfService && ctx.commandId != null) {
     const confirmed = await awaitConfirmation(ctx.commandId, ctx.session.email, name, describeWrite(name, args ?? {}));
     if (!confirmed.ok) {
       return {

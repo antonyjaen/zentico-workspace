@@ -21,7 +21,13 @@ export function parseRoomInput(input: string): string | null {
   return ROOM_PATTERN.test(value) ? value : null;
 }
 
-export const meetHref = (room: string) => `/meet/${room}`;
+/**
+ * Pseudo-room of the commands typed in the Dashboard's Claude chat: they share the per-user
+ * command queue with meeting commands (src/lib/mcp/agent.ts). Never a valid ROOM_PATTERN.
+ */
+export const DASHBOARD_ROOM = "~dashboard";
+
+export const meetHref = (room: string) => (room === DASHBOARD_ROOM ? "/dashboard" : `/meet/${room}`);
 
 /** Chat payloads travel over the reliable data channel under this topic. */
 export const CHAT_TOPIC = "zw-chat";

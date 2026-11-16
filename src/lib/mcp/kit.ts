@@ -24,6 +24,11 @@ export type Tool = {
   inputSchema: { type: "object"; properties: Record<string, JsonSchema>; required?: string[] };
   /** Changes something: only offered to read+write tokens, and confirmed in-call for meeting commands. */
   write?: boolean;
+  /**
+   * Only changes the user's own workspace UI (e.g. their dashboard) and is undoable: runs without
+   * the in-call / in-dashboard confirmation that other write tools wait for.
+   */
+  selfService?: boolean;
   /** Deletes or overwrites data (MCP destructiveHint). */
   destructive?: boolean;
   /** Reaches people outside the workspace UI, e.g. sends mail or invitations (MCP openWorldHint). */

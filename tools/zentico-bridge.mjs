@@ -107,6 +107,7 @@ async function report(id, event) {
 /* ------------------------------------------------------------------ prompt */
 
 function buildPrompt(c) {
+  if (c.source === "dashboard") return buildDashboardPrompt(c);
   const tz = c.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
   const fmt = (iso) => {
     try {
@@ -156,6 +157,48 @@ function buildPrompt(c) {
   );
   return lines.join("\n");
 }
+
+/** A message typed in the Claude chat of the user's Zentico Dashboard (/dashboard). */
+function buildDashboardPrompt(c) {
+  const tz = c.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  let now;
+  try {
+    now = new Intl.DateTimeFormat("en-GB", { timeZone: tz, dateStyle: "full", timeStyle: "short" }).format(new Date());
+  } catch {
+    now = new Date().toISOString();
+  }
+  const lines = [
+    `${c.speaker.name} <${c.speaker.email}> wrote this in the Claude chat of their personal dashboard in Zentico Workspace (${c.dashboardUrl}).`,
+    "",
+    "Request:",
+    `"""${c.text}"""`,
+    "",
+    `Now: ${now} (time zone ${tz})`,
+  ];
+  if (c.conversation?.length) {
+    lines.push("", "Earlier messages in this chat (oldest first):");
+    for (const t of c.conversation) lines.push(`- User: ${t.user}`, `  You: ${t.claude ?? `(${t.status})`}`);
+  }
+  lines.push(
+    "",
+    "Their dashboard right now (JSON; custom widget HTML summarized, use dashboard_get with includeHtml to read it):",
+    JSON.stringify(c.dashboard ?? null),
+    "",
+    "Guidance:",
+    "- The dashboard is a 12-column grid of widgets the user can rearrange. Change it with the zentico MCP dashboard_* tools: call dashboard_list_widget_types first for the widget types, their config schemas and the custom widget API; then dashboard_add_widget, dashboard_update_widget, dashboard_remove_widget, dashboard_move_widgets, dashboard_set_theme or dashboard_undo. Changes show up live and can be undone, so don't ask for confirmation.",
+    "- Prefer built-in widgets; build a custom widget (HTML/CSS/JS, sandboxed, no network, data only via zentico.query) only when nothing built-in fits. Make it readable in light and dark mode using the --zw-* CSS variables.",
+    "- Look up ids you need (chat_list_conversations, drive_search, mail_list_folders) instead of guessing.",
+    "- Other write actions (mail, calendar, chat, files) are confirmed by the user in the dashboard panel automatically: just call the tool. If a tool answers \"Not confirmed by the user\", don't retry; say the action was not done.",
+    "- Finish with a short answer (at most 4 sentences) saying what you changed, in the language of the request.",
+  );
+  return lines.join("\n");
+}
+
+// Single line, cmd.exe-safe (see SAY_PROMPT).
+const DASHBOARD_PROMPT =
+  "This request comes from the Claude chat panel of the user's Zentico dashboard. Keep the answer short and plain, " +
+  "in the language of the request. You may end with one last line that starts with SAY: and one very short sentence summarizing the outcome.";
+if (!/^[\w .,:;'-]+$/.test(DASHBOARD_PROMPT)) throw new Error("DASHBOARD_PROMPT must stay cmd.exe-safe");
 
 /* ----------------------------------------------------------- spoken reply */
 
@@ -271,7 +314,7 @@ function describeTool(name, input) {
 }
 
 async function runCommand(c) {
-  log(`▶ ${c.source === "voice" ? "said" : "typed"}: ${c.text.slice(0, 120)}`);
+  log(`▶ ${c.source === "voice" ? "said" : c.source === "dashboard" ? "dashboard" : "typed"}: ${c.text.slice(0, 120)}`);
   const state = { id: c.id, child: null, cancelled: false };
   running = state;
   const ack = await report(c.id, { type: "started" });
@@ -303,7 +346,7 @@ async function runCommand(c) {
     "--allowedTools",
     allowedTools,
     "--append-system-prompt",
-    SAY_PROMPT,
+    c.source === "dashboard" ? DASHBOARD_PROMPT : SAY_PROMPT,
   ];
   if (!args["keep-mcp"]) argv.push("--strict-mcp-config");
 
