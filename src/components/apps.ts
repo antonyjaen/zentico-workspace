@@ -1,18 +1,19 @@
-import { CalendarDays, FileText, HardDrive, Mail, MessageSquare, Users, Video, type LucideIcon } from "lucide-react";
+import { CalendarDays, HardDrive, Mail, MessageSquare, Users, Video, type LucideIcon } from "lucide-react";
 
-export type AppId = "mail" | "chat" | "calendar" | "contacts" | "drive" | "docs" | "meet";
+export type AppId = "mail" | "chat" | "calendar" | "contacts" | "drive" | "meet";
 
 /**
  * `rail: false` hides an app from the app rail and launcher while keeping its routes (Contacts
- * now lives inside Chat → People; /contacts stays for advanced address-book management).
+ * now lives inside Chat → People; /contacts stays for advanced address-book management). Docs is
+ * not an app of its own: documents live in Drive (Documents section), editors under /docs/*.
  */
-export const APPS: { id: AppId; href: string; icon: LucideIcon; color: string; ready: boolean; rail?: boolean }[] = [
+export const APPS: { id: AppId; href: string; icon: LucideIcon; color: string; ready: boolean; rail?: boolean; match?: string[] }[] = [
   { id: "mail", href: "/mail", icon: Mail, color: "var(--color-app-mail)", ready: true },
   { id: "chat", href: "/chat", icon: MessageSquare, color: "var(--color-app-chat)", ready: true },
   { id: "calendar", href: "/calendar", icon: CalendarDays, color: "var(--color-app-calendar)", ready: true },
   { id: "contacts", href: "/contacts", icon: Users, color: "var(--color-app-contacts)", ready: true, rail: false },
-  { id: "drive", href: "/drive", icon: HardDrive, color: "var(--color-app-drive)", ready: true },
-  { id: "docs", href: "/docs", icon: FileText, color: "var(--color-app-docs)", ready: true },
+  // The document editors (/docs/*) are part of Drive.
+  { id: "drive", href: "/drive", icon: HardDrive, color: "var(--color-app-drive)", ready: true, match: ["/docs"] },
   { id: "meet", href: "/meet", icon: Video, color: "var(--color-app-meet)", ready: true },
 ];
 

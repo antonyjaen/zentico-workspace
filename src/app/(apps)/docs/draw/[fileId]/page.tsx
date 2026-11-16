@@ -1,6 +1,7 @@
 import { getTranslations } from "next-intl/server";
 import { Whiteboard } from "./Whiteboard";
 import { loadNativeDoc } from "../../native";
+import { editorBack } from "../../shared";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,8 @@ export default async function DrawPage({
   const { fileId } = await params;
   const { from } = await searchParams;
   const t = await getTranslations("docs");
-  const back = from === "drive" ? { href: "/drive", label: t("backToDrive") } : { href: "/docs", label: t("backToDocs") };
+  const to = editorBack(from);
+  const back = { href: to.href, label: t(to.label) };
 
   const r = await loadNativeDoc(fileId, "whiteboard");
   if (!r.ok) {

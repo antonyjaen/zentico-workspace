@@ -37,14 +37,15 @@ import { useLocale, useTranslations } from "next-intl";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import type { DocItem } from "@/app/(apps)/docs/shared";
 import { deleteAction, initDefaultsAction, moveAction, newDocAction, newFolderAction, renameAction } from "./actions";
+import { DocsSection, QuickCreate } from "./DocsSection";
 import { FileIcon } from "./FileIcon";
 import { MoveDialog } from "./MoveDialog";
 import { Preview } from "./Preview";
 import { ShareDialog } from "./ShareDialog";
 import {
   displayName,
-  docsHref,
   driveHref,
   EXT_COOKIE,
   fileUrl,
@@ -91,6 +92,10 @@ type Props = {
   spaces: { id: string; name: string }[];
   /** First visit to My Drive: offer the default folders. */
   needsInit: boolean;
+  /** Documents section: every editable file in My Drive (null elsewhere). */
+  docs: DocItem[] | null;
+  /** The office document server (Collabora) is configured. */
+  office: boolean;
 };
 
 /** Selection key: ids are only unique within an account, and overviews mix accounts. */
@@ -104,7 +109,7 @@ function byAccount(list: Item[]): Map<string | null, Item[]> {
 }
 
 export function DriveApp(props: Props) {
-  const { section, account, folderId, path, items, q, sort, desc, defaultSort, initialView, quota, hasTrash, showTrash, missing, canAdd, spaces, needsInit } = props;
+  const { section, account, folderId, path, items, q, sort, desc, defaultSort, initialView, quota, hasTrash, showTrash, missing, canAdd, spaces, needsInit, docs, office } = props;
   const t = useTranslations("drive");
   const locale = useLocale();
   const router = useRouter();
@@ -134,8 +139,10 @@ export function DriveApp(props: Props) {
 
   const refresh = useCallback(() => startTransition(() => router.refresh()), [router]);
   const { uploads, start: startUploads, clear: clearUploads } = useUploads(refresh);
-  // Uploads go into the folder on screen (My Drive or a shared folder the user may write to).
-  const canUpload = (section === "my" || !!account) && canAdd;
+  // Uploads go into the folder on screen (My Drive or a shared folder the user may write to);
+  // in Documents, into the My Drive root.
+  const ownDrive = section === "my" || section === "docs";
+  const canUpload = (ownDrive || !!account) && canAdd;
   const uploadTarget = section === "my" || account ? folderId : null;
   const upload = (entries: ReturnType<typeof entriesFromInput>) => startUploads(entries, uploadTarget, accountId);
 
@@ -213,7 +220,7 @@ export function DriveApp(props: Props) {
   const open = (item: Item) => {
     if (item.isFolder) router.push(driveHref({ folder: item.id, account: item.accountId, section: section === "trash" ? "trash" : "my" }));
     else {
-      // Whiteboards and Markdown files in the user's own drive open in the Docs editors.
+      // Whiteboards and Markdown files in the user's own drive open in the built-in editors.
       const editor = section === "trash" ? null : nativeEditorHref(item);
       if (editor) router.push(editor);
       else setPreview(item);
@@ -266,9 +273,7 @@ export function DriveApp(props: Props) {
 
   const newDoc = async (kind: NewDocKind) => {
     const r = await act(() => newDocAction(uploadTarget, kind));
-    if (!r) return;
-    if (kind === "whiteboard" || kind === "markdown") router.push(openHref(r.data, kind, "drive"));
-    else router.push(docsHref(r.data));
+    if (r) router.push(openHref(r.data, kind === "document" ? "text" : kind, section === "docs" ? "docs" : "drive"));
   };
 
   /* ---------------------------------------------------------- selection */
@@ -393,7 +398,9 @@ export function DriveApp(props: Props) {
   /* ------------------------------------------------------------- render */
 
   const heading =
-    section === "recent"
+    section === "docs"
+      ? t("docs.title")
+      : section === "recent"
       ? t("recent")
       : section === "trash"
         ? t("trash")
@@ -413,9 +420,9 @@ export function DriveApp(props: Props) {
   const sharedGroups = overview && section === "shared";
   const newProps = {
     canUpload,
-    canAdd: (section === "my" || !!account) && canAdd,
-    // Docs only opens files from the user's own account.
-    canNewDoc: section === "my" && canAdd,
+    canAdd: (ownDrive || !!account) && canAdd,
+    // The editors only open files from the user's own account.
+    canNewDoc: ownDrive && canAdd,
     busy,
     onNewFolder: () => setNaming(true),
     onFiles: upload,
@@ -436,6 +443,7 @@ export function DriveApp(props: Props) {
             dropProps={account ? undefined : folderDropProps(null)}
             dropActive={!account && dropTarget === "__root"}
           />
+          <NavItem href={driveHref({ section: "docs" })} active={section === "docs"} icon={FileText} label={t("docs.title")} />
           <NavItem href={driveHref({ section: "shared" })} active={section === "shared"} icon={Users} label={t("sharedWithMe")} />
           <NavItem href={driveHref({ section: "recent" })} active={section === "recent"} icon={Clock} label={t("recent")} />
           {showTrash && <NavItem href={driveHref({ section: "trash" })} active={section === "trash"} icon={Trash2} label={t("trash")} />}
@@ -592,7 +600,10 @@ export function DriveApp(props: Props) {
 
         {/* Content */}
         <div className="min-h-0 flex-1 overflow-y-auto" onClick={(e) => e.target === e.currentTarget && setSelected(new Set())}>
-          {missing ? (
+          {section === "my" && !folderId && !missing && <QuickCreate office={office} onError={(code) => setError(errorText(code))} />}
+          {section === "docs" ? (
+            <DocsSection docs={docs ?? []} view={view} office={office} />
+          ) : missing ? (
             <Empty title={t("folderMissing")} />
           ) : overview && section === "spaces" ? (
             <SpacesOverview spaces={spaces} />

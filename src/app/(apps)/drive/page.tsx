@@ -3,13 +3,17 @@ import { getLocale, getTranslations } from "next-intl/server";
 import { cookies } from "next/headers";
 import { unstable_rethrow } from "next/navigation";
 import { DriveApp } from "./DriveApp";
+import { toDocs } from "@/app/(apps)/docs/list";
+import { isNativeKind, type DocItem } from "@/app/(apps)/docs/shared";
 import { EXT_COOKIE, INIT_COOKIE, SORT_COOKIE, VIEW_COOKIE, type Item, type Section, type SortKey } from "./shared";
 import {
   annotateShared,
+  getAllNodes,
   getDriveAccounts,
   getDriveSession,
   getPath,
   getQuota,
+  getRootId,
   getTrashId,
   listChildren,
   recentFiles,
@@ -18,6 +22,7 @@ import {
   type DriveAccount,
   type DriveNode,
 } from "@/lib/drive";
+import { collaboraUrl, supportedExts } from "@/lib/wopi";
 
 type Params = { folder?: string; view?: string; q?: string; sort?: string; dir?: string; account?: string };
 
@@ -86,6 +91,8 @@ export default async function DrivePage({ searchParams }: { searchParams: Promis
   const desc = explicitSort ? sp.dir === "desc" : defaultSort.desc;
   const viewMode = jar.get(VIEW_COOKIE)?.value === "grid" ? "grid" : "list";
   const showExt = jar.get(EXT_COOKIE)?.value !== "0";
+  // Office documents need the Collabora server; whiteboards and Markdown always work.
+  const office = collaboraUrl();
 
   let data: {
     section: Section;
@@ -98,6 +105,7 @@ export default async function DrivePage({ searchParams }: { searchParams: Promis
     primaryTrash: boolean;
     missing: boolean;
     canAdd: boolean;
+    docs: DocItem[] | null;
   };
   try {
     const session = await getDriveSession();
@@ -117,7 +125,7 @@ export default async function DrivePage({ searchParams }: { searchParams: Promis
         ? account.kind === "space"
           ? "spaces"
           : "shared"
-        : sp.view === "recent" || sp.view === "trash" || sp.view === "shared" || sp.view === "spaces"
+        : sp.view === "docs" || sp.view === "recent" || sp.view === "trash" || sp.view === "shared" || sp.view === "spaces"
           ? sp.view
           : "my";
 
@@ -126,6 +134,7 @@ export default async function DrivePage({ searchParams }: { searchParams: Promis
     let owner: (n: DriveNode) => string | null = () => account?.name ?? null;
     let hasTrash = false;
     let canAdd = false;
+    let docs: DocItem[] | null = null;
 
     if (accountMissing) {
       // Rendered as the "missing" state below.
@@ -152,7 +161,18 @@ export default async function DrivePage({ searchParams }: { searchParams: Promis
     } else if (section !== "spaces") {
       const trashId = await getTrashId();
       hasTrash = !!trashId;
-      if (section === "search") nodes = await searchNodes(q);
+      if (section === "docs") {
+        // Documents: every editable file in My Drive; new files and uploads land in its root.
+        canAdd = true;
+        const [all, rootId, supported] = await Promise.all([
+          getAllNodes(),
+          getRootId(),
+          // Discovery tells which extensions this Collabora opens; if it's unreachable, list everything.
+          office ? supportedExts(office).catch(() => null) : null,
+        ]);
+        docs = toDocs(all, rootId, trashId, supported);
+        if (!office) docs = docs.filter((d) => isNativeKind(d.kind));
+      } else if (section === "search") nodes = await searchNodes(q);
       else if (section === "recent") nodes = await recentFiles();
       else if (section === "trash") nodes = trashId ? await listChildren(folder ?? trashId) : [];
       else {
@@ -175,6 +195,7 @@ export default async function DrivePage({ searchParams }: { searchParams: Promis
       primaryTrash: account || section === "shared" || section === "spaces" ? !!(await getTrashId().catch(() => null)) : hasTrash,
       missing: accountMissing || ((section === "my" || !!account) && !!folder && path.length === 0),
       canAdd,
+      docs,
     };
   } catch (e) {
     unstable_rethrow(e);
@@ -209,6 +230,8 @@ export default async function DrivePage({ searchParams }: { searchParams: Promis
       showTrash={data.primaryTrash}
       missing={data.missing}
       canAdd={data.canAdd}
+      docs={data.docs}
+      office={!!office}
       spaces={data.accounts.filter((a) => a.kind === "space").map(({ id, name }) => ({ id, name }))}
       needsInit={section === "my" && !folder && !jar.get(INIT_COOKIE)}
     />

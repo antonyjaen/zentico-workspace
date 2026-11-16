@@ -2,6 +2,7 @@ import { getLocale, getTranslations } from "next-intl/server";
 import { unstable_rethrow } from "next/navigation";
 import { EditorWorkspace } from "./EditorFrame";
 import { getDocAccess } from "../../native";
+import { editorBack } from "../../shared";
 import { Notice } from "../../ui";
 import { getRootId } from "@/lib/drive";
 import { env } from "@/lib/env";
@@ -39,7 +40,8 @@ export default async function EditDocPage({
   const { fileId } = await params;
   const { from } = await searchParams;
   const t = await getTranslations("docs");
-  const back = from === "drive" ? { href: "/drive", label: t("backToDrive") } : { href: "/docs", label: t("backToDocs") };
+  const to = editorBack(from);
+  const back = { href: to.href, label: t(to.label) };
   const base = collaboraUrl();
 
   const shell = (node: FileNode | null, body: React.ReactNode, extra: Partial<Parameters<typeof EditorWorkspace>[0]> = {}) => (

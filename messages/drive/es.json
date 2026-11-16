@@ -61,8 +61,8 @@
     "done": "Listo",
     "close": "Cerrar",
     "loading": "Cargando…",
-    "openInDocs": "Abrir en Docs",
-    "officeHint": "Abre este archivo en Docs para verlo y editarlo.",
+    "openInDocs": "Abrir en el editor",
+    "officeHint": "Abre este archivo en el editor para verlo y editarlo.",
     "noPreview": "No hay vista previa para este archivo.",
     "previewFailed": "No se pudo cargar la vista previa.",
     "truncated": "Se muestran los primeros 200 KB. Descarga el archivo para verlo completo.",
@@ -120,6 +120,59 @@
       "unavailable": "Drive no está disponible ahora mismo.",
       "forbidden": "No tienes permiso para hacer eso.",
       "share_failed": "No se pudo actualizar el uso compartido. Inténtalo de nuevo."
+    },
+    "docs": {
+      "title": "Documentos",
+      "kind": {
+        "text": "Documento",
+        "spreadsheet": "Hoja de cálculo",
+        "presentation": "Presentación",
+        "whiteboard": "Pizarra",
+        "markdown": "Markdown"
+      },
+      "startNew": "Crear un documento",
+      "templatesNote": "Las plantillas crean un archivo vacío con un nombre predefinido.",
+      "presetLabel": {
+        "blankText": "Documento en blanco",
+        "blankSpreadsheet": "Hoja en blanco",
+        "blankPresentation": "Presentación en blanco",
+        "meetingNotes": "Notas de reunión",
+        "projectPlan": "Plan de proyecto",
+        "budget": "Presupuesto",
+        "pitchDeck": "Presentación comercial",
+        "blankWhiteboard": "Pizarra",
+        "blankMarkdown": "Markdown"
+      },
+      "search": "Filtrar documentos",
+      "filterLabel": "Filtrar por tipo",
+      "filter": {
+        "all": "Todos",
+        "text": "Documentos",
+        "spreadsheet": "Hojas de cálculo",
+        "presentation": "Presentaciones",
+        "whiteboard": "Pizarras",
+        "markdown": "Markdown"
+      },
+      "sortBy": "Ordenar por",
+      "sort": {
+        "modified": "Última modificación",
+        "name": "Nombre"
+      },
+      "location": "Ubicación",
+      "actions": "Acciones",
+      "empty": "Aún no hay documentos",
+      "emptyHint": "Crea un documento arriba o sube archivos con Nuevo.",
+      "noMatches": "Ningún documento coincide",
+      "noMatchesHint": "Nada coincide con «{q}» con el filtro actual.",
+      "clearFilters": "Borrar búsqueda y filtros",
+      "moreActions": "Más acciones para {name}",
+      "openFolder": "Abrir carpeta",
+      "confirmDelete": "¿Eliminar este archivo?",
+      "movedToTrash": "«{name}» se movió a la papelera",
+      "deleted": "«{name}» eliminado",
+      "quickNew": "Nuevo",
+      "allTemplates": "Todas las plantillas",
+      "all": "Todos los documentos"
     }
   }
 }

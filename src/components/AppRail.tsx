@@ -19,8 +19,8 @@ export function AppRail() {
       <Link href="/mail" className="mb-4 rounded-lg p-1" aria-label="Zentico Workspace">
         <LogoMark size={30} />
       </Link>
-      {RAIL_APPS.map(({ id, href, icon: Icon, color }) => {
-        const active = pathname === href || pathname.startsWith(`${href}/`);
+      {RAIL_APPS.map(({ id, href, icon: Icon, color, match = [] }) => {
+        const active = [href, ...match].some((p) => pathname === p || pathname.startsWith(`${p}/`));
         return (
           <Link
             key={id}

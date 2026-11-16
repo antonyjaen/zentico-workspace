@@ -61,8 +61,8 @@
     "done": "Done",
     "close": "Close",
     "loading": "Loading…",
-    "openInDocs": "Open in Docs",
-    "officeHint": "Open this file in Docs to view and edit it.",
+    "openInDocs": "Open in editor",
+    "officeHint": "Open this file in the editor to view and edit it.",
     "noPreview": "No preview available for this file.",
     "previewFailed": "Couldn’t load the preview.",
     "truncated": "Showing the first 200 KB. Download the file to see all of it.",
@@ -120,6 +120,59 @@
       "unavailable": "Drive isn’t available right now.",
       "forbidden": "You don’t have permission to do that.",
       "share_failed": "Couldn’t update sharing. Try again."
+    },
+    "docs": {
+      "title": "Documents",
+      "kind": {
+        "text": "Document",
+        "spreadsheet": "Spreadsheet",
+        "presentation": "Presentation",
+        "whiteboard": "Whiteboard",
+        "markdown": "Markdown"
+      },
+      "startNew": "Start a new document",
+      "templatesNote": "Templates create an empty file with a ready-made name.",
+      "presetLabel": {
+        "blankText": "Blank document",
+        "blankSpreadsheet": "Blank spreadsheet",
+        "blankPresentation": "Blank presentation",
+        "meetingNotes": "Meeting notes",
+        "projectPlan": "Project plan",
+        "budget": "Budget",
+        "pitchDeck": "Pitch deck",
+        "blankWhiteboard": "Whiteboard",
+        "blankMarkdown": "Markdown"
+      },
+      "search": "Filter documents",
+      "filterLabel": "Filter by type",
+      "filter": {
+        "all": "All",
+        "text": "Documents",
+        "spreadsheet": "Spreadsheets",
+        "presentation": "Presentations",
+        "whiteboard": "Whiteboards",
+        "markdown": "Markdown"
+      },
+      "sortBy": "Sort by",
+      "sort": {
+        "modified": "Last modified",
+        "name": "Name"
+      },
+      "location": "Location",
+      "actions": "Actions",
+      "empty": "No documents yet",
+      "emptyHint": "Start a new document above, or upload files with New.",
+      "noMatches": "No documents match",
+      "noMatchesHint": "Nothing matches “{q}” with the current filter.",
+      "clearFilters": "Clear search and filters",
+      "moreActions": "More actions for {name}",
+      "openFolder": "Open folder",
+      "confirmDelete": "Delete this file?",
+      "movedToTrash": "“{name}” moved to the trash",
+      "deleted": "“{name}” deleted",
+      "quickNew": "New",
+      "allTemplates": "All templates",
+      "all": "All documents"
     }
   }
 }

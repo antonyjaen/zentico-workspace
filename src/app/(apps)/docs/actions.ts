@@ -26,7 +26,6 @@ const ID = /^[A-Za-z0-9_-]{1,255}$/;
 async function run<T>(fn: () => Promise<T>): Promise<ActionResult<T>> {
   try {
     const data = await fn();
-    revalidatePath("/docs");
     revalidatePath("/drive");
     return { ok: true, data };
   } catch (e) {

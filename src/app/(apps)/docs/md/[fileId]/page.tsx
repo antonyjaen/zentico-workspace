@@ -2,7 +2,7 @@ import { getTranslations } from "next-intl/server";
 import { cookies } from "next/headers";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { loadNativeDoc } from "../../native";
-import { MD_VIEW_COOKIE, type MdView } from "../../shared";
+import { editorBack, MD_VIEW_COOKIE, type MdView } from "../../shared";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +16,8 @@ export default async function MarkdownPage({
   const { fileId } = await params;
   const { from } = await searchParams;
   const t = await getTranslations("docs");
-  const back = from === "drive" ? { href: "/drive", label: t("backToDrive") } : { href: "/docs", label: t("backToDocs") };
+  const to = editorBack(from);
+  const back = { href: to.href, label: t(to.label) };
   const saved = (await cookies()).get(MD_VIEW_COOKIE)?.value;
   const view: MdView = saved === "edit" || saved === "preview" ? saved : "split";
 

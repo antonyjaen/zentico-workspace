@@ -52,9 +52,6 @@ export type DocAccess = {
   sharedWith: number | null;
 };
 
-export type ViewMode = "list" | "grid";
-export const VIEW_COOKIE = "zw_docs_view";
-
 /** Markdown editor layout: source only, side by side, or rendered only. */
 export type MdView = "edit" | "split" | "preview";
 export const MD_VIEW_COOKIE = "zw_md_view";
@@ -77,11 +74,6 @@ export const PRESETS = [
 
 export type PresetId = (typeof PRESETS)[number]["id"];
 
-/** Office files the Upload button accepts (Collabora opens all of them). */
-export const UPLOAD_EXTS = ["docx", "xlsx", "pptx", "odt", "ods", "odp", "doc", "xls", "ppt", "rtf", "csv", "txt", "md", "markdown", "excalidraw"];
-export const UPLOAD_ACCEPT = UPLOAD_EXTS.map((e) => `.${e}`).join(",");
-export const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
-
 export const extOf = (name: string) => {
   const i = name.lastIndexOf(".");
   return i > 0 ? name.slice(i + 1).toLowerCase() : "";
@@ -98,12 +90,23 @@ export const fold = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").to
 
 export const editHref = (id: string) => `/docs/edit/${encodeURIComponent(id)}`;
 
+/** Where an editor was opened from: Drive's Documents section ("docs") or anywhere else in Drive. */
+export type EditorFrom = "drive" | "docs";
+
 /** Editor for a file: Collabora for office files, the built-in editors for whiteboards / Markdown. */
-export function openHref(id: string, kindOrName: DocKind | string, from?: "drive"): string {
+export function openHref(id: string, kindOrName: DocKind | string, from?: EditorFrom): string {
   const k = DOC_KINDS.includes(kindOrName as DocKind) ? (kindOrName as DocKind) : nativeKind(kindOrName);
   const base = k && isNativeKind(k) ? `/docs/${NATIVE[k].route}/${encodeURIComponent(id)}` : editHref(id);
   return from ? `${base}?from=${from}` : base;
 }
+/**
+ * Editor back link from its ?from= parameter: Drive's Documents section when opened from there,
+ * else Drive. Untrusted input: anything unknown falls back to Drive.
+ */
+export function editorBack(from: unknown): { href: string; label: "backToDocs" | "backToDrive" } {
+  return from === "docs" ? { href: "/drive?view=docs", label: "backToDocs" } : { href: "/drive", label: "backToDrive" };
+}
+
 export const downloadHref = (id: string) => `/api/drive/file/${encodeURIComponent(id)}`;
 export const folderHref = (folderId: string | null) =>
   folderId ? `/drive?folder=${encodeURIComponent(folderId)}` : "/drive";

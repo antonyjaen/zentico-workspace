@@ -20,8 +20,8 @@ export type Item = {
   shared: boolean;
 };
 
-/** "shared" = Shared with me, "spaces" = Shared spaces (team drives). */
-export type Section = "my" | "recent" | "trash" | "search" | "shared" | "spaces";
+/** "shared" = Shared with me, "spaces" = Shared spaces (team drives), "docs" = Documents (every editable file + templates). */
+export type Section = "my" | "docs" | "recent" | "trash" | "search" | "shared" | "spaces";
 export type ViewMode = "list" | "grid";
 export type SortKey = "name" | "modified" | "size";
 export const VIEW_COOKIE = "zw_drive_view";
@@ -172,7 +172,7 @@ export function driveHref(p: {
 }): string {
   const q = new URLSearchParams();
   if (p.account) q.set("account", p.account);
-  else if (p.section === "recent" || p.section === "trash" || p.section === "shared" || p.section === "spaces") q.set("view", p.section);
+  else if (p.section === "docs" || p.section === "recent" || p.section === "trash" || p.section === "shared" || p.section === "spaces") q.set("view", p.section);
   if (p.folder) q.set("folder", p.folder);
   if (p.q) q.set("q", p.q);
   if (p.sort && p.sort !== "name") q.set("sort", p.sort);
@@ -190,10 +190,10 @@ export function fileUrl(id: string, opts: { inline?: boolean; text?: boolean; ac
   return `/api/drive/file/${encodeURIComponent(id)}${s ? `?${s}` : ""}`;
 }
 
-export const docsHref = (id: string) => `/docs/edit/${encodeURIComponent(id)}`;
+export const docsHref = (id: string) => openHref(id, "text", "drive");
 
 /**
- * Built-in Docs editor (whiteboard / Markdown) for a file, or null. Docs only opens files from
+ * Built-in editor (whiteboard / Markdown) for a file, or null. The editors only open files from
  * the user's own drive, so shared files keep the regular preview.
  */
 export function nativeEditorHref(item: { id: string; name: string; isFolder: boolean; accountId: string | null }): string | null {
