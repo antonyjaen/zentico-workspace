@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useNotifications } from "@/components/notifications/NotificationsProvider";
 import type { NotificationPrefs } from "@/lib/notifications/types";
 
-type BoolPref = "chat" | "channelMentionsOnly" | "meetings" | "mail" | "calendar" | "claude" | "sound";
+type BoolPref = "chat" | "channelMentionsOnly" | "meetings" | "mail" | "calendar" | "claude" | "sound" | "ringtone";
 
 function Switch({ checked, onChange, labelledBy, describedBy, disabled }: {
   checked: boolean;
@@ -154,6 +154,9 @@ export function NotificationSettings() {
           )}
           <Row id="n-sound" label={t("sound")} hint={t("soundHint")}>
             {switchFor("sound")}
+          </Row>
+          <Row id="n-ringtone" label={t("ringtone")} hint={t("ringtoneHint")}>
+            {switchFor("ringtone")}
           </Row>
         </div>
       </section>

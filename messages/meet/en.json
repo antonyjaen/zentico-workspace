@@ -263,5 +263,39 @@
     "inviteMailIntroTitled": "{name} is inviting you to join the “{title}” Zentico video call that is happening now.",
     "inviteMailJoin": "Join the meeting",
     "inviteMailCode": "Meeting code: {code}"
+  },
+  "calls": {
+    "incomingAudio": "Incoming voice call",
+    "incomingVideo": "Incoming video call",
+    "incomingShort": "Incoming call",
+    "accept": "Accept",
+    "acceptAudioOnly": "Accept without video",
+    "decline": "Decline",
+    "quickReply": "Decline with a message",
+    "replyBusy": "Can't talk right now",
+    "replyLater": "I'll call you in 5 min",
+    "minimize": "Minimize",
+    "expand": "Show the call",
+    "silent": "silenced",
+    "switch": "Accept",
+    "switchHint": "Hangs up your current call and accepts this one",
+    "calling": "Calling {names}…",
+    "cancel": "Cancel",
+    "voiceCall": "Voice call",
+    "videoCall": "Video call",
+    "declinedCount": "{count} declined",
+    "outcome": {
+      "missed": "No answer",
+      "declined": "Call declined",
+      "cancelled": "Call cancelled"
+    },
+    "titleFlash": "📞 Call from {name}",
+    "desktopTitle": "Call from {name}",
+    "errors": {
+      "failed": "Couldn't connect the call. Try again.",
+      "callEnded": "This call has already ended.",
+      "notConfigured": "Meetings aren't configured on this server.",
+      "rateLimited": "Too many calls in a row. Wait a moment."
+    }
   }
 }

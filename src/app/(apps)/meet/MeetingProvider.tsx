@@ -23,8 +23,10 @@ type MeetingContext = {
   ended: { roomName: string; reason: LeftReason } | null;
   joiningRoom: string | null;
   error: { roomName: string; message: string } | null;
-  join: (roomName: string, settings: JoinSettings, videoRecording: boolean) => Promise<void>;
-  leave: () => void;
+  /** Resolves true once connected (false: failed, or another call/join is in progress). */
+  join: (roomName: string, settings: JoinSettings, videoRecording: boolean) => Promise<boolean>;
+  /** Hangs up; resolves once disconnected. */
+  leave: () => Promise<void>;
   dismissEnded: () => void;
   /** Shows the full call UI inside `el` until the returned cleanup runs. */
   attachSlot: (el: HTMLElement) => () => void;
@@ -111,9 +113,9 @@ export function MeetingProvider({ children }: { children: React.ReactNode }) {
   );
 
   const join = useCallback(
-    async (roomName: string, settings: JoinSettings, videoRecording: boolean) => {
+    async (roomName: string, settings: JoinSettings, videoRecording: boolean): Promise<boolean> => {
       // One Room at a time: double clicks and a second join while connected are ignored.
-      if (joiningRef.current || roomRef.current) return;
+      if (joiningRef.current || roomRef.current) return false;
       joiningRef.current = true;
       setJoiningRoom(roomName);
       setError(null);
@@ -128,7 +130,7 @@ export function MeetingProvider({ children }: { children: React.ReactNode }) {
         // Expired session: middleware redirects to sign-in, the route itself answers 401.
         if (res.status === 401 || res.redirected) {
           window.location.assign(`/signin?returnTo=${encodeURIComponent(window.location.pathname)}`);
-          return;
+          return false;
         }
         if (!res.ok) throw new Error(res.status === 503 ? "not_configured" : "token");
         const { token, url } = (await res.json()) as { token: string; url: string };
@@ -168,6 +170,7 @@ export function MeetingProvider({ children }: { children: React.ReactNode }) {
           settings.audio ? lp.setMicrophoneEnabled(true) : Promise.resolve(),
           settings.video ? lp.setCameraEnabled(true) : Promise.resolve(),
         ]);
+        return true;
       } catch (e) {
         // Only the token fetch or connect() can throw (publishing is allSettled).
         void room?.disconnect(true);
@@ -175,6 +178,7 @@ export function MeetingProvider({ children }: { children: React.ReactNode }) {
           roomName,
           message: e instanceof Error && e.message === "not_configured" ? t("notConfigured") : t("connectFailed"),
         });
+        return false;
       } finally {
         joiningRef.current = false;
         setJoiningRoom(null);
@@ -191,7 +195,12 @@ export function MeetingProvider({ children }: { children: React.ReactNode }) {
     if (prev !== pathname) setEnded((e) => (e && prev === meetHref(e.roomName) ? null : e));
   }, [pathname]);
 
-  const leave = useCallback(() => void roomRef.current?.disconnect(true), []);
+  const leave = useCallback(async () => {
+    const room = roomRef.current;
+    if (!room) return;
+    await room.disconnect(true).catch(() => {});
+    if (roomRef.current === room) roomRef.current = null;
+  }, []);
   const dismissEnded = useCallback(() => setEnded(null), []);
 
   const value = useMemo<MeetingContext>(

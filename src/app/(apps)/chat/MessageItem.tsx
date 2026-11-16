@@ -1,7 +1,21 @@
 "use client";
 
-import { CalendarCheck, Download, EyeOff, ExternalLink, FileText, MessageSquareReply, Pencil, SmilePlus, Trash2, Video } from "lucide-react";
+import {
+  CalendarCheck,
+  Download,
+  EyeOff,
+  ExternalLink,
+  FileText,
+  MessageSquareReply,
+  Pencil,
+  Phone,
+  PhoneMissed,
+  SmilePlus,
+  Trash2,
+  Video,
+} from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
+import Link from "next/link";
 import { memo, useEffect, useRef, useState } from "react";
 import { usePopover } from "@/components/usePopover";
 import { meetHref } from "../meet/shared";
@@ -16,6 +30,7 @@ import {
   MEETING_LIVE_MS,
   REACTIONS,
   type BotCard,
+  type CallMeta,
   type ChatMessage,
   type ChatUser,
   type FileMeta,
@@ -347,6 +362,9 @@ function SystemLine({ m }: { m: ChatMessage }) {
     case "removed":
       text = t("sys.removed", { who, names: (s.names ?? []).join(", ") });
       break;
+    case "call":
+      text = s.outcome === "declined" ? t("sys.declinedCall", { who }) : t("sys.missedCall", { who });
+      break;
     default:
       text = m.body;
   }
@@ -470,6 +488,7 @@ function MeetingCard({
     return () => clearInterval(id);
   }, []);
   const who = author?.id === me.id ? t("you") : (author?.name ?? t("someone"));
+  if (meeting.call) return <CallCard meeting={meeting} call={meeting.call} who={who} created={created} now={now} />;
   const scheduled = meeting.type === "scheduled";
   const over =
     !!meeting.ended || (scheduled ? !!meeting.end && meeting.end < now : now - created > MEETING_LIVE_MS);
@@ -516,10 +535,10 @@ function MeetingCard({
           </span>
         ) : (
           <>
-            <a href={href} target="_blank" rel="noopener" className={BTN_MEET} style={{ background: "var(--color-app-meet)" }}>
+            <Link href={href} className={BTN_MEET} style={{ background: "var(--color-app-meet)" }}>
               <Video size={14} aria-hidden />
               {t("join")}
-            </a>
+            </Link>
             {!scheduled && canInteract && (
               <button type="button" onClick={() => void endMeeting(meeting.meetingId)} className={BTN}>
                 {t("endMeeting")}
@@ -528,6 +547,54 @@ function MeetingCard({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/** A meeting started by a call: who called, then ringing / in progress / its length / missed. */
+function CallCard({ meeting, call, who, created, now }: { meeting: MeetingMeta; call: CallMeta; who: string; created: number; now: number }) {
+  const t = useTranslations("chat");
+  const locale = useLocale();
+  const video = call.media === "video";
+  const end = call.endedAt ?? meeting.ended ?? null;
+  const live = (call.state === "ringing" || call.state === "answered") && !end && now - created < MEETING_LIVE_MS;
+  const missed = call.state === "missed" || call.state === "cancelled";
+  const kind = video ? t("callVideo") : t("callVoice");
+
+  let status: string;
+  if (call.state === "ringing" && live) status = t("callCard.ringing");
+  else if (live) status = t("callCard.live");
+  else if (missed) status = t("callCard.missed");
+  else if (call.state === "declined") status = t("callCard.declined");
+  else if (call.answeredAt && end) {
+    const seconds = Math.max(1, Math.round((end - call.answeredAt) / 1000));
+    const duration = seconds < 60 ? t("callCard.seconds", { count: seconds }) : t("callCard.minutes", { count: Math.round(seconds / 60) });
+    status = t("callCard.duration", { kind, duration });
+  } else status = t("callCard.ended");
+
+  const Icon = missed ? PhoneMissed : video ? Video : Phone;
+  return (
+    <div className="mt-1 flex max-w-md items-center gap-3 rounded-lg border border-line p-3">
+      <span
+        className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-white"
+        style={{ background: live ? "var(--color-app-meet)" : missed ? "var(--color-danger)" : "var(--color-ink-mute)" }}
+        aria-hidden
+      >
+        <Icon size={18} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13.5px] font-medium text-ink">{video ? t("callCard.video", { who }) : t("callCard.audio", { who })}</p>
+        <p className={`mt-0.5 text-[12.5px] ${missed ? "text-danger" : "text-ink-mute"}`}>
+          {status}
+          {!live && end ? ` · ${timeOf(end, locale)}` : ""}
+        </p>
+      </div>
+      {live && (
+        <Link href={meetHref(meeting.code)} className={BTN_MEET} style={{ background: "var(--color-app-meet)" }}>
+          {video ? <Video size={14} aria-hidden /> : <Phone size={14} aria-hidden />}
+          {t("join")}
+        </Link>
+      )}
     </div>
   );
 }

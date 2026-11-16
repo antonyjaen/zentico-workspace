@@ -138,7 +138,9 @@
       "left": "{who} salió",
       "renamed": "{who} cambió el nombre a {name}",
       "renamedCleared": "{who} quitó el nombre",
-      "removed": "{who} quitó a {names}"
+      "removed": "{who} quitó a {names}",
+      "missedCall": "Llamada perdida de {who}",
+      "declinedCall": "Llamada de {who} rechazada"
     },
     "errors": {
       "failed": "Algo salió mal. Inténtalo de nuevo.",
@@ -165,7 +167,11 @@
       "tooManyWebhooks": "Esta conversación ya tiene 10 webhooks.",
       "invalidAvatar": "El avatar debe ser un emoji.",
       "invalidUrl": "La URL debe empezar por https:// y apuntar a un servidor público.",
-      "invalidCommand": "Los comandos usan minúsculas, números, - o _ (hasta 32 caracteres) y no se pueden repetir."
+      "invalidCommand": "Los comandos usan minúsculas, números, - o _ (hasta 32 caracteres) y no se pueden repetir.",
+      "callEnded": "Esta llamada ya ha terminado.",
+      "rateLimited": "Demasiados intentos seguidos. Espera un momento.",
+      "notConfigured": "Las reuniones no están configuradas en este servidor.",
+      "busy": "Ya hay una llamada en marcha."
     },
     "tabChats": "Chats",
     "tabPeople": "Personas",
@@ -260,6 +266,27 @@
       "openChat": "Abrir chat",
       "grantFailed": "{count, plural, one {No se pudo dar un acceso} other {No se pudieron dar # accesos}}; esas personas quizá no puedan abrirlo."
     },
-    "appsAndWebhooks": "Apps y webhooks"
+    "appsAndWebhooks": "Apps y webhooks",
+    "call": "Llamar",
+    "callVoice": "Llamada de voz",
+    "callVideo": "Videollamada",
+    "callMenu": "Opciones de llamada",
+    "startMeeting": "Iniciar reunión",
+    "startMeetingHint": "Avisa al canal, sin hacer sonar a nadie",
+    "ringAllVoice": "Llamar a todos (voz)",
+    "ringAllVideo": "Llamar a todos (vídeo)",
+    "ringAllHint": "Hace sonar a los {count} miembros del canal",
+    "callCard": {
+      "audio": "Llamada de voz de {who}",
+      "video": "Videollamada de {who}",
+      "ringing": "Sonando…",
+      "live": "En curso",
+      "duration": "{kind} · {duration}",
+      "missed": "Llamada perdida",
+      "declined": "Llamada rechazada",
+      "ended": "Llamada finalizada",
+      "minutes": "{count} min",
+      "seconds": "{count} s"
+    }
   }
 }

@@ -138,7 +138,9 @@
       "left": "{who} left",
       "renamed": "{who} renamed this to {name}",
       "renamedCleared": "{who} removed the name",
-      "removed": "{who} removed {names}"
+      "removed": "{who} removed {names}",
+      "missedCall": "Missed call from {who}",
+      "declinedCall": "{who}'s call was declined"
     },
     "errors": {
       "failed": "Something went wrong. Try again.",
@@ -165,7 +167,11 @@
       "tooManyWebhooks": "This conversation already has 10 webhooks.",
       "invalidAvatar": "The avatar must be an emoji.",
       "invalidUrl": "The URL must start with https:// and point to a public server.",
-      "invalidCommand": "Commands use lowercase letters, digits, - or _ (up to 32 characters) and can't repeat."
+      "invalidCommand": "Commands use lowercase letters, digits, - or _ (up to 32 characters) and can't repeat.",
+      "callEnded": "This call has already ended.",
+      "rateLimited": "Too many attempts in a row. Wait a moment.",
+      "notConfigured": "Meetings aren't configured on this server.",
+      "busy": "A call is already being placed."
     },
     "tabChats": "Chats",
     "tabPeople": "People",
@@ -260,6 +266,27 @@
       "openChat": "Open chat",
       "grantFailed": "{count, plural, one {One access grant failed} other {# access grants failed}}; those people may not be able to open it."
     },
-    "appsAndWebhooks": "Apps & webhooks"
+    "appsAndWebhooks": "Apps & webhooks",
+    "call": "Call",
+    "callVoice": "Voice call",
+    "callVideo": "Video call",
+    "callMenu": "Call options",
+    "startMeeting": "Start a meeting",
+    "startMeetingHint": "Lets the channel know, without ringing anyone",
+    "ringAllVoice": "Ring everyone (voice)",
+    "ringAllVideo": "Ring everyone (video)",
+    "ringAllHint": "Rings the channel's {count} members",
+    "callCard": {
+      "audio": "Voice call from {who}",
+      "video": "Video call from {who}",
+      "ringing": "Ringing…",
+      "live": "In progress",
+      "duration": "{kind} · {duration}",
+      "missed": "Missed call",
+      "declined": "Call declined",
+      "ended": "Call ended",
+      "minutes": "{count} min",
+      "seconds": "{count} s"
+    }
   }
 }

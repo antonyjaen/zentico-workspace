@@ -263,5 +263,39 @@
     "inviteMailIntroTitled": "{name} te invita a unirte a la videollamada «{title}» en Zentico, que ya está en curso.",
     "inviteMailJoin": "Unirse a la reunión",
     "inviteMailCode": "Código de la reunión: {code}"
+  },
+  "calls": {
+    "incomingAudio": "Llamada de voz entrante",
+    "incomingVideo": "Videollamada entrante",
+    "incomingShort": "Llamada entrante",
+    "accept": "Aceptar",
+    "acceptAudioOnly": "Aceptar sin vídeo",
+    "decline": "Rechazar",
+    "quickReply": "Rechazar con un mensaje",
+    "replyBusy": "Ahora no puedo",
+    "replyLater": "Te llamo en 5 min",
+    "minimize": "Minimizar",
+    "expand": "Mostrar la llamada",
+    "silent": "en silencio",
+    "switch": "Aceptar",
+    "switchHint": "Cuelga la llamada actual y acepta esta",
+    "calling": "Llamando a {names}…",
+    "cancel": "Cancelar",
+    "voiceCall": "Llamada de voz",
+    "videoCall": "Videollamada",
+    "declinedCount": "{count, plural, one {# ha rechazado} other {# han rechazado}}",
+    "outcome": {
+      "missed": "No contesta",
+      "declined": "Llamada rechazada",
+      "cancelled": "Llamada cancelada"
+    },
+    "titleFlash": "📞 Llamada de {name}",
+    "desktopTitle": "Llamada de {name}",
+    "errors": {
+      "failed": "No se ha podido conectar la llamada. Inténtalo de nuevo.",
+      "callEnded": "Esta llamada ya ha terminado.",
+      "notConfigured": "Las reuniones no están configuradas en este servidor.",
+      "rateLimited": "Demasiadas llamadas seguidas. Espera un momento."
+    }
   }
 }

@@ -19,19 +19,20 @@ import {
   RefreshCw,
   StickyNote,
   UserPlus,
-  Video,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCalls } from "@/components/calls/CallsProvider";
 import { usePopover } from "@/components/usePopover";
 import type { Contact } from "@/lib/contacts";
 import { saveContactInline } from "../contacts/actions";
 import { ContactForm } from "../contacts/ContactForm";
 import { ImportVcf } from "../contacts/SideForms";
 import { getMeetings, getPeopleDirectory, getPersonAvailability, startChat, startMeeting } from "./actions";
-import type { BusyBlock, DirectoryEntry, PeopleData } from "./shared";
-import { Avatar, BTN, BTN_MEET, BTN_PRIMARY, fold, openMeetNow, timeOf, useErrorText } from "./ui";
+import type { BusyBlock, CallMedia, DirectoryEntry, PeopleData } from "./shared";
+import { CallMenu } from "./CallMenu";
+import { Avatar, BTN, BTN_PRIMARY, fold, timeOf, useErrorText } from "./ui";
 
 export type PeopleView =
   | { kind: "person"; key: string }
@@ -420,6 +421,7 @@ function Profile({
 }) {
   const t = useTranslations("chat");
   const errorText = useErrorText();
+  const calls = useCalls();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -460,15 +462,13 @@ function Profile({
       if (id) onOpenConversation(id);
     });
 
-  const call = () => {
-    if (!entry || busy) return;
-    if (!openMeetNow({ with: entry.chatEmail, name: entry.name })) return setError(errorText("failed"));
-    // The new tab creates the DM and its meeting; show that conversation here.
-    void run(async () => {
-      const id = await dm();
-      if (id) onOpenConversation(id);
+  // Rings them in our DM (created if needed) and joins the call in-app.
+  const call = (media: CallMedia) =>
+    run(async () => {
+      if (!entry) return;
+      const r = await calls.startCall({ with: { email: entry.chatEmail, name: entry.name } }, media);
+      if (!r.ok) setError(errorText(r.error));
     });
-  };
 
   const schedule = () =>
     run(async () => {
@@ -522,10 +522,7 @@ function Profile({
                   <MessageSquare size={14} aria-hidden />
                   {t("people.message")}
                 </button>
-                <button type="button" onClick={call} disabled={busy} className={BTN_MEET} style={{ background: "var(--color-app-meet)" }}>
-                  <Video size={14} aria-hidden />
-                  {t("people.call")}
-                </button>
+                <CallMenu kind="dm" memberCount={2} disabled={busy || calls.starting} onCall={(media) => void call(media)} align="left" />
               </>
             )}
             {mainEmail && (

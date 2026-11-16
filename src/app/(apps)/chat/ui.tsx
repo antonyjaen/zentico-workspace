@@ -5,7 +5,6 @@
 import { Hash, Lock, Sparkles, Users, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { meetHref } from "../meet/shared";
 import { listPeople } from "./actions";
 import { listUsableApps } from "./app-actions";
 import { ProviderIcon } from "./ProviderIcon";
@@ -370,13 +369,4 @@ export const dayKey = (ms: number) => {
 export function useErrorText() {
   const t = useTranslations("chat");
   return (code: string) => (t.has(`errors.${code}`) ? t(`errors.${code}` as "errors.failed") : t("errors.failed"));
-}
-
-/**
- * Opens "meet now" in a new tab, synchronously inside the click (so popup blockers allow it). The
- * server route joins the ongoing meeting or starts one and redirects to the room.
- */
-export function openMeetNow(params: { c: string } | { with: string; name: string }): boolean {
-  const w = window.open(`/api/chat/meet?${new URLSearchParams(params)}`, "_blank");
-  return !!w;
 }

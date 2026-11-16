@@ -2,19 +2,23 @@
 
 import { ArrowLeft, Blocks, CalendarClock, CalendarPlus, Loader2, Upload, Video } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCalls } from "@/components/calls/CallsProvider";
 import { usePopover } from "@/components/usePopover";
 import { meetHref } from "../meet/shared";
 import { endMeeting, getConversation, getMeetings, getMessages, joinChannel, markRead, startMeeting } from "./actions";
 import { AppsPanel } from "./AppsPanel";
+import { CallMenu } from "./CallMenu";
 import type { Subscribe } from "./ChatApp";
 import { ClaudeStrip } from "./ClaudeStrip";
 import { Composer } from "./Composer";
 import { ScheduleDialog } from "./Dialogs";
 import { MessageItem } from "./MessageItem";
 import { MembersPanel, ThreadPanel } from "./Panels";
-import { TYPING_TTL_MS, type ChatMessage, type ChatUser, type ConversationDetail, type ConversationSummary, type MeetingInfo } from "./shared";
-import { Avatar, BTN, BTN_MEET, BTN_PRIMARY, ConversationIcon, dayKey, dayLabel, openMeetNow, timeOf, useErrorText } from "./ui";
+import { TYPING_TTL_MS, type CallMedia, type ChatMessage, type ChatUser, type ConversationDetail, type ConversationSummary, type MeetingInfo } from "./shared";
+import { Avatar, BTN, BTN_MEET, BTN_PRIMARY, ConversationIcon, dayKey, dayLabel, timeOf, useErrorText } from "./ui";
 
 type Props = {
   id: string;
@@ -38,6 +42,8 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
   const t = useTranslations("chat");
   const locale = useLocale();
   const errorText = useErrorText();
+  const router = useRouter();
+  const calls = useCalls();
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[] | null>(null);
@@ -272,12 +278,19 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
     [detail, me.id, t],
   );
 
-  const meetNow = () => {
+  // Calls ring the others and join in-app (CallsProvider); a channel meeting opens its pre-join page.
+  const call = async (media: CallMedia, ringAll: boolean) => {
+    const r = await calls.startCall({ conversationId: id }, media, { ringAll });
+    if (!r.ok) flash(errorText(r.error));
+  };
+
+  const meetNow = async () => {
     if (busy) return;
-    const ongoing = detailRef.current?.ongoing;
-    if (!openMeetNow({ c: id })) return flash(errorText("failed"));
-    // The new tab starts the meeting server-side; pick up its card shortly after.
-    if (!ongoing) setTimeout(() => void refreshMeetings(), 2500);
+    setBusy(true);
+    const r = await startMeeting(id);
+    setBusy(false);
+    if (!r.ok) return flash(errorText(r.error));
+    router.push(meetHref(r.data.code));
   };
 
   const join = async () => {
@@ -397,18 +410,29 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
                 <CalendarPlus size={15} aria-hidden />
                 <span className="hidden lg:inline">{t("schedule")}</span>
               </button>
-              <button
-                type="button"
-                onClick={meetNow}
-                disabled={busy}
-                className={`${BTN_MEET} px-2 sm:px-3`}
-                style={{ background: "var(--color-app-meet)" }}
-                aria-label={detail?.ongoing ? t("joinMeeting") : t("meetNow")}
-                title={detail?.ongoing ? t("joinMeeting") : t("meetNow")}
-              >
-                <Video size={15} aria-hidden />
-                <span className="hidden sm:inline">{detail?.ongoing ? t("joinMeeting") : t("meetNow")}</span>
-              </button>
+              {/* Channels join their ongoing meeting; DMs and groups can always call (it joins a live call). */}
+              {detail?.ongoing && detail.kind === "channel" ? (
+                <Link
+                  href={meetHref(detail.ongoing.code)}
+                  className={`${BTN_MEET} px-2 sm:px-3`}
+                  style={{ background: "var(--color-app-meet)" }}
+                  aria-label={t("joinMeeting")}
+                  title={t("joinMeeting")}
+                >
+                  <Video size={15} aria-hidden />
+                  <span className="hidden sm:inline">{t("joinMeeting")}</span>
+                </Link>
+              ) : (
+                detail && (
+                  <CallMenu
+                    kind={detail.kind}
+                    memberCount={detail.memberCount}
+                    disabled={busy || calls.starting}
+                    onCall={(media, ringAll) => void call(media, ringAll)}
+                    onMeet={() => void meetNow()}
+                  />
+                )
+              )}
             </>
           )}
           {detail && detail.kind !== "dm" && (
@@ -642,10 +666,10 @@ function OngoingBanner({ meeting, me, canEnd }: { meeting: MeetingInfo; me: Chat
           {t("endMeeting")}
         </button>
       )}
-      <a href={meetHref(meeting.code)} target="_blank" rel="noopener" className={BTN_MEET} style={{ background: "var(--color-app-meet)" }}>
+      <Link href={meetHref(meeting.code)} className={BTN_MEET} style={{ background: "var(--color-app-meet)" }}>
         <Video size={14} aria-hidden />
         {t("join")}
-      </a>
+      </Link>
     </div>
   );
 }
@@ -690,9 +714,9 @@ function MeetingsPopover({ detail }: { detail: ConversationDetail }) {
                       {m.end ? ` – ${timeOf(m.end, locale)}` : ""}
                     </p>
                   </div>
-                  <a href={meetHref(m.code)} target="_blank" rel="noopener" className="shrink-0 text-[12.5px] font-medium text-accent hover:underline">
+                  <Link href={meetHref(m.code)} className="shrink-0 text-[12.5px] font-medium text-accent hover:underline">
                     {t("join")}
-                  </a>
+                  </Link>
                 </li>
               ))}
             </ul>
