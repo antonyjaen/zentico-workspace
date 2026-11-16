@@ -21,6 +21,8 @@ export function ChatPanel({
   inputRef,
   onAdded,
   onCollapse,
+  where,
+  examples,
 }: {
   chat: ChatState;
   draft: string;
@@ -28,6 +30,10 @@ export function ChatPanel({
   inputRef: RefObject<HTMLTextAreaElement | null>;
   onAdded: (turn: TurnView) => void;
   onCollapse?: () => void;
+  /** Set by "Customize with Claude" outside the Dashboard: the app the user is in. */
+  where?: { app: string; path: string };
+  /** Example prompts for the empty state (default: the Dashboard's). */
+  examples?: string[];
 }) {
   const t = useTranslations("dashboard.chat");
   const locale = useLocale();
@@ -54,7 +60,7 @@ export function ChatPanel({
     if (!text || sending) return;
     setSending(true);
     try {
-      const res = await post("/api/dashboard/chat", { text, timeZone: viewerTimeZone() });
+      const res = await post("/api/dashboard/chat", { text, timeZone: viewerTimeZone(), ...(where ? { where } : {}) });
       if (res.ok) {
         const { turn } = (await res.json()) as { turn: TurnView };
         onAdded(turn);
@@ -124,17 +130,17 @@ export function ChatPanel({
             <p className="font-medium text-ink-soft">{t("emptyTitle")}</p>
             <p className="mt-1.5">{t("emptyBody")}</p>
             <ul className="mt-3 flex flex-col gap-1.5">
-              {(["example1", "example2", "example3"] as const).map((k) => (
+              {(examples ?? (["example1", "example2", "example3"] as const).map((k) => t(k))).map((k) => (
                 <li key={k}>
                   <button
                     type="button"
                     onClick={() => {
-                      setDraft(t(k));
+                      setDraft(k);
                       inputRef.current?.focus();
                     }}
                     className="w-full rounded-lg border border-line px-3 py-1.5 text-left text-[12.5px] text-ink-soft transition-colors hover:border-line-strong hover:bg-hover hover:text-ink"
                   >
-                    {t(k)}
+                    {k}
                   </button>
                 </li>
               ))}

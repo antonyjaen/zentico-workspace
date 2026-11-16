@@ -2,6 +2,8 @@
 // GET ?sync=1 (look for Drive changes) | ?force=1 (re-read and re-validate) → UiView
 // POST { action: "patch", baseSig, ops: PointerOp[] }   edits ui.json (validated before writing)
 //      { action: "undo" } | { action: "reset" }        file history / default files
+//      { action: "restore" }                           "Restore default UI": theme + shell back to defaults (backed up, undoable)
+//      { action: "preset", id }                         a workspace theme preset as theme.json
 //      { action: "template", id, grant? }              adds a recommended layout as a new page
 //      { action: "reload" }                            tells every open dashboard to re-sync
 import { getLocale } from "next-intl/server";
@@ -10,7 +12,7 @@ import { getSession } from "@/lib/auth";
 import { publish } from "@/lib/dashboard/store";
 import { failure, gate, jsonError, limited, NO_STORE } from "@/lib/ui/http";
 import type { PointerOp } from "@/lib/ui/schema";
-import { applyTemplate, patchUi, resetUi, syncUi, undoUi, viewOf } from "@/lib/ui/service";
+import { applyTemplate, applyThemePreset, patchUi, resetUi, restoreDefaultUi, syncUi, undoUi, viewOf } from "@/lib/ui/service";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -54,6 +56,11 @@ export async function POST(req: NextRequest) {
         if (!view) return jsonError("nothing_to_undo", 409);
         return NextResponse.json(view, { headers: NO_STORE });
       }
+      case "restore":
+        return NextResponse.json(await restoreDefaultUi(session, locale), { headers: NO_STORE });
+      case "preset":
+        if (typeof body.id !== "string" || body.id.length > 40) return jsonError("invalid", 400);
+        return NextResponse.json(await applyThemePreset(session, body.id, locale), { headers: NO_STORE });
       case "reset":
         return NextResponse.json(await resetUi(session, locale), { headers: NO_STORE });
       case "template": {

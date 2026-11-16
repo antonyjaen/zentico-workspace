@@ -8,8 +8,10 @@ import { AppLauncher } from "./AppLauncher";
 import { Wordmark } from "./Logo";
 import { NotificationBell } from "./notifications/NotificationBell";
 import { SearchBox } from "./SearchBox";
-import { SettingsLink } from "./SettingsLink";
+import { SettingsMenu } from "./SettingsMenu";
 import { ThemeMenu } from "./ThemeMenu";
+import { ShellItem } from "./UiShell";
+import { TopSlot } from "./WorkspaceUi";
 
 export async function TopBar({ session, query }: { session: Session; query?: string }) {
   const t = await getTranslations("topbar");
@@ -21,15 +23,25 @@ export async function TopBar({ session, query }: { session: Session; query?: str
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 pr-3 pl-4 md:pl-1">
-      <Link href="/mail" className="shrink-0 md:hidden" aria-label="Zentico Workspace">
+      <Link href="/" className="shrink-0 md:hidden" aria-label="Zentico Workspace">
         <Wordmark />
       </Link>
-      <SearchBox placeholder={t("search")} defaultValue={query} />
+      <ShellItem name="search">
+        <SearchBox placeholder={t("search")} defaultValue={query} />
+      </ShellItem>
       <div className="ml-auto flex items-center gap-1">
-        <NotificationBell />
-        <SettingsLink />
-        <ThemeMenu />
-        <AppLauncher />
+        <TopSlot />
+        <ShellItem name="notifications">
+          <NotificationBell />
+        </ShellItem>
+        {/* Never hideable: holds "Restore default UI" (see SettingsMenu). */}
+        <SettingsMenu />
+        <ShellItem name="theme">
+          <ThemeMenu />
+        </ShellItem>
+        <ShellItem name="launcher">
+          <AppLauncher />
+        </ShellItem>
         <AccountMenu accounts={accounts} accountUrl={`${env.issuer}/account/`} />
       </div>
     </header>

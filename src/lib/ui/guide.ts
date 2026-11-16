@@ -3,6 +3,7 @@
 // accepts. Client-safe.
 import {
   APP_TARGETS,
+  BUILTIN_APPS,
   COMPONENTS,
   CONFIG_MAX_BYTES,
   GRID_COLUMNS,
@@ -20,12 +21,15 @@ import {
   MOD_QUERIES,
   PERMISSION_DOCS,
   PERMISSIONS,
+  SLOT_NAMES,
+  TOPBAR_ITEMS,
   type JsonSchema,
 } from "./schema";
-import { catalog } from "./starter";
+import { catalog, THEME_PRESETS } from "./starter";
+import { MIN_ACCENT_CONTRAST, MIN_MUTED_CONTRAST, MIN_TEXT_CONTRAST, SAFE_PATH } from "./workspace";
 
 /** Bump when the guide changes: the stored AGENTS.md is refreshed when its marker is older. */
-export const GUIDE_VERSION = 2;
+export const GUIDE_VERSION = 3;
 export const GUIDE_MARKER = `<!-- zentico-ui-guide v${GUIDE_VERSION} -->`;
 export const guideVersionOf = (text: string) => Number(/<!-- zentico-ui-guide v(\d+) -->/.exec(text)?.[1] ?? 0);
 
@@ -59,6 +63,7 @@ export function buildGuide(): string {
     .map(([n, ev]) => `| \`${n}\` | ${ev.permission ? `\`${ev.permission}\`` : "—"} | ${ev.data} |`)
     .join("\n");
   const perms = PERMISSIONS.map((p) => `| \`${p}\` | ${PERMISSION_DOCS[p]} |`).join("\n");
+  const presets = THEME_PRESETS.map((p) => `- \`${p.id}\` — ${p.name.en}: ${p.description.en}\n\n  \`\`\`json\n  ${JSON.stringify(p.theme)}\n  \`\`\``).join("\n");
   const templates = catalog("en")
     .map((t) => `- \`${t.id}\` (${t.kind}) — ${t.name}: ${t.description}${t.kind !== "mod" && t.mods.length ? ` (mods: ${t.mods.join(", ")})` : ""}`)
     .join("\n");
@@ -66,9 +71,11 @@ export function buildGuide(): string {
   return `${GUIDE_MARKER}
 # Zentico UI — authoring guide for agents
 
-This folder (\`Zentico UI/\` in the user's Drive) **is** the user's Zentico Dashboard (\`/dashboard\`).
-The files here are the source of truth: pages and layouts, theme, keyboard shortcuts and mods
-(small sandboxed apps). When the files change, Zentico validates them and the user's open
+This folder (\`Zentico UI/\` in the user's Drive) **is** the user's Zentico Dashboard (\`/dashboard\`) **and the
+customization of their whole workspace**: the theme can style every app (Mail, Chat, Calendar, Drive, Meet,
+Settings), \`ui.json\`'s \`shell\` arranges the app rail, landing app, density and top bar, and mods can run in
+slots next to Mail, Chat, Calendar and Drive or in the top bar. The files here are the source of truth: pages and
+layouts, theme, shell, keyboard shortcuts and mods (small sandboxed apps). When the files change, Zentico validates them and the user's open
 dashboards reload live. If a change is invalid, the user keeps the last valid UI and sees an error
 banner (with an "Ask Claude to fix" button), so always validate.
 
@@ -88,6 +95,24 @@ banner (with an "Ask Claude to fix" button), so always validate.
    Drive changes on their own within ~10 s).
 5. Tell the user what changed in one or two sentences. Never ask for confirmation for UI-only edits.
 
+Requests may come from **"Customize with Claude"** in any app (the settings menu, or Alt+Shift+K): the request
+then starts with \`[Sent from the <app> app (<path>) …]\`. "Make the mail list more compact" or "put my tasks
+panel next to chat" are about the workspace: use \`theme.json\` (\`"scope": "workspace"\`) and \`ui.json\` \`shell\`
+(rail, density, top bar, slots), not a dashboard page. Apps can't be restyled beyond the tokens below (no custom CSS).
+
+## Guarantees you can't change
+
+- **"Restore default UI" is always available**: in the top bar's settings (gear) menu, which can't be hidden or
+  restyled, and at the fixed URL \`${SAFE_PATH}\` (outside the customizable workspace, with a per-browser **safe mode**
+  that ignores theme and shell customization). Restoring backs the current files up first (undoable), resets
+  \`theme.json\` and removes \`ui.json\`'s \`shell\`. Don't try to hide or work around it: \`ui_check\` rejects
+  \`shell.topbar.settings\` / \`shell.topbar.account\`, and the app ignores anything that would.
+- Every UI change is undoable (Undo in the Dashboard and in "Customize with Claude").
+- A broken theme or shell never locks the user out: invalid files keep the last valid UI, and a theme or \`shell\`
+  with errors falls back to the defaults for that part, with a notice in every app.
+- Built-in apps hidden from the rail stay reachable by URL and from the settings menu.
+- \`alt+shift+k\` is reserved for "Customize with Claude" (keys.json can't bind it).
+
 Shortcuts: \`ui_list_components\` (component catalog with props schemas), \`ui_list_templates\` and
 \`ui_apply_template\` (add a recommended page), \`dashboard_*\` (legacy widget tools; they edit the
 first grid on a page).
@@ -97,8 +122,8 @@ first grid on a page).
 | path | what |
 |---|---|
 | \`AGENTS.md\` | This guide (read-only for you; regenerated). |
-| \`ui.json\` | Pages and their layout trees. **Required.** |
-| \`theme.json\` | Look and feel: accent, radius, density, font, background, light/dark overrides, CSS variables. |
+| \`ui.json\` | Pages and their layout trees, plus the optional workspace \`shell\`. **Required.** |
+| \`theme.json\` | Look and feel: accent, radius, density, font, background, light/dark overrides, CSS variables; \`"scope": "workspace"\` styles every app. |
 | \`keys.json\` | Keyboard shortcuts → actions (work across the whole workspace, ignored while typing). |
 | \`mods/<id>/manifest.json\` | A mod's manifest. \`<id>\`: lowercase letters, digits, \`-\` (max 40). |
 | \`mods/<id>/index.html\` | The mod's entry HTML (plus optional \`.css\` / \`.js\` files, inlined at load). |
@@ -161,6 +186,42 @@ full height, no dashboard header, at \`/x/<path>\` (\`/dashboard/<id>\` keeps wo
 - The \`ui_make_app\` tool (or "Convert to app" in the page menu) adds or updates \`app\`; the user can reorder and
   hide apps from the rail's menu, which writes \`order\` / \`hidden\` here.
 
+### Workspace shell (\`shell\`)
+
+Optional, next to \`pages\`. Everything is validated; a \`shell\` with any error is ignored as a whole (defaults).
+
+\`\`\`json
+{
+  "version": 1,
+  "pages": [ … ],
+  "shell": {
+    "rail": { "order": ["chat", "mail", "app:crm", "calendar", "drive"], "hidden": ["meet"], "labels": true },
+    "home": "chat",
+    "density": "compact",
+    "topbar": { "search": false },
+    "slots": {
+      "mail.side": { "mod": "pomodoro", "title": "Tasks", "width": 320, "open": true },
+      "topbar": { "mod": "focus-timer", "width": 180 }
+    }
+  }
+}
+\`\`\`
+
+- \`rail.order\`: rail entries first, in this order: built-in apps (${BUILTIN_APPS.map((a) => `\`${a}\``).join(", ")}) and custom apps as
+  \`"app:<path>"\` (pages with \`app\`), so a custom app can sit among the built-ins. Unlisted built-ins follow in
+  their default order; unlisted custom apps go below the divider. \`contacts\` only appears when listed.
+- \`rail.hidden\`: built-in apps or \`"app:<path>"\` to leave out of the rail (still reachable by URL, the launcher and
+  the settings menu). \`rail.labels\`: \`false\` = icons only.
+- \`home\`: the landing app after sign-in (same ids). Default Mail.
+- \`density\`: \`compact\` | \`comfortable\` spacing in **every** app (default: follows a workspace theme's \`density\`).
+- \`topbar\`: hide optional items with \`false\`: ${TOPBAR_ITEMS.map((x) => `\`${x}\``).join(", ")}. The settings menu and the account menu can't be hidden (errors).
+- \`slots\`: a mod (same sandbox, permissions and \`zentico.*\` SDK as on the Dashboard) in a fixed place: ${SLOT_NAMES.map((x) => `\`${x}\``).join(", ")}.
+  \`<app>.side\` is a collapsible panel on the right of that app (\`width\` 240–480 px, default 320; \`open\` = initially
+  expanded; a floating button opens it on phones); \`topbar\` is a 36 px high strip in the top bar (\`width\` 120–360,
+  default 200; hidden on phones): design top-bar mods for that height. \`mod\` must exist under \`mods/\`; \`config\`
+  (≤ ${CONFIG_MAX_BYTES / 1024} KB) is merged over the manifest's; \`title\` ≤ 40. The user approves a mod's permissions in the slot the
+  first time. There is no page selection outside the Dashboard. Remove a slot (or set it to \`null\`) to clear it.
+
 ### Layout nodes
 
 Every node has \`"type"\` and may have \`"id"\` (unique on the page; letters, digits, \`_\`, \`-\`) and
@@ -203,7 +264,23 @@ ${components}
 - \`accent\`, \`light.*\`, \`dark.*\` colors: hex (\`#rgb\`, \`#rrggbb\`, \`#rrggbbaa\`), \`rgb()\`/\`hsl()\`/\`oklch()\` or a color name.
 - \`radius\` 0–28 (px, card corners), \`density\` \`compact\` | \`comfortable\` | \`spacious\`, \`font\` \`system\` | \`sans\` |
   \`serif\` | \`mono\` | \`rounded\`, \`background\` \`plain\` | \`muted\` | \`grid\` | \`dots\`.
-- \`light\` / \`dark\`: overrides for that color scheme: \`accent\`, \`canvas\` (page background), \`card\` (card background), \`vars\`.
+- \`light\` / \`dark\`: overrides for that color scheme: \`accent\`, \`canvas\` (page background), \`card\` (card background), \`vars\`;
+  with \`"scope": "workspace"\` also \`ink\` (text), \`line\` (hairlines), \`bubbleMine\` / \`bubbleOther\` (chat bubbles).
+- \`scope\`: \`"dashboard"\` (default: the theme styles the Dashboard and rail apps only) or \`"workspace"\`: accent, radius,
+  font and the light/dark colors style **every app**, mapped onto the workspace's own color tokens (accent: links,
+  focus, highlights; canvas: page background; card: panels; ink: text; line: hairlines; bubbles: Chat). Secondary
+  text, hover and muted panels are derived from ink and card. A workspace theme is checked for readability in
+  **both** color schemes (defaults fill what you leave out): text on cards, canvas and chat bubbles ≥ ${MIN_TEXT_CONTRAST}:1,
+  secondary text on cards ≥ ${MIN_MUTED_CONTRAST}:1, accent on cards ≥ ${MIN_ACCENT_CONTRAST}:1. Colors that become tokens must be opaque hex or
+  \`rgb()\` so they can be checked. Failing combos are errors with the measured ratio; a theme with errors only styles
+  the Dashboard. If you change \`light\` colors, set \`dark\` ones too (and vice versa).
+- \`vars\` stay Dashboard-only even with a workspace scope (they can't restyle the apps).
+
+#### Workspace theme presets
+
+Good starting points (also one click in "Customize with Claude"); copy one into theme.json and adjust:
+
+${presets}
 - \`vars\`: CSS custom properties (\`--name\`: value) applied to the dashboard and passed into mods. Values may
   be colors, lengths, numbers and simple functions; never \`url()\`, quotes, \`;\` or braces. There is no
   arbitrary global CSS: style mods inside the mod.
@@ -225,7 +302,8 @@ ${components}
   Avoid single plain letters (apps use some of them); prefer \`alt+…\` or two-key sequences.
 - \`action\`: \`goto\` (\`page\`), \`open\` (\`app\`: ${APP_TARGETS.join(", ")} — or \`href\`: a path like \`/drive?folder=…\`),
   \`mod\` (\`mod\` + \`command\` declared in its manifest; sent to every instance on the current page), \`claude\`
-  (focus the Claude panel), \`edit\` (toggle edit mode), \`gallery\`.
+  (the Claude panel on the Dashboard; "Customize with Claude" over any other app), \`edit\` (toggle edit mode), \`gallery\`.
+  \`alt+shift+k\` is reserved (always opens "Customize with Claude").
 
 ## Mods
 
@@ -377,6 +455,7 @@ ${ICON_NAMES.map((n) => `\`${n}\``).join(", ")}
 - \`ui_check\` reports no errors.
 - Every \`mod\` node points at an existing \`mods/<id>/\` with a valid manifest.json.
 - Mods declare only the permissions they use, render user content with \`textContent\`, and work in dark mode.
+- A workspace theme passes the contrast checks in light **and** dark; nothing tries to hide the settings menu.
 - You called \`ui_reload\`.
 `;
 }

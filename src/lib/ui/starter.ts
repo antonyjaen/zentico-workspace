@@ -412,6 +412,46 @@ export const RECOMMENDED_MODS: { id: string; icon: IconName; name: Record<L, str
   ...Object.entries(LIBRARY_INFO).map(([id, info]) => ({ id, icon: info.icon as IconName, name: info.name, description: info.description })),
 ];
 
+/** Workspace theme presets (whole app, light + dark, contrast-checked): copy one into theme.json. */
+export const THEME_PRESETS: { id: string; name: Record<L, string>; description: Record<L, string>; theme: Raw }[] = [
+  {
+    id: "calm",
+    name: { en: "Calm teal", es: "Turquesa sereno" },
+    description: { en: "Soft teal accent, rounder corners, tinted chat bubbles.", es: "Acento turquesa suave, esquinas más redondas y burbujas teñidas." },
+    theme: {
+      scope: "workspace",
+      accent: "#0f7f74",
+      radius: 16,
+      density: "comfortable",
+      font: "system",
+      background: "plain",
+      light: { canvas: "#f3f7f6", card: "#ffffff", bubbleMine: "#d5eeea" },
+      dark: { accent: "#3cc4b3", canvas: "#040807", card: "#0a1110", bubbleMine: "#0f3d37" },
+    },
+  },
+  {
+    id: "compact",
+    name: { en: "Compact pro", es: "Compacto pro" },
+    description: { en: "Denser spacing everywhere and tighter corners: more on screen.", es: "Espaciado más denso en todas partes y esquinas ajustadas: más en pantalla." },
+    theme: { scope: "workspace", accent: "#3b6cf6", radius: 6, density: "compact", font: "sans", background: "plain" },
+  },
+  {
+    id: "paper",
+    name: { en: "Warm paper", es: "Papel cálido" },
+    description: { en: "Warm paper tones with a serif font and a terracotta accent.", es: "Tonos de papel cálido con fuente serif y acento terracota." },
+    theme: {
+      scope: "workspace",
+      accent: "#a8481f",
+      radius: 10,
+      density: "comfortable",
+      font: "serif",
+      background: "plain",
+      light: { canvas: "#f6f1e7", card: "#fffdf8", ink: "#2b2118", line: "#e6dccb", bubbleMine: "#f3dcc8", bubbleOther: "#efe7da" },
+      dark: { accent: "#e08a5c", canvas: "#14110d", card: "#1c1813", ink: "#efe6d8", line: "#2e271f", bubbleMine: "#4a2c1b", bubbleOther: "#2a241d" },
+    },
+  },
+];
+
 export type CatalogEntry = { id: string; kind: TemplateKind; icon: IconName; name: string; description: string; mods: string[] };
 
 /** Everything in the recommended library, localized (gallery and ui_list_templates). */
@@ -442,6 +482,10 @@ export function assertBuiltinsValid(): void {
     const all = { ...base, ...modFiles(RECOMMENDED_MODS.map((x) => x.id)), [UI_FILE]: pretty({ ...ui, pages: [...ui.pages, modsPage] }) };
     const rm = checkUi(all);
     if (!rm.ok) throw new Error(`[ui] recommended mods are invalid:\n${rm.errors.map((e) => `${e.file} ${e.pointer}: ${e.message}`).join("\n")}`);
+    for (const p of THEME_PRESETS) {
+      const rp = checkUi({ ...base, [THEME_FILE]: pretty(p.theme) });
+      if (!rp.ok) throw new Error(`[ui] theme preset "${p.id}" is invalid:\n${rp.errors.map((e) => `${e.file} ${e.pointer}: ${e.message}`).join("\n")}`);
+    }
     for (const t of [...TEMPLATES, ...APP_TEMPLATES]) {
       const files = { ...base, ...modFiles(t.mods), [UI_FILE]: pretty({ ...ui, pages: [...ui.pages, { id: `t-${t.id}`, ...t.page(l) }] }) };
       const rt = checkUi(files);

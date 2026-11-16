@@ -7,12 +7,13 @@
 // already took the key.
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { parseKey, type KeyBinding, type UiShell } from "@/lib/ui/schema";
+import { DEFAULT_SHELL, parseKey, shellDensity, type KeyBinding, type UiShell } from "@/lib/ui/schema";
+import { workspaceCss } from "@/lib/ui/workspace";
 
 type Ctx = { shell: UiShell; setShell: (s: UiShell) => void; refresh: () => void };
 const ShellContext = createContext<Ctx | null>(null);
 
-export const EMPTY_SHELL: UiShell = { pages: [], apps: [], keys: [] };
+export const EMPTY_SHELL: UiShell = { pages: [], apps: [], keys: [], prefs: DEFAULT_SHELL, theme: null, issues: 0, safe: false };
 
 export function useUiShell(): Ctx {
   return useContext(ShellContext) ?? { shell: EMPTY_SHELL, setShell: () => {}, refresh: () => {} };
@@ -20,6 +21,10 @@ export function useUiShell(): Ctx {
 
 /** Events the Dashboard listens to (keys.json actions that act on it). */
 export const UI_EVENT = "zw-ui-action";
+/** Window event that opens "Customize with Claude" (detail: optional prefill). */
+export const CUSTOMIZE_EVENT = "zw-customize";
+export const openCustomize = (prefill = "") => window.dispatchEvent(new CustomEvent(CUSTOMIZE_EVENT, { detail: prefill }));
+
 export type UiActionEvent = { action: "claude" | "edit" | "gallery" } | { action: "mod"; mod: string; command: string };
 
 const APP_HREF: Record<string, string> = {
@@ -119,6 +124,11 @@ export function UiShellProvider({ initial, children }: { initial: UiShell; child
           router.push(b.href ?? APP_HREF[b.app ?? "dashboard"] ?? "/dashboard");
           break;
         default: {
+          // Outside the Dashboard, "claude" opens Customize with Claude over the current app.
+          if (b.action === "claude" && !pathname.startsWith("/dashboard")) {
+            openCustomize();
+            break;
+          }
           const detail: UiActionEvent = b.action === "mod" ? { action: "mod", mod: b.mod, command: b.command } : { action: b.action };
           const onStudio = pathname.startsWith("/dashboard") || pathname.startsWith("/x/");
           if (!onStudio && b.action !== "mod") {
@@ -159,5 +169,19 @@ export function UiShellProvider({ initial, children }: { initial: UiShell; child
   }, [bindings, router, pathname, shell.apps]);
 
   const value = useMemo(() => ({ shell, setShell, refresh }), [shell, refresh]);
-  return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
+  // Workspace theme + density: rendered with the page (server-side on first load, so no flash) and
+  // updated live when the UI changes. Values are validated by checkUi and re-checked by workspaceCss.
+  const css = useMemo(() => (shell.safe ? "" : workspaceCss(shell.theme, shellDensity(shell))), [shell]);
+  return (
+    <ShellContext.Provider value={value}>
+      {css && <style id="zw-workspace-theme" dangerouslySetInnerHTML={{ __html: css }} />}
+      {children}
+    </ShellContext.Provider>
+  );
+}
+
+/** A top bar item ui.json's shell.topbar may hide (search, notifications, theme, launcher). */
+export function ShellItem({ name, children }: { name: keyof UiShell["prefs"]["topbar"]; children: ReactNode }) {
+  const { shell } = useUiShell();
+  return shell.prefs.topbar[name] === false ? null : <>{children}</>;
 }

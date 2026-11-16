@@ -317,6 +317,46 @@
       "confirmPage": "It's added as a new page; nothing you have is replaced. Its mods will be allowed to:",
       "confirmMod": "The mod is installed in your Zentico UI folder and allowed to:",
       "cancel": "Cancel"
+    },
+    "workspace": {
+      "customize": "Customize with Claude",
+      "customizeHint": "Alt+Shift+K",
+      "inApp": "In {app}",
+      "close": "Close",
+      "undo": "Undo last change",
+      "nothingToUndo": "Nothing to undo",
+      "undone": "Last change undone",
+      "restore": "Restore default UI",
+      "restoreConfirm": "Restore the default look and layout of the workspace? Your current customization is backed up and you can undo it.",
+      "restored": "Default UI restored. You can undo it from “Customize with Claude”.",
+      "restoreFailed": "Couldn't restore right now. Opening the safe page…",
+      "presets": "Theme presets",
+      "presetApplied": "Theme applied to the whole workspace",
+      "failed": "Couldn't apply the change",
+      "settingsMenu": "Settings",
+      "mailSettings": "Mail settings",
+      "appSettings": "Apps and permissions",
+      "hiddenApps": "Hidden apps",
+      "safeMode": "Safe mode and recovery",
+      "issues": "Your UI customization has {n, plural, one {# problem} other {# problems}}: that part uses the last valid version or the defaults.",
+      "fix": "Fix with Claude",
+      "fixPrompt": "My workspace customization (theme.json / ui.json shell) has validation errors. Please fix them.",
+      "safeOn": "Safe mode: your customizations are off in this browser.",
+      "leaveSafe": "Leave safe mode",
+      "openPanel": "Open {title}",
+      "collapsePanel": "Collapse panel",
+      "examples": [
+        "Make the whole workspace more compact",
+        "Put my tasks panel next to this app",
+        "Use a dark blue accent and rounder corners everywhere"
+      ],
+      "safeTitle": "Restore your workspace",
+      "safeBody": "If a customization made the workspace hard to use, restore the defaults here. Your current files are backed up first, so you can undo it later. Safe mode shows the workspace without your theme and shell customization, in this browser only.",
+      "safeRestore": "Restore default UI",
+      "safeEnter": "Open the workspace in safe mode",
+      "safeLeave": "Leave safe mode",
+      "safeBack": "Back to the workspace",
+      "safeActive": "Safe mode is on in this browser."
     }
   }
 }

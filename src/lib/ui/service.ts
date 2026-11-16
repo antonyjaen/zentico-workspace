@@ -18,7 +18,8 @@ import {
   MOD_ID,
   PAGE_ID,
   requestedGrants,
-  shellApps,
+  shellFromUi,
+  DEFAULT_SHELL,
   THEME_FILE,
   UI_FILE,
   walk,
@@ -28,7 +29,7 @@ import {
   type UiShell,
   type UiView,
 } from "./schema";
-import { assertBuiltinsValid, defaultFiles, migratedFiles, modFiles, pretty, RECOMMENDED_MODS, templateById } from "./starter";
+import { assertBuiltinsValid, defaultFiles, migratedFiles, modFiles, pretty, RECOMMENDED_MODS, templateById, THEME_PRESETS } from "./starter";
 import { getUiState, historyCount, listGrants, popHistory, pushHistory, saveUiState, setGrant, type UiStateRow } from "./store";
 
 export class UiServiceError extends Error {
@@ -64,14 +65,10 @@ export function viewOf(email: string, row: UiStateRow | null = getUiState(email)
   };
 }
 
-/** Rail pages and key bindings from the stored state (no Drive call). */
-export function shellOf(email: string): UiShell {
-  const ui = getUiState(email)?.compiled;
-  return {
-    pages: (ui?.pages ?? []).map((p) => ({ id: p.id, title: p.title, icon: p.icon, pinned: p.pinned })),
-    apps: shellApps(ui ?? null),
-    keys: ui?.keys ?? [],
-  };
+/** Rail, keys, shell prefs and workspace theme from the stored state (no Drive call). */
+export function shellOf(email: string, safe = false): UiShell {
+  const row = getUiState(email);
+  return shellFromUi(row?.compiled ?? null, row?.errors ?? [], safe);
 }
 
 /* ------------------------------------------------------------------- sync */
@@ -220,6 +217,64 @@ export async function resetUi(session: Session, locale = "es"): Promise<UiView> 
   const changes: Record<string, string> = { [UI_FILE]: files[UI_FILE], [THEME_FILE]: files[THEME_FILE], [KEYS_FILE]: files[KEYS_FILE] };
   for (const [p, t] of Object.entries(files)) if (p.startsWith("mods/") && !(p in current)) changes[p] = t;
   return (await writeUiFiles(session, changes, { reason: "reset", locale })).view;
+}
+
+/**
+ * "Restore default UI", the escape hatch no customization can remove: backs up the current files
+ * as they are (even broken ones; undo brings them back), then resets theme.json and removes ui.json's
+ * `shell` (pages, mods and keys are kept; an unusable ui.json is replaced by the default). Whatever
+ * Drive or the files do, the stored UI the apps render loses its theme and shell customization.
+ */
+export async function restoreDefaultUi(session: Session, locale = "es"): Promise<UiView> {
+  const email = session.email;
+  try {
+    const { texts } = await readUiFiles(session, locale);
+    const current = uiTexts(texts);
+    if (Object.keys(current).length) pushHistory(email, current, "before restore");
+    const defaults = defaultFiles(locale);
+    const changes: Record<string, string> = { [THEME_FILE]: defaults[THEME_FILE] };
+    let stripped: string | null = null;
+    try {
+      const raw = JSON.parse(current[UI_FILE] ?? "") as Raw;
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        delete raw.shell;
+        stripped = pretty(raw);
+      }
+    } catch {}
+    if (stripped && checkUi({ ...current, ...changes, [UI_FILE]: stripped }).ok) changes[UI_FILE] = stripped;
+    else {
+      changes[UI_FILE] = defaults[UI_FILE];
+      changes[KEYS_FILE] = defaults[KEYS_FILE];
+      for (const [p, t] of Object.entries(defaults)) if (p.startsWith("mods/") && !(p in current)) changes[p] = t;
+    }
+    await writeUiFiles(session, changes, { reason: "restore", locale, skipHistory: true });
+  } catch (e) {
+    console.error("[ui] restore:", e instanceof Error ? e.message : e);
+  }
+  neutralizeStored(email, locale);
+  return viewOf(email);
+}
+
+/** Makes sure the stored UI (what every app renders) has the default theme and shell. */
+function neutralizeStored(email: string, locale: string) {
+  const row = getUiState(email);
+  const ui = row?.compiled;
+  if (!ui) return;
+  const theme = checkUi(defaultFiles(locale)).ui?.theme;
+  if (!theme) return;
+  if (ui.theme.scope !== "workspace" && JSON.stringify(ui.shell ?? DEFAULT_SHELL) === JSON.stringify(DEFAULT_SHELL)) return;
+  saveUiState(email, { compiled: { ...ui, theme, shell: DEFAULT_SHELL } });
+  publish(email, { type: "ui" });
+}
+
+/** Writes one of the built-in workspace theme presets as theme.json (undoable). */
+export async function applyThemePreset(session: Session, presetId: string, locale?: string): Promise<UiView> {
+  const preset = THEME_PRESETS.find((p) => p.id === presetId);
+  if (!preset) throw new UiServiceError(`Unknown theme preset "${presetId}"`, "not_found");
+  const files = await currentFiles(session, null, locale);
+  const text = pretty(preset.theme);
+  mustBeValid({ ...files, [THEME_FILE]: text });
+  return (await writeUiFiles(session, { [THEME_FILE]: text }, { reason: `theme ${preset.id}`, locale })).view;
 }
 
 /* ------------------------------------------------------- pages from outside */

@@ -5,6 +5,7 @@
 // are written for agents: file + JSON pointer + what was expected. Inputs come from files anyone
 // (or any agent) may have written: validate everything, never trust shapes.
 import { DashError, WIDGETS, type WidgetType } from "@/app/(apps)/dashboard/model";
+import { contrastIssues } from "./workspace";
 
 export const UI_FOLDER = "Zentico UI";
 export const GUIDE_FILE = "AGENTS.md";
@@ -356,8 +357,21 @@ export type UiPage = { id: string; title: string; icon: IconName; pinned: boolea
 
 export type Background = "plain" | "muted" | "grid" | "dots";
 export type Font = "system" | "sans" | "serif" | "mono" | "rounded";
-export type ModeOverride = { accent?: string; canvas?: string; card?: string; vars: Record<string, string> };
+/** Per color scheme. `ink`, `line` and the bubble colors only apply with a workspace-scoped theme. */
+export type ModeOverride = {
+  accent?: string;
+  canvas?: string;
+  card?: string;
+  ink?: string;
+  line?: string;
+  bubbleMine?: string;
+  bubbleOther?: string;
+  vars: Record<string, string>;
+};
+/** "dashboard" (default): the theme styles the Dashboard and rail apps; "workspace": the whole app. */
+export type ThemeScope = "dashboard" | "workspace";
 export type UiTheme = {
+  scope: ThemeScope;
   accent?: string;
   radius?: number;
   density: Density;
@@ -394,7 +408,41 @@ export type ModManifest = {
 };
 export type ModView = ModManifest & { id: string; html: string; bytes: number; hash: string };
 
-export type CompiledUi = { pages: UiPage[]; theme: UiTheme; keys: KeyBinding[]; mods: Record<string, ModView> };
+/* ------------------------------------------------------------------ shell */
+
+/** Built-in apps the rail can order or hide (they stay reachable by URL and from the settings menu). */
+export const BUILTIN_APPS = ["mail", "dashboard", "chat", "calendar", "drive", "meet", "contacts"] as const;
+export type BuiltinApp = (typeof BUILTIN_APPS)[number];
+/** Places outside the Dashboard where a mod can run: a right-side panel in an app, or the top bar. */
+export const SLOT_NAMES = ["mail.side", "chat.side", "calendar.side", "drive.side", "topbar"] as const;
+export type SlotName = (typeof SLOT_NAMES)[number];
+export const TOPBAR_ITEMS = ["search", "notifications", "theme", "launcher"] as const;
+export type TopbarItem = (typeof TOPBAR_ITEMS)[number];
+/** Never hideable: the settings menu holds "Restore default UI"; the account menu holds sign-out. */
+export const LOCKED_TOPBAR_ITEMS = ["settings", "account"] as const;
+/** Built-in shortcut that opens "Customize with Claude"; keys.json can't rebind it. */
+export const CUSTOMIZE_KEY = "alt+shift+k";
+export type ShellSlot = { mod: string; title?: string; config: Raw; width: number; open: boolean };
+/** ui.json `shell`: the workspace around the apps (rail, landing app, density, top bar, slots). */
+export type ShellPrefs = {
+  /** Rail entries: built-in app ids and "app:<path>" for custom apps. */
+  rail: { order: string[]; hidden: string[]; labels: boolean };
+  /** Landing app after sign-in ("mail", …, or "app:<path>"); null = Mail. */
+  home: string | null;
+  /** null = follow theme.json (compact when a workspace theme says "compact"). */
+  density: "compact" | "comfortable" | null;
+  topbar: Record<TopbarItem, boolean>;
+  slots: Partial<Record<SlotName, ShellSlot>>;
+};
+export const DEFAULT_SHELL: ShellPrefs = {
+  rail: { order: [], hidden: [], labels: true },
+  home: null,
+  density: null,
+  topbar: { search: true, notifications: true, theme: true, launcher: true },
+  slots: {},
+};
+
+export type CompiledUi = { pages: UiPage[]; theme: UiTheme; keys: KeyBinding[]; mods: Record<string, ModView>; shell: ShellPrefs };
 export type CheckResult = { ok: boolean; errors: UiError[]; ui: CompiledUi | null };
 
 /* ----------------------------------------------------------------- helpers */
@@ -622,7 +670,7 @@ function compilePages(raw: unknown, ctx: Omit<Ctx, "ids" | "count">): UiPage[] {
     e.add("", "must be a JSON object", '{ "version": 1, "pages": [ … ] }');
     return [];
   }
-  onlyKeys(raw, ["$schema", "version", "pages"], "", e);
+  onlyKeys(raw, ["$schema", "version", "pages", "shell"], "", e);
   if (raw.version != null && raw.version !== 1) e.add("/version", `must be 1 (got ${show(raw.version)})`);
   if (!Array.isArray(raw.pages) || !raw.pages.length) {
     e.add("/pages", "must be a non-empty array of pages", '[{ "id": "home", "title": "Home", "layout": { … } }]');
@@ -731,11 +779,11 @@ function compileMode(raw: unknown, ptr: string, e: Errs): ModeOverride {
   const out: ModeOverride = { vars: {} };
   if (raw == null) return out;
   if (!isObj(raw)) {
-    e.add(ptr, "must be an object", '{ "accent"?, "canvas"?, "card"?, "vars"? }');
+    e.add(ptr, "must be an object", '{ "accent"?, "canvas"?, "card"?, "ink"?, "line"?, "bubbleMine"?, "bubbleOther"?, "vars"? }');
     return out;
   }
-  onlyKeys(raw, ["accent", "canvas", "card", "vars"], ptr, e);
-  for (const k of ["accent", "canvas", "card"] as const) {
+  onlyKeys(raw, ["accent", "canvas", "card", "ink", "line", "bubbleMine", "bubbleOther", "vars"], ptr, e);
+  for (const k of ["accent", "canvas", "card", "ink", "line", "bubbleMine", "bubbleOther"] as const) {
     if (raw[k] == null) continue;
     if (isColor(raw[k])) out[k] = raw[k] as string;
     else e.add(`${ptr}/${k}`, `must be a CSS color (got ${show(raw[k])})`, '"#3b6cf6", "rgb(…)", "oklch(…)"');
@@ -762,13 +810,14 @@ function compileVars(raw: unknown, ptr: string, e: Errs): Record<string, string>
 }
 
 function compileTheme(raw: unknown, e: Errs): UiTheme {
-  const theme: UiTheme = { density: "comfortable", font: "system", background: "plain", light: { vars: {} }, dark: { vars: {} }, vars: {} };
+  const theme: UiTheme = { scope: "dashboard", density: "comfortable", font: "system", background: "plain", light: { vars: {} }, dark: { vars: {} }, vars: {} };
   if (raw === undefined) return theme;
   if (!isObj(raw)) {
     e.add("", "must be a JSON object");
     return theme;
   }
-  onlyKeys(raw, ["$schema", "accent", "radius", "density", "font", "background", "light", "dark", "vars"], "", e);
+  onlyKeys(raw, ["$schema", "scope", "accent", "radius", "density", "font", "background", "light", "dark", "vars"], "", e);
+  theme.scope = oneOf(raw, "scope", "", e, ["dashboard", "workspace"] as const) ?? "dashboard";
   if (raw.accent != null) {
     if (isColor(raw.accent)) theme.accent = raw.accent;
     else e.add("/accent", `must be a CSS color (got ${show(raw.accent)})`, '"#3b6cf6"');
@@ -780,6 +829,16 @@ function compileTheme(raw: unknown, e: Errs): UiTheme {
   theme.light = compileMode(raw.light, "/light", e);
   theme.dark = compileMode(raw.dark, "/dark", e);
   theme.vars = compileVars(raw.vars, "/vars", e);
+  if (theme.scope === "workspace") {
+    // Unreadable text across every app is worse than a plain theme: reject it with the numbers.
+    for (const c of contrastIssues(theme)) e.add(c.pointer, c.message, c.expected);
+  } else {
+    for (const mode of ["light", "dark"] as const)
+      for (const k of ["ink", "line", "bubbleMine", "bubbleOther"] as const)
+        if (theme[mode][k] != null) e.add(`/${mode}/${k}`, `only applies with "scope": "workspace"`, '"scope": "workspace" (or remove it)');
+  }
+  // A theme with errors never styles the whole workspace (fall back to the Dashboard only).
+  if (e.list.length) theme.scope = "dashboard";
   return theme;
 }
 
@@ -828,6 +887,7 @@ function compileKeys(raw: unknown, e: Errs, pages: Set<string>, mods: Map<string
     const parsed = key ? parseKey(key) : null;
     if (parsed && "error" in parsed) e.add(`${ptr}/key`, parsed.error);
     const norm = parsed && "chords" in parsed ? parsed.chords.join(" ") : null;
+    if (norm === CUSTOMIZE_KEY) e.add(`${ptr}/key`, `"${key}" is reserved for "Customize with Claude"`, "another chord, e.g. alt+shift+j");
     if (norm) {
       if (seen.has(norm)) e.add(`${ptr}/key`, `"${key}" is already bound by /bindings/${seen.get(norm)}`);
       seen.set(norm, i);
@@ -1051,6 +1111,103 @@ function compileMods(texts: Record<string, string>, all: Errs[]): { mods: Record
   return { mods, manifests, ids };
 }
 
+/* ------------------------------------------------------------------- shell */
+
+const appRef = (v: string, apps: Set<string>) => (BUILTIN_APPS as readonly string[]).includes(v) || (v.startsWith("app:") && apps.has(v.slice(4)));
+const appRefHint = (apps: Set<string>) => [...BUILTIN_APPS, ...[...apps].map((a) => `app:${a}`)].join(", ");
+
+/**
+ * ui.json `shell`. Errors are reported like everything else; a shell with errors compiles to the
+ * defaults, so a broken shell can never hide the way back (the settings menu is never hideable).
+ */
+function compileShell(raw: unknown, e: Errs, apps: Set<string>, mods: Set<string>): ShellPrefs {
+  if (raw == null) return DEFAULT_SHELL;
+  const before = e.list.length;
+  const out: ShellPrefs = structuredClone(DEFAULT_SHELL);
+  if (!isObj(raw)) {
+    e.add("/shell", "must be an object", '{ "rail"?, "home"?, "density"?, "topbar"?, "slots"? }');
+    return DEFAULT_SHELL;
+  }
+  onlyKeys(raw, ["rail", "home", "density", "topbar", "slots"], "/shell", e);
+  if (raw.rail != null) {
+    if (!isObj(raw.rail)) e.add("/shell/rail", "must be an object", '{ "order"?: [...], "hidden"?: [...], "labels"?: true }');
+    else {
+      onlyKeys(raw.rail, ["order", "hidden", "labels"], "/shell/rail", e);
+      for (const k of ["order", "hidden"] as const) {
+        const list = raw.rail[k];
+        if (list == null) continue;
+        if (!Array.isArray(list) || list.length > 40) {
+          e.add(`/shell/rail/${k}`, "must be an array of app ids (max 40)", appRefHint(apps));
+          continue;
+        }
+        list.forEach((v, i) => {
+          if (typeof v !== "string" || !appRef(v, apps)) e.add(`/shell/rail/${k}/${i}`, `unknown app ${show(v)}`, appRefHint(apps));
+          else if (out.rail[k].includes(v)) e.add(`/shell/rail/${k}/${i}`, `"${v}" is listed twice`);
+          else out.rail[k].push(v);
+        });
+      }
+      if (raw.rail.labels != null) {
+        if (typeof raw.rail.labels !== "boolean") e.add("/shell/rail/labels", "must be true or false");
+        else out.rail.labels = raw.rail.labels;
+      }
+    }
+  }
+  if (raw.home != null) {
+    if (typeof raw.home !== "string" || !appRef(raw.home, apps)) e.add("/shell/home", `unknown app ${show(raw.home)}`, appRefHint(apps));
+    else out.home = raw.home;
+  }
+  out.density = oneOf(raw, "density", "/shell", e, ["compact", "comfortable"] as const) ?? null;
+  if (raw.topbar != null) {
+    if (!isObj(raw.topbar)) e.add("/shell/topbar", "must be an object", '{ "search": false }');
+    else {
+      for (const k of Object.keys(raw.topbar)) {
+        if ((LOCKED_TOPBAR_ITEMS as readonly string[]).includes(k)) {
+          e.add(`/shell/topbar/${esc(k)}`, `the ${k} menu can't be hidden or changed (it always offers ${k === "settings" ? '"Restore default UI"' : "sign-out"})`, `remove "${k}"`);
+          continue;
+        }
+        if (!(TOPBAR_ITEMS as readonly string[]).includes(k)) {
+          e.add(`/shell/topbar/${esc(k)}`, `unknown top bar item "${k}"`, TOPBAR_ITEMS.join(", "));
+          continue;
+        }
+        if (typeof raw.topbar[k] !== "boolean") e.add(`/shell/topbar/${k}`, "must be true (shown) or false (hidden)");
+        else out.topbar[k as TopbarItem] = raw.topbar[k] as boolean;
+      }
+    }
+  }
+  if (raw.slots != null) {
+    if (!isObj(raw.slots)) e.add("/shell/slots", "must be an object of slot → mod", '{ "mail.side": { "mod": "pomodoro" } }');
+    else {
+      for (const [name, v] of Object.entries(raw.slots)) {
+        const ptr = `/shell/slots/${esc(name)}`;
+        if (!(SLOT_NAMES as readonly string[]).includes(name)) {
+          e.add(ptr, `unknown slot "${name}"`, SLOT_NAMES.join(", "));
+          continue;
+        }
+        if (v === null) continue;
+        if (!isObj(v)) {
+          e.add(ptr, "must be an object", '{ "mod": "<id>", "title"?, "config"?, "width"?, "open"? }');
+          continue;
+        }
+        onlyKeys(v, ["mod", "title", "config", "width", "open"], ptr, e);
+        const mod = str(v, "mod", ptr, e, { max: 40, required: true, re: MOD_ID, reHint: "a mod id: a folder name under mods/" });
+        if (mod && !mods.has(mod)) e.add(`${ptr}/mod`, `no mod "${mod}"`, mods.size ? [...mods].join(", ") : "add the mod folder first");
+        const title = str(v, "title", ptr, e, { max: 40 });
+        const top = name === "topbar";
+        const width = num(v, "width", ptr, e, top ? 120 : 240, top ? 360 : 480) ?? (top ? 200 : 320);
+        let config: Raw = {};
+        if (v.config != null) {
+          if (!isObj(v.config)) e.add(`${ptr}/config`, "must be an object");
+          else if (utf8Bytes(JSON.stringify(v.config)) > CONFIG_MAX_BYTES) e.add(`${ptr}/config`, `is larger than ${CONFIG_MAX_BYTES / 1024} KB`);
+          else config = v.config;
+        }
+        if (v.open != null && typeof v.open !== "boolean") e.add(`${ptr}/open`, "must be true or false");
+        if (mod) out.slots[name as SlotName] = { mod, ...(title ? { title } : {}), config, width, open: v.open !== false };
+      }
+    }
+  }
+  return e.list.length > before ? DEFAULT_SHELL : out;
+}
+
 /* -------------------------------------------------------------------- check */
 
 /**
@@ -1076,8 +1233,11 @@ export function checkUi(texts: Record<string, string>): CheckResult {
   errs.push(ke);
   const keys = compileKeys(parseJson(texts[KEYS_FILE], KEYS_FILE, ke, SMALL_FILE_MAX_BYTES), ke, new Set(pages.map((p) => p.id)), modResult.manifests);
 
+  const appIds = new Set(pages.flatMap((p) => (p.app ? [p.app.id] : [])));
+  const shell = isObj(uiRaw) ? compileShell(uiRaw.shell, ue, appIds, modResult.ids) : DEFAULT_SHELL;
+
   const errors = errs.flatMap((e) => e.list).slice(0, 100);
-  const ui = pages.length ? { pages, theme, keys, mods: modResult.mods } : null;
+  const ui = pages.length ? { pages, theme, keys, mods: modResult.mods, shell } : null;
   return { ok: errors.length === 0 && !!ui, errors, ui };
 }
 
@@ -1220,6 +1380,8 @@ export function summarizeUi(ui: CompiledUi | null) {
     })),
     mods: Object.values(ui.mods).map((m) => ({ id: m.id, name: m.name, version: m.version, permissions: m.permissions, commands: m.commands.map((c) => c.id) })),
     keys: ui.keys.length,
+    theme: { scope: ui.theme.scope },
+    shell: ui.shell,
   };
 }
 
@@ -1242,7 +1404,19 @@ export type UiView = {
 
 /** Pages pinned to the app rail and the key bindings: what every app needs (cheap, from sqlite). */
 export type UiShellApp = { id: string; pageId: string; name: string; icon: IconName; color?: string; hidden: boolean; order: number };
-export type UiShell = { pages: { id: string; title: string; icon: IconName; pinned: boolean }[]; apps: UiShellApp[]; keys: KeyBinding[] };
+export type UiShell = {
+  pages: { id: string; title: string; icon: IconName; pinned: boolean }[];
+  apps: UiShellApp[];
+  keys: KeyBinding[];
+  /** Shell customization (defaults in safe mode). */
+  prefs: ShellPrefs;
+  /** The theme when it is workspace-scoped (null otherwise or in safe mode). */
+  theme: UiTheme | null;
+  /** Problems in theme.json or ui.json's shell (the last valid version or the defaults are shown). */
+  issues: number;
+  /** Safe mode: customizations are ignored in this browser. */
+  safe: boolean;
+};
 
 /** Rail apps in rail order (by `order`, then file order); hidden ones included (flagged). */
 export function shellApps(ui: CompiledUi | null): UiShellApp[] {
@@ -1251,6 +1425,27 @@ export function shellApps(ui: CompiledUi | null): UiShellApp[] {
     .filter(({ p }) => p.app)
     .sort((a, b) => a.p.app!.order - b.p.app!.order || a.i - b.i)
     .map(({ p }) => ({ id: p.app!.id, pageId: p.id, name: p.app!.name, icon: p.app!.icon, ...(p.app!.color ? { color: p.app!.color } : {}), hidden: p.app!.hidden, order: p.app!.order }));
+}
+
+/** Global density: the shell's, else compact when a workspace theme asks for it. */
+export const shellDensity = (s: Pick<UiShell, "prefs" | "theme">): "compact" | "comfortable" =>
+  s.prefs.density ?? (s.theme?.density === "compact" ? "compact" : "comfortable");
+
+/** Errors that touch the workspace shell (theme.json, ui.json /shell): shown as a notice in every app. */
+export const shellIssues = (errors: UiError[]) => errors.filter((e) => e.file === THEME_FILE || (e.file === UI_FILE && e.pointer.startsWith("/shell"))).length;
+
+/** What every app needs from a compiled UI. In safe mode the shell and theme are the defaults. */
+export function shellFromUi(ui: CompiledUi | null, errors: UiError[], safe: boolean): UiShell {
+  const theme = ui?.theme && ui.theme.scope === "workspace" ? ui.theme : null;
+  return {
+    pages: (ui?.pages ?? []).map((p) => ({ id: p.id, title: p.title, icon: p.icon, pinned: p.pinned })),
+    apps: shellApps(ui),
+    keys: ui?.keys ?? [],
+    prefs: safe ? DEFAULT_SHELL : (ui?.shell ?? DEFAULT_SHELL),
+    theme: safe ? null : theme,
+    issues: shellIssues(errors),
+    safe,
+  };
 }
 
 /** Permissions a mod effectively has: declared in its manifest AND granted by the user. */

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type CSSProperties } from "react";
 import type { UiShell, UiShellApp } from "@/lib/ui/schema";
-import { RAIL_APPS } from "./apps";
+import { APPS, RAIL_APPS } from "./apps";
 import { ChatUnreadBadge } from "./ChatUnreadBadge";
 import { LogoMark } from "./Logo";
 import { uiIcon } from "./uiIcons";
@@ -75,25 +75,67 @@ export function AppRail() {
   const pathname = usePathname();
   const { shell } = useUiShell();
   const [menu, setMenu] = useState<{ app: UiShellApp; x: number; y: number } | null>(null);
-  const apps = shell.apps.filter((a) => !a.hidden);
+  // ui.json shell.rail: order (built-ins and "app:<path>" custom apps), hidden, labels.
+  const { order, hidden, labels } = shell.prefs.rail;
+  const visible = shell.apps.filter((a) => !a.hidden && !hidden.includes(`app:${a.id}`));
+  const placed = new Set(order.filter((r) => r.startsWith("app:")).map((r) => r.slice(4)));
+  const apps = visible.filter((a) => !placed.has(a.id));
   const pinned = shell.pages.filter((p) => p.pinned && !shell.apps.some((a) => a.pageId === p.id));
+  const builtin = (id: string) => APPS.find((a) => a.id === id);
+  const head: ({ kind: "builtin"; app: (typeof APPS)[number] } | { kind: "app"; app: UiShellApp })[] = [];
+  for (const ref of order) {
+    if (hidden.includes(ref)) continue;
+    const b = !ref.startsWith("app:") ? builtin(ref) : undefined;
+    const a = ref.startsWith("app:") ? visible.find((x) => x.id === ref.slice(4)) : undefined;
+    if (b) head.push({ kind: "builtin", app: b });
+    else if (a) head.push({ kind: "app", app: a });
+  }
+  for (const b of RAIL_APPS) if (!order.includes(b.id) && !hidden.includes(b.id)) head.push({ kind: "builtin", app: b });
+  const label = (text: string) => (labels ? <span className="max-w-[64px] truncate">{text}</span> : <span className="sr-only">{text}</span>);
+
+  const customLink = (a: UiShellApp) => {
+    const Icon = uiIcon(a.icon);
+    const href = `/x/${a.id}`;
+    const active = pathname === href || pathname.startsWith(`${href}/`);
+    const style: CSSProperties | undefined = active ? { color: a.color ?? "var(--color-accent)" } : undefined;
+    return (
+      <Link
+        key={`a-${a.id}`}
+        href={href}
+        aria-current={active ? "page" : undefined}
+        className={ITEM}
+        title={a.name}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setMenu({ app: a, x: e.clientX, y: e.clientY });
+        }}
+      >
+        <span className={ICON_BOX}>
+          <Icon size={19} strokeWidth={active ? 2.2 : 1.8} style={style} aria-hidden />
+        </span>
+        {label(a.name)}
+      </Link>
+    );
+  };
 
   return (
     <nav aria-label={t("launcher")} className="hidden w-[72px] shrink-0 flex-col items-center gap-0.5 overflow-y-auto py-3 md:flex">
-      <Link href="/mail" className="mb-4 rounded-lg p-1" aria-label="Zentico Workspace">
+      <Link href="/" className="mb-4 rounded-lg p-1" aria-label="Zentico Workspace">
         <LogoMark size={30} />
       </Link>
-      {RAIL_APPS.map(({ id, href, icon: Icon, color, match = [] }) => {
+      {head.map((entry) => {
+        if (entry.kind === "app") return customLink(entry.app);
+        const { id, href, icon: Icon, color, match = [] } = entry.app;
         // Pinned dashboard pages get their own entry: the Dashboard entry isn't "current" on them.
         const onPinned = pinned.some((p) => pathname === `/dashboard/${p.id}`);
         const active = [href, ...match].some((p) => pathname === p || pathname.startsWith(`${p}/`)) && !(id === "dashboard" && onPinned);
         return (
-          <Link key={id} href={href} aria-current={active ? "page" : undefined} className={ITEM}>
+          <Link key={id} href={href} aria-current={active ? "page" : undefined} className={ITEM} title={t(id)}>
             <span className={ICON_BOX}>
               {id === "chat" && <ChatUnreadBadge />}
               <Icon size={19} strokeWidth={active ? 2.2 : 1.8} style={active ? { color } : undefined} aria-hidden />
             </span>
-            {t(id)}
+            {label(t(id))}
           </Link>
         );
       })}
@@ -107,34 +149,11 @@ export function AppRail() {
             <span className={ICON_BOX}>
               <Icon size={19} strokeWidth={active ? 2.2 : 1.8} style={active ? { color: "var(--color-accent)" } : undefined} aria-hidden />
             </span>
-            <span className="max-w-[64px] truncate">{p.title}</span>
+            {label(p.title)}
           </Link>
         );
       })}
-      {apps.map((a) => {
-        const Icon = uiIcon(a.icon);
-        const href = `/x/${a.id}`;
-        const active = pathname === href || pathname.startsWith(`${href}/`);
-        const style: CSSProperties | undefined = active ? { color: a.color ?? "var(--color-accent)" } : undefined;
-        return (
-          <Link
-            key={`a-${a.id}`}
-            href={href}
-            aria-current={active ? "page" : undefined}
-            className={ITEM}
-            title={a.name}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              setMenu({ app: a, x: e.clientX, y: e.clientY });
-            }}
-          >
-            <span className={ICON_BOX}>
-              <Icon size={19} strokeWidth={active ? 2.2 : 1.8} style={style} aria-hidden />
-            </span>
-            <span className="max-w-[64px] truncate">{a.name}</span>
-          </Link>
-        );
-      })}
+      {apps.map(customLink)}
       {menu && <AppMenu app={menu.app} apps={apps} x={menu.x} y={menu.y} onClose={() => setMenu(null)} />}
     </nav>
   );

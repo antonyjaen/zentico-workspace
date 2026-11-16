@@ -230,3 +230,17 @@ export function modAskOf(email: string, commandId: string): { modId: string; mod
   const r = db().prepare("SELECT mod_id, mod_name FROM ui_mod_asks WHERE command_id = ? AND user_email = ?").get(commandId, norm(email));
   return r ? { modId: s(r.mod_id), modName: s(r.mod_name) } : null;
 }
+
+/* ------------------------------------------------------- chat whereabouts */
+
+/** The app a "Customize with Claude" message was sent from (kept a week, like mod requests). */
+export function recordChatWhere(email: string, commandId: string, app: string, path: string): void {
+  const d = db();
+  d.prepare("INSERT OR REPLACE INTO ui_chat_where (command_id, user_email, app, path, created) VALUES (?, ?, ?, ?, ?)").run(commandId, norm(email), app, path, Date.now());
+  d.prepare("DELETE FROM ui_chat_where WHERE created < ?").run(Date.now() - 7 * 24 * 3600_000);
+}
+
+export function chatWhereOf(email: string, commandId: string): { app: string; path: string } | null {
+  const r = db().prepare("SELECT app, path FROM ui_chat_where WHERE command_id = ? AND user_email = ?").get(commandId, norm(email));
+  return r ? { app: s(r.app), path: s(r.path) } : null;
+}

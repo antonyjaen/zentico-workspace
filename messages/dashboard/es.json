@@ -317,6 +317,46 @@
       "confirmPage": "Se añade como una página nueva; no se reemplaza nada de lo que tienes. Sus mods podrán:",
       "confirmMod": "El mod se instala en tu carpeta Zentico UI y podrá:",
       "cancel": "Cancelar"
+    },
+    "workspace": {
+      "customize": "Personalizar con Claude",
+      "customizeHint": "Alt+Mayús+K",
+      "inApp": "En {app}",
+      "close": "Cerrar",
+      "undo": "Deshacer el último cambio",
+      "nothingToUndo": "No hay nada que deshacer",
+      "undone": "Último cambio deshecho",
+      "restore": "Restaurar la interfaz predeterminada",
+      "restoreConfirm": "¿Restaurar el aspecto y la disposición predeterminados del espacio de trabajo? Tu personalización actual se guarda como copia y puedes deshacerlo.",
+      "restored": "Interfaz predeterminada restaurada. Puedes deshacerlo desde «Personalizar con Claude».",
+      "restoreFailed": "No se pudo restaurar ahora. Abriendo la página segura…",
+      "presets": "Temas predefinidos",
+      "presetApplied": "Tema aplicado a todo el espacio de trabajo",
+      "failed": "No se pudo aplicar el cambio",
+      "settingsMenu": "Ajustes",
+      "mailSettings": "Ajustes del correo",
+      "appSettings": "Apps y permisos",
+      "hiddenApps": "Apps ocultas",
+      "safeMode": "Modo seguro y recuperación",
+      "issues": "Tu personalización tiene {n, plural, one {# problema} other {# problemas}}: esa parte usa la última versión válida o la predeterminada.",
+      "fix": "Arreglar con Claude",
+      "fixPrompt": "Mi personalización del espacio de trabajo (theme.json / shell de ui.json) tiene errores de validación. Arréglalos, por favor.",
+      "safeOn": "Modo seguro: tus personalizaciones están desactivadas en este navegador.",
+      "leaveSafe": "Salir del modo seguro",
+      "openPanel": "Abrir {title}",
+      "collapsePanel": "Contraer panel",
+      "examples": [
+        "Haz todo el espacio de trabajo más compacto",
+        "Pon mi panel de tareas junto a esta app",
+        "Usa un acento azul oscuro y esquinas más redondas en todas partes"
+      ],
+      "safeTitle": "Restaura tu espacio de trabajo",
+      "safeBody": "Si una personalización hizo difícil usar el espacio de trabajo, restaura aquí lo predeterminado. Antes se guarda una copia de tus archivos actuales, así que puedes deshacerlo después. El modo seguro muestra el espacio de trabajo sin tu tema ni la personalización del entorno, solo en este navegador.",
+      "safeRestore": "Restaurar la interfaz predeterminada",
+      "safeEnter": "Abrir el espacio de trabajo en modo seguro",
+      "safeLeave": "Salir del modo seguro",
+      "safeBack": "Volver al espacio de trabajo",
+      "safeActive": "El modo seguro está activado en este navegador."
     }
   }
 }

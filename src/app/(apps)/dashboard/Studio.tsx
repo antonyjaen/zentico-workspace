@@ -39,7 +39,7 @@ import {
   findSpot,
   formatErrors,
   getAtPointer,
-  shellApps,
+  shellFromUi,
   walk,
   type ModGrant,
   type PageTheme,
@@ -178,7 +178,8 @@ type Dialog =
 export function Studio({ initialView, initialChat, mode, pageId: requestedPage, appId, sectionId }: Props) {
   const t = useTranslations("dashboard");
   const router = useRouter();
-  const { setShell } = useUiShell();
+  const { shell, setShell } = useUiShell();
+  const safe = shell.safe;
   const [view, setViewState] = useState(initialView);
   const [chat, setChat] = useState(initialChat);
   const [editing, setEditing] = useState(false);
@@ -216,11 +217,11 @@ export function Studio({ initialView, initialChat, mode, pageId: requestedPage, 
     if (v && typeof v === "object" && "sig" in v) setViewState(v);
   }, []);
 
-  // The rail and the keyboard shortcuts follow the UI.
+  // The rail, the keyboard shortcuts and the workspace theme / shell follow the UI.
   useEffect(() => {
     if (!ui) return;
-    setShell({ pages: ui.pages.map((p) => ({ id: p.id, title: p.title, icon: p.icon, pinned: p.pinned })), apps: shellApps(ui), keys: ui.keys });
-  }, [ui, setShell]);
+    setShell(shellFromUi(ui, view.errors, safe));
+  }, [ui, view.errors, safe, setShell]);
 
   useEffect(() => {
     try {

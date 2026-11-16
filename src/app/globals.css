@@ -90,6 +90,53 @@
   --shadow-pop: 0 0 0 1px var(--color-line-strong), 0 16px 40px -12px rgb(0 0 0 / 0.9);
 }
 
+/*
+  Fixed default tokens for the parts no customization may restyle: the settings menu (with
+  "Restore default UI"), recovery notices and /ui-safe. Declared on the element itself, so the
+  workspace theme set on <html> (src/lib/ui/workspace.ts) is never inherited here.
+*/
+.zw-safe {
+  --color-canvas: #fafafa;
+  --color-sheet: #ffffff;
+  --color-sheet-muted: #f5f5f5;
+  --color-ink: #0a0a0a;
+  --color-ink-soft: #404040;
+  --color-ink-mute: #737373;
+  --color-line: #ebebeb;
+  --color-line-strong: #d4d4d4;
+  --color-hover: #f2f2f2;
+  --color-primary: #0a0a0a;
+  --color-primary-hover: #262626;
+  --color-primary-ink: #ffffff;
+  --color-primary-soft: #0000000d;
+  --color-accent: #3b6cf6;
+  --spacing: 0.25rem;
+  --radius-sheet: 0.75rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+}
+[data-theme="dark"] .zw-safe {
+  --color-canvas: #000000;
+  --color-sheet: #0a0a0a;
+  --color-sheet-muted: #111111;
+  --color-ink: #ededed;
+  --color-ink-soft: #a1a1a1;
+  --color-ink-mute: #737373;
+  --color-line: #1f1f1f;
+  --color-line-strong: #2e2e2e;
+  --color-hover: #1a1a1a;
+  --color-primary: #ededed;
+  --color-primary-hover: #ffffff;
+  --color-primary-ink: #0a0a0a;
+  --color-primary-soft: #ffffff14;
+  --color-accent: #5b8cff;
+}
+
 @layer base {
   html {
     color-scheme: light;

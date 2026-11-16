@@ -109,6 +109,16 @@ const MIGRATIONS = [
     created INTEGER NOT NULL
   );
   `,
+  // Where the user was ("Customize with Claude" from another app) when they sent a chat message.
+  `
+  CREATE TABLE ui_chat_where (
+    command_id TEXT PRIMARY KEY,
+    user_email TEXT NOT NULL,
+    app TEXT NOT NULL,
+    path TEXT NOT NULL,
+    created INTEGER NOT NULL
+  );
+  `,
 ];
 
 function open(): Database {
