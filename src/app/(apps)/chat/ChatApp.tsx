@@ -10,7 +10,7 @@ import { Conversation } from "./Conversation";
 import { CreateChannelDialog, CreateTeamDialog, NewChatDialog, TeamMembersDialog } from "./Dialogs";
 import { AddressBookMenu, PeopleList, PeoplePane, usePeopleData, type PeopleView } from "./People";
 import { Sidebar, type SidebarTab } from "./Sidebar";
-import { UNREAD_EVENT, type ChatEvent, type ChatOverview, type ConversationSummary } from "./shared";
+import { isConversationId, OPEN_CONVERSATION_EVENT, UNREAD_EVENT, type ChatEvent, type ChatOverview, type ConversationSummary } from "./shared";
 
 export type Subscribe = (fn: (e: ChatEvent) => void) => () => void;
 
@@ -171,6 +171,16 @@ export function ChatApp({ initial, initialId }: { initial: ChatOverview; initial
     },
     [open],
   );
+
+  // A notification asked to open a conversation while Chat is already on screen.
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const id = (e as CustomEvent<unknown>).detail;
+      if (isConversationId(id)) openConversation(id);
+    };
+    window.addEventListener(OPEN_CONVERSATION_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_CONVERSATION_EVENT, onOpen);
+  }, [openConversation]);
 
   useEffect(() => {
     const onPop = () => setActiveId(new URLSearchParams(window.location.search).get("c"));

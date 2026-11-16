@@ -15,6 +15,8 @@ import {
   type CommandView,
   type ConfirmationView,
 } from "@/app/(apps)/meet/claude";
+import { meetHref } from "@/app/(apps)/meet/shared";
+import { notify } from "../notifications/store";
 
 type SQLValue = null | number | bigint | string | Uint8Array;
 type Row = Record<string, SQLValue>;
@@ -344,6 +346,20 @@ export function applyBridgeEvent(id: string, email: string, ev: BridgeEvent): Co
       id,
     );
     d.prepare("UPDATE confirmations SET status = 'expired', decided = ? WHERE command_id = ? AND status = 'pending'").run(now, id);
+    const after = getCommand(id, email);
+    if (after && (after.status === "done" || after.status === "failed")) {
+      notify(email, {
+        category: "claude",
+        kind: after.status,
+        title: after.text.slice(0, 160),
+        body: (after.status === "done" ? after.spoken || after.result : after.result) ?? "",
+        href: meetHref(after.room),
+        ref: after.room,
+        key: `command:${after.id}`,
+        once: true,
+      });
+    }
+    return after?.status ?? null;
   }
   return getCommand(id, email)?.status ?? null;
 }
@@ -439,6 +455,17 @@ export async function awaitConfirmation(
     "INSERT INTO confirmations (id, command_id, user_email, tool, summary, status, created, expires) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)",
   ).run(id, commandId, norm(email), tool.slice(0, 64), summary.slice(0, 600), now, now + CONFIRM_TIMEOUT_MS);
   d.prepare("UPDATE commands SET status = 'needs_confirmation', updated = ? WHERE id = ? AND status IN ('queued', 'dispatched')").run(now, commandId);
+  notify(email, {
+    category: "claude",
+    kind: "confirm",
+    title: command.text.slice(0, 160),
+    body: summary,
+    href: meetHref(command.room),
+    priority: "high",
+    ref: command.room,
+    key: `confirm:${id}`,
+    once: true,
+  });
 
   let outcome: "approved" | "rejected" | "timeout" = "timeout";
   while (Date.now() < now + CONFIRM_TIMEOUT_MS) {

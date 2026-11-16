@@ -6,6 +6,7 @@ import type { Session } from "@/lib/session";
 import { AccountMenu } from "./AccountMenu";
 import { AppLauncher } from "./AppLauncher";
 import { Wordmark } from "./Logo";
+import { NotificationBell } from "./notifications/NotificationBell";
 import { SearchBox } from "./SearchBox";
 import { SettingsLink } from "./SettingsLink";
 import { ThemeMenu } from "./ThemeMenu";
@@ -25,6 +26,7 @@ export async function TopBar({ session, query }: { session: Session; query?: str
       </Link>
       <SearchBox placeholder={t("search")} defaultValue={query} />
       <div className="ml-auto flex items-center gap-1">
+        <NotificationBell />
         <SettingsLink />
         <ThemeMenu />
         <AppLauncher />

@@ -212,6 +212,8 @@ export const isConversationId = (v: unknown): v is string => typeof v === "strin
 
 /** Same-tab signal so the rail badge refreshes right after the chat app reads something. */
 export const UNREAD_EVENT = "zw-chat-unread";
+/** Same-tab request (detail: conversation id) to open a conversation in the mounted Chat app. */
+export const OPEN_CONVERSATION_EVENT = "zw-chat-open";
 
 /** Deterministic two-hue gradient per person (matches the account menu avatar). */
 export function avatarGradient(seed: string) {

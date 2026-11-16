@@ -25,6 +25,7 @@ import {
 } from "@/app/(apps)/chat/shared";
 import { all, get, run, tx } from "./db";
 import { publish } from "./events";
+import { onAddedToConversation, onChatMessage, onConversationRead } from "../notifications/chat";
 
 /** A failed check whose message is safe to show the user (as an error code). */
 export class ChatError extends Error {}
@@ -280,6 +281,7 @@ function postAndPublish(
     const root = messageById(message.threadRoot);
     if (root) publish(to, { type: "update", message: root });
   }
+  onChatMessage(message);
   return message;
 }
 
@@ -378,7 +380,10 @@ export function markRead(convId: string, userId: number, messageId: number): voi
     userId,
     target,
   );
-  if (num(r.changes)) publish([userId], { type: "read", conversationId: convId, lastReadId: target });
+  if (num(r.changes)) {
+    publish([userId], { type: "read", conversationId: convId, lastReadId: target });
+    onConversationRead(convId, userId);
+  }
 }
 
 export function typing(convId: string, user: ChatUser, threadRoot: number | null): void {
@@ -613,6 +618,7 @@ export function createGroup(userId: number, others: number[], name: string | nul
   });
   systemMessage(convById(id), userId, { action: "created", name: name ?? undefined });
   publish(members, { type: "conversations" });
+  onAddedToConversation(id, userId, members);
   return id;
 }
 
@@ -626,6 +632,7 @@ export function addMembers(convId: string, userId: number, ids: number[]): void 
   if (!added.length) return;
   systemMessage(conv, userId, { action: "added", names: nameList(added) });
   publish([...audience(conv), ...added], { type: "conversations" });
+  onAddedToConversation(convId, userId, added);
 }
 
 export function leaveConversation(convId: string, userId: number): void {
@@ -745,6 +752,7 @@ export function createChannel(
   const id = tx(() => insertChannel(teamId, userId, name, description, isPrivate, memberList));
   systemMessage(convById(id), userId, { action: "created", name });
   publish(isPrivate ? memberList : teamIds, { type: "conversations" });
+  if (isPrivate) onAddedToConversation(id, userId, memberList);
   return id;
 }
 
