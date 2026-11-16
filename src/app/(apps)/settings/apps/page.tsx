@@ -10,6 +10,8 @@ import { env } from "@/lib/env";
 import { bridgeStatus } from "@/lib/mcp/agent";
 import { AppsSettings, type AppView } from "./AppsSettings";
 import { ConnectedApps, type ConnectedAppView } from "./ConnectedApps";
+import { McpServers, type McpServerView } from "./McpServers";
+import { listServers as listMcpServers, summary as mcpSummary, toolInfo as mcpToolInfo } from "@/lib/user-mcp/store";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +66,11 @@ export default async function AppsSettingsPage({ searchParams }: { searchParams:
     created: b.created,
   }));
   const bridge = bridgeStatus(me.email);
+  const mcpServers: McpServerView[] = listMcpServers(session.sub).map((r) => ({
+    ...mcpSummary(r),
+    tools: (r.catalog ?? []).map((tool) => mcpToolInfo(r, tool)),
+    lastUsed: r.lastUsed,
+  }));
   return (
     <main className="sheet flex min-h-0 flex-1 flex-col">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-3">
@@ -74,7 +81,12 @@ export default async function AppsSettingsPage({ searchParams }: { searchParams:
       </div>
       <div className="flex-1 overflow-y-auto">
         <AppsSettings apps={apps} appUrl={env.appUrl} me={{ id: me.id, name: me.name, email: me.email }} bridgeConnected={bridge.connected}
-          connectedApps={<ConnectedApps apps={connectedApps} result={{ connected: param(q.connected), error: param(q.connectError), provider: param(q.provider) }} />}
+          connectedApps={
+            <>
+              <ConnectedApps apps={connectedApps} result={{ connected: param(q.connected), error: param(q.connectError), provider: param(q.provider) }} />
+              <McpServers servers={mcpServers} result={{ connected: param(q.mcpConnected), error: param(q.mcpError), server: param(q.mcpServer) }} />
+            </>
+          }
         />
       </div>
     </main>
