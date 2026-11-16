@@ -65,7 +65,7 @@ const MIGRATIONS = [
   );
   CREATE INDEX confirmations_user ON confirmations(user_email, status, created);
 
-  -- The user's own transcribed speech (only while "Claude commands" is on), for prompt context.
+  -- Transcribed speech sent from a call, for prompt context (see the "source" column below).
   CREATE TABLE utterances (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_email TEXT NOT NULL,
@@ -85,6 +85,9 @@ const MIGRATIONS = [
   `,
   // Short spoken summary of a result, read aloud in the call.
   `ALTER TABLE commands ADD COLUMN spoken TEXT;`,
+  // Where an utterance came from: the user's own push-to-talk command, or the meeting's mixed audio
+  // ("Claude listens to the meeting"; every speaker, not attributed).
+  `ALTER TABLE utterances ADD COLUMN source TEXT NOT NULL DEFAULT 'command';`,
 ];
 
 function open(): Database {
@@ -126,7 +129,8 @@ export const QUEUE_TTL_MS = 10 * 60_000;
 export const RUN_TTL_MS = 20 * 60_000;
 const DEDUPE_MS = 15_000;
 const UTTERANCE_KEEP_MS = 60 * 60_000;
-const CONTEXT_MS = 2 * 60_000;
+/** A command comes with the meeting audio and the user's own commands of the last 10 minutes. */
+const CONTEXT_MS = 10 * 60_000;
 export const PROGRESS_MAX = 500;
 export const RESULT_MAX = 8000;
 
@@ -462,17 +466,24 @@ export async function awaitConfirmation(
 
 /* -------------------------------------------------------------- utterances */
 
-export function addUtterance(email: string, room: string, text: string): void {
+export type UtteranceSource = "command" | "meeting";
+export type Utterance = { at: number; text: string; source: UtteranceSource };
+
+/** Stores transcribed speech for prompt context: a command (own voice) or a chunk of meeting audio. */
+export function addUtterance(email: string, room: string, text: string, source: UtteranceSource): void {
   if (!text.trim()) return;
-  db().prepare("INSERT INTO utterances (user_email, room, text, at) VALUES (?, ?, ?, ?)").run(norm(email), room, text.slice(0, 2000), Date.now());
+  db()
+    .prepare("INSERT INTO utterances (user_email, room, text, at, source) VALUES (?, ?, ?, ?, ?)")
+    .run(norm(email), room, text.slice(0, 2000), Date.now(), source);
 }
 
-/** The user's own speech in the room during the last ~2 minutes before `before` (oldest first). */
-export function recentUtterances(email: string, room: string, before: number): { at: number; text: string }[] {
+/** Speech the user sent from the room in the ~10 minutes before `before` (oldest first, newest kept). */
+export function recentUtterances(email: string, room: string, before: number): Utterance[] {
   return db()
-    .prepare("SELECT text, at FROM utterances WHERE user_email = ? AND room = ? AND at >= ? AND at <= ? ORDER BY at LIMIT 60")
+    .prepare("SELECT text, at, source FROM utterances WHERE user_email = ? AND room = ? AND at >= ? AND at <= ? ORDER BY at DESC LIMIT 200")
     .all(norm(email), room, before - CONTEXT_MS, before + 10_000)
-    .map((r) => ({ at: Number(r.at), text: s(r.text) }));
+    .map((r) => ({ at: Number(r.at), text: s(r.text), source: r.source === "meeting" ? ("meeting" as const) : ("command" as const) }))
+    .reverse();
 }
 
 /* ----------------------------------------------------------------- bridges */

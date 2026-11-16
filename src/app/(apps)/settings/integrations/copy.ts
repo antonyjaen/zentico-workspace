@@ -146,7 +146,7 @@ const en = {
   // Claude in meetings (bridge)
   bridgeTitle: "Claude in meetings",
   bridgeIntro:
-    "Say “Claude, …” in a Zentico Meet call (or type in “Ask my Claude”) and your own Claude Code does it on your computer. Your commands only ever reach your own bridge. Anything that sends, creates, posts or writes waits for your Approve in the call.",
+    "In a Zentico Meet call, hold the C key (or the “Hold to talk to Claude” button) and speak, or type in “Ask my Claude”, and your own Claude Code does it on your computer. Your commands only ever reach your own bridge. Anything that sends, creates, posts or writes waits for your Approve in the call.",
   bridgeSteps: [
     "Create a read and write token above.",
     "Get tools/zentico-bridge.mjs from the workspace repository (Node 18+, no dependencies) and make sure Claude Code is installed.",
@@ -305,7 +305,7 @@ const es: Copy = {
   ],
   bridgeTitle: "Claude en reuniones",
   bridgeIntro:
-    "Di «Claude, …» en una llamada de Zentico Meet (o escríbelo en «Pregunta a mi Claude») y tu propio Claude Code lo hace en tu ordenador. Tus órdenes solo llegan a tu propio puente. Todo lo que envía, crea, publica o escribe espera a que lo apruebes en la llamada.",
+    "En una llamada de Zentico Meet, mantén pulsada la tecla C (o el botón «Mantén pulsado para hablar con Claude») y habla, o escríbelo en «Pregunta a mi Claude», y tu propio Claude Code lo hace en tu ordenador. Tus órdenes solo llegan a tu propio puente. Todo lo que envía, crea, publica o escribe espera a que lo apruebes en la llamada.",
   bridgeSteps: [
     "Crea arriba un token de lectura y escritura.",
     "Obtén tools/zentico-bridge.mjs del repositorio del espacio de trabajo (Node 18+, sin dependencias) y asegúrate de tener Claude Code instalado.",

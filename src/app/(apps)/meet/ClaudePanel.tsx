@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Loader2, Send, Share2, ShieldCheck, Square, Volume2, X } from "lucide-react";
+import { Check, Ear, Loader2, Mic, Send, Share2, ShieldCheck, Square, Volume2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { useMemo, useState } from "react";
@@ -57,16 +57,129 @@ function ClaudeVoiceBar({ voice }: { voice: Voice }) {
   );
 }
 
+/** Push-to-talk progress: recording, transcribing, processing, and what was heard. */
+function TalkStatus({ claude, compact = false }: { claude: Claude; compact?: boolean }) {
+  const t = useTranslations("meet");
+  const lines: React.ReactNode[] = [];
+  if (claude.talking)
+    lines.push(
+      <p key="rec" className="flex items-center gap-2 font-medium text-ink">
+        <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-danger" aria-hidden />
+        {t("claudeRecording")}
+      </p>,
+    );
+  if (claude.transcribing > 0)
+    lines.push(
+      <p key="tr" className="flex items-center gap-2">
+        <Loader2 size={11} aria-hidden className="shrink-0 animate-spin" />
+        {claude.transcribing > 1 ? t("claudeTranscribingQueued", { count: claude.transcribing - 1 }) : t("claudeTranscribing")}
+      </p>,
+    );
+  if (claude.accepted.size > 0)
+    lines.push(
+      <p key="pr" className="flex items-center gap-2 text-ink">
+        <Loader2 size={11} aria-hidden className="shrink-0 animate-spin" />
+        {t("claudeProcessing")}
+      </p>,
+    );
+  if (claude.heard && !compact)
+    lines.push(
+      <p key="hd" className="break-words text-ink-mute">
+        {t("claudeHeard", { text: claude.heard })}
+      </p>,
+    );
+  if (!lines.length) return null;
+  return compact ? (
+    <div role="status" className="pop pointer-events-auto max-w-full space-y-1 px-3 py-2 text-[13px] text-ink-soft">
+      {lines}
+    </div>
+  ) : (
+    <div role="status" aria-live="polite" className="space-y-1 text-[12.5px] text-ink-soft">
+      {lines}
+    </div>
+  );
+}
+
 /**
- * Top of the stage: the spoken-reply bar (everyone) and Approve / Reject cards for write actions the
- * local user's Claude wants to run (never shown to others).
+ * Banner for everyone while someone's Claude is listening to the meeting (consent notice); the
+ * local user's own line has a Stop button.
  */
-export function ClaudeConfirmations({ claude, voice }: { claude: Claude; voice: Voice }) {
+export function ClaudeListeningBanner({ claude }: { claude: Claude }) {
+  const t = useTranslations("meet");
+  if (!claude.capturing && !claude.others.length) return null;
+  return (
+    <div role="status" className="flex flex-col items-center gap-1 border-b border-line bg-sheet-muted px-4 py-2 text-[13px] text-ink-soft">
+      {claude.capturing && (
+        <p className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+          <span className="flex items-center gap-2 font-medium text-ink">
+            <Ear size={14} aria-hidden style={{ color: "var(--color-app-meet)" }} />
+            {t("claudeListeningSelf")}
+          </span>
+          <button type="button" onClick={() => claude.setListen(false)} className="font-medium text-ink underline underline-offset-2">
+            {t("claudeListenStop")}
+          </button>
+        </p>
+      )}
+      {claude.others.map((o) => (
+        <p key={o.identity} className="flex items-center gap-2">
+          <Ear size={14} aria-hidden className="shrink-0" style={{ color: "var(--color-app-meet)" }} />
+          {t("claudeListeningBy", { name: o.name })}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+/** Hold to talk: pointer (mouse, touch, pen) and Space/Enter on the focused button. */
+function TalkButton({ claude, disabled }: { claude: Claude; disabled: boolean }) {
+  const t = useTranslations("meet");
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      aria-pressed={claude.talking}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        // Keeps pointerup coming here when released outside the button.
+        e.currentTarget.setPointerCapture(e.pointerId);
+        void claude.startTalk();
+      }}
+      onPointerUp={claude.endTalk}
+      onPointerCancel={claude.endTalk}
+      onLostPointerCapture={claude.endTalk}
+      onKeyDown={(e) => {
+        if (e.key !== " " && e.key !== "Enter") return;
+        e.preventDefault();
+        if (!e.repeat) void claude.startTalk();
+      }}
+      onKeyUp={(e) => {
+        if (e.key === " " || e.key === "Enter") claude.endTalk();
+      }}
+      onBlur={claude.endTalk}
+      onContextMenu={(e) => e.preventDefault()}
+      className={`flex w-full touch-none items-center justify-center gap-2 rounded-lg px-4 py-3 text-[14px] font-medium select-none disabled:opacity-50 ${
+        claude.talking ? "bg-danger text-white" : "bg-primary text-primary-ink hover:bg-primary-hover"
+      }`}
+    >
+      <Mic size={16} aria-hidden className={claude.talking ? "animate-pulse" : ""} />
+      {claude.talking ? t("claudeTalkRelease") : t("claudeTalkHold")}
+    </button>
+  );
+}
+
+/**
+ * Top of the stage: the spoken-reply bar (everyone), push-to-talk progress while the panel is
+ * closed, and Approve / Reject cards for write actions the local user's Claude wants to run (never
+ * shown to others).
+ */
+export function ClaudeConfirmations({ claude, voice, showTalk }: { claude: Claude; voice: Voice; showTalk: boolean }) {
   const t = useTranslations("meet");
   const label = useToolLabel();
   const [busy, setBusy] = useState<string | null>(null);
   const list = claude.data?.confirmations ?? [];
-  if (!list.length && !voice.current) return null;
+  const talk = showTalk && (claude.talking || claude.transcribing > 0 || claude.accepted.size > 0);
+  if (!list.length && !voice.current && !talk) return null;
   const act = async (c: ConfirmationView, approve: boolean) => {
     setBusy(c.id);
     try {
@@ -78,6 +191,7 @@ export function ClaudeConfirmations({ claude, voice }: { claude: Claude; voice: 
   return (
     <div className="pointer-events-none absolute inset-x-0 top-3 z-20 flex flex-col items-center gap-2 px-3">
       <ClaudeVoiceBar voice={voice} />
+      {talk && <TalkStatus claude={claude} compact />}
       {list.map((c) => (
         <div
           key={c.id}
@@ -137,7 +251,7 @@ function StatusChip({ c }: { c: CommandView }) {
   );
 }
 
-/** Side panel: the local user's own commands in this call, the opt-in toggle and "Ask my Claude". */
+/** Side panel: push to talk, the meeting-listening and speak toggles, the user's own commands and "Ask my Claude". */
 export function ClaudePanel({
   claude,
   voice,
@@ -192,17 +306,27 @@ export function ClaudePanel({
     <>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <div className="space-y-3 border-b border-line p-4">
+          <div className="space-y-1.5">
+            <TalkButton claude={claude} disabled={noToken || !claude.supported} />
+            <p className="text-center text-[12px] text-ink-mute">{t("claudeTalkKeyHint")}</p>
+          </div>
+          <TalkStatus claude={claude} />
           <label className="flex items-start gap-3">
             <input
               type="checkbox"
               className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-app-meet)]"
-              checked={claude.enabled}
+              checked={claude.listen}
               disabled={noToken}
-              onChange={(e) => claude.setEnabled(e.target.checked)}
+              onChange={(e) => claude.setListen(e.target.checked)}
             />
             <span className="min-w-0">
-              <span className="block text-[14px] font-medium text-ink">{t("claudeCommands")}</span>
-              <span className="block text-[12.5px] leading-relaxed text-ink-mute">{t("claudeCommandsHint")}</span>
+              <span className="flex items-center gap-2 text-[14px] font-medium text-ink">
+                {t("claudeListen")}
+                {claude.capturing && (
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: "var(--color-app-meet)" }} aria-hidden />
+                )}
+              </span>
+              <span className="block text-[12.5px] leading-relaxed text-ink-mute">{t("claudeListenHint")}</span>
             </span>
           </label>
           {voice.supported && (
@@ -218,33 +342,6 @@ export function ClaudePanel({
                 <span className="block text-[12.5px] leading-relaxed text-ink-mute">{t("claudeSpeakAnswersHint")}</span>
               </span>
             </label>
-          )}
-          {claude.enabled && (
-            <div className="space-y-1 text-[12.5px] text-ink-soft" role="status" aria-live="polite">
-              <p className="flex items-center gap-2">
-                <span
-                  className={`h-2 w-2 shrink-0 rounded-full ${claude.speaking ? "animate-pulse" : ""}`}
-                  style={{ background: claude.speaking ? "var(--color-app-meet)" : "var(--color-ink-mute, #999)" }}
-                  aria-hidden
-                />
-                {claude.speaking ? t("claudeHearing") : t("claudeListening")}
-              </p>
-              {claude.transcribing > 0 && (
-                <p className="flex items-center gap-2">
-                  <Loader2 size={11} aria-hidden className="shrink-0 animate-spin" />
-                  {claude.transcribing > 1
-                    ? t("claudeTranscribingQueued", { count: claude.transcribing - 1 })
-                    : t("claudeTranscribing")}
-                </p>
-              )}
-              {claude.accepted.size > 0 && (
-                <p className="flex items-center gap-2 text-ink">
-                  <Loader2 size={11} aria-hidden className="shrink-0 animate-spin" />
-                  {t("claudeProcessing")}
-                </p>
-              )}
-              {claude.heard && <p className="break-words text-ink-mute">{t("claudeHeard", { text: claude.heard })}</p>}
-            </div>
           )}
           {noToken && (
             <p className="text-[12.5px] leading-relaxed text-amber">

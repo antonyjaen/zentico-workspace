@@ -1,15 +1,19 @@
-// One utterance (≤ 20 s clip, cut by voice activity detection in the browser) of the signed-in
-// user's OWN microphone, sent while their "Claude commands" toggle is on. The audio is transcribed
-// in memory (never written to disk or logged) and dropped; "Claude, …" at the start of an utterance
-// queues a command for that user's own bridge. Clips wait in a per-user FIFO queue (see
-// enterClipQueue) because CPU Whisper takes ~20 s per clip.
-// Multipart fields: room, file, mime, duration (ms), timeZone.
+// Voice clips from a call, transcribed in memory (never written to disk or logged) and dropped.
+// - kind=command: one push-to-talk clip (≤ 20 s) of the signed-in user's OWN voice. The whole
+//   transcript is the command (an optional leading "Claude, …" is stripped) for their own bridge;
+//   "confirm" / "cancel" act on pending items.
+// - kind=context: ~15 s of the meeting's mixed audio, sent while the user's "Claude listens to the
+//   meeting" toggle is on (announced to everyone in the call). Only stored as prompt context for
+//   that user's commands; never parsed for commands.
+// CPU Whisper takes ~11 s per clip, so clips wait in a queue where commands go first (see
+// enterClipQueue in src/lib/meetings/voice.ts).
+// Multipart fields: kind, room, file, mime, duration (ms), timeZone.
 import { NextResponse, type NextRequest } from "next/server";
 import { getSession } from "@/lib/auth";
 import { createCommand, cleanTimeZone, hasWriteToken } from "@/lib/meetings/claude-commands";
 import { jsonError, NO_STORE, sameOrigin } from "@/lib/meetings/http";
 import { transcribeAudio, whisperConfig } from "@/lib/meetings/transcribe";
-import { clipLanguage, controlOf, enterClipQueue, findCommand, learnLanguage, takeClipSlot } from "@/lib/meetings/voice";
+import { clipLanguage, commandText, controlOf, enterClipQueue, learnLanguage, takeClipSlot, type ClipKind } from "@/lib/meetings/voice";
 import {
   addUtterance,
   cancelCommand,
@@ -19,7 +23,14 @@ import {
   toView,
 } from "@/lib/mcp/agent";
 import type { Session } from "@/lib/session";
-import { VOICE_MAX_BYTES, VOICE_MAX_CLIP_MS, VOICE_MIN_INTERVAL_MS, type VoiceResponse } from "@/app/(apps)/meet/claude";
+import {
+  CONTEXT_CHUNK_MS,
+  CONTEXT_MIN_INTERVAL_MS,
+  VOICE_MAX_BYTES,
+  VOICE_MAX_CLIP_MS,
+  VOICE_MIN_INTERVAL_MS,
+  type VoiceResponse,
+} from "@/app/(apps)/meet/claude";
 import { AUDIO_MIMES } from "@/app/(apps)/meet/recording";
 import { ROOM_PATTERN } from "@/app/(apps)/meet/shared";
 
@@ -27,12 +38,13 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const WHISPER_TIMEOUT_MS = 60_000;
-/** The browser stops the recorder at VOICE_MAX_CLIP_MS; allow for stop latency. */
-const MAX_DURATION_MS = VOICE_MAX_CLIP_MS + 2000;
+/** The browser stops recorders at these lengths; allow for stop latency. */
+const MAX_DURATION_MS: Record<ClipKind, number> = { command: VOICE_MAX_CLIP_MS + 2000, context: CONTEXT_CHUNK_MS + 3000 };
+const MIN_INTERVAL_MS: Record<ClipKind, number> = { command: VOICE_MIN_INTERVAL_MS, context: CONTEXT_MIN_INTERVAL_MS };
 
 const respond = (body: VoiceResponse) => NextResponse.json(body, { headers: NO_STORE });
 
-/** Queues a voice command; "Claude confirm/cancel" act on pending items. */
+/** Queues a voice command; "confirm" / "cancel" act on pending items. */
 function handleCommand(session: Session, room: string, text: string, timeZone: string | null, heard: string): VoiceResponse {
   const control = controlOf(text);
   if (control) {
@@ -58,7 +70,6 @@ export async function POST(req: NextRequest) {
 
   const length = Number(req.headers.get("content-length") ?? "0");
   if (Number.isFinite(length) && length > VOICE_MAX_BYTES + 16 * 1024) return jsonError("too_large", 413);
-  if (!takeClipSlot(session.email, VOICE_MIN_INTERVAL_MS)) return jsonError("rate_limited", 429);
   if (!hasWriteToken(session.sub)) return jsonError("no_token", 412);
   const cfg = whisperConfig();
   if (!cfg) return jsonError("not_configured", 503);
@@ -73,6 +84,10 @@ export async function POST(req: NextRequest) {
     const v = form.get(k);
     return typeof v === "string" ? v : "";
   };
+  // Required: clients from before push-to-talk sent every utterance without a kind.
+  const kindField = field("kind");
+  if (kindField !== "command" && kindField !== "context") return jsonError("invalid", 400);
+  const kind: ClipKind = kindField;
   const room = field("room");
   const mime = field("mime").split(";")[0].trim().toLowerCase();
   const durationMs = Number(field("duration"));
@@ -83,31 +98,37 @@ export async function POST(req: NextRequest) {
     !(AUDIO_MIMES as readonly string[]).includes(mime) ||
     !Number.isFinite(durationMs) ||
     durationMs < 500 ||
-    durationMs > MAX_DURATION_MS ||
+    durationMs > MAX_DURATION_MS[kind] ||
     !(file instanceof Blob) ||
     file.size === 0
   ) {
     return jsonError("invalid", 400);
   }
   if (file.size > VOICE_MAX_BYTES) return jsonError("too_large", 413);
+  if (!takeClipSlot(session.email, kind, MIN_INTERVAL_MS[kind])) return jsonError("rate_limited", 429);
 
-  // Wait for this user's earlier clips (FIFO) and a free transcription slot.
-  const release = await enterClipQueue(session.email, req.signal);
+  // Commands first; a waiting context chunk is replaced by a newer one.
+  const release = await enterClipQueue(session.email, kind, req.signal);
   if (!release) return jsonError("superseded", 429);
 
-  // Pinned after the speaker's first clips in this room (detection doubles Whisper's time).
-  const pinned = clipLanguage(session.email, room);
+  // Pinned after the first clips of each kind in this room (detection doubles Whisper's time).
+  const pinned = clipLanguage(session.email, room, kind);
   let result;
   try {
     let audio: Uint8Array | null = new Uint8Array(await file.arrayBuffer());
     try {
-      result = await transcribeAudio(cfg, audio, mime, { timeoutMs: WHISPER_TIMEOUT_MS, prompt: "Claude,", language: pinned });
+      result = await transcribeAudio(cfg, audio, mime, {
+        timeoutMs: WHISPER_TIMEOUT_MS,
+        // Biases recognition towards "Claude" in commands; not for meeting audio (it invents it on noise).
+        prompt: kind === "command" ? "Claude," : undefined,
+        language: pinned,
+      });
     } finally {
       audio = null; // drop the clip right away
     }
   } catch (e) {
     // Only the status/summary, never the audio.
-    console.error("[voice] transcription:", e instanceof Error ? e.message.slice(0, 200) : "failed");
+    console.error(`[voice] ${kind} transcription:`, e instanceof Error ? e.message.slice(0, 200) : "failed");
     return jsonError("transcription_failed", 502);
   } finally {
     release();
@@ -115,13 +136,22 @@ export async function POST(req: NextRequest) {
 
   const segments = result.segments;
   const heardChars = segments.reduce((n, x) => n + x.text.length, 0);
-  if (!pinned) learnLanguage(session.email, room, result.language, heardChars);
-  console.info(`[voice] lang=${result.language ?? "?"}${pinned ? " (pinned)" : ""} heard=${heardChars}ch`);
-  const heard = segments.map((s) => s.text).join(" ").trim();
-  if (heard) addUtterance(session.email, room, heard);
+  if (!pinned) learnLanguage(session.email, room, kind, result.language, heardChars);
+  console.info(`[voice] ${kind} lang=${result.language ?? "?"}${pinned ? " (pinned)" : ""} heard=${heardChars}ch`);
+  const heard = segments
+    .map((s) => s.text)
+    .join(" ")
+    .trim();
 
+  if (kind === "context") {
+    // Meeting audio is context only: never a command, and nothing is echoed back.
+    if (heard) addUtterance(session.email, room, heard, "meeting");
+    return NextResponse.json({ ok: true }, { headers: NO_STORE });
+  }
+
+  if (heard) addUtterance(session.email, room, heard, "command");
   try {
-    const command = heard ? findCommand(segments) : null;
+    const command = commandText(segments);
     if (!command) return respond({ ok: true, heard });
     return respond(handleCommand(session, room, command, timeZone, heard));
   } catch (e) {

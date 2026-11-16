@@ -35,7 +35,7 @@ import {
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { usePopover } from "@/components/usePopover";
-import { ClaudeConfirmations, ClaudePanel, useToolLabel } from "./ClaudePanel";
+import { ClaudeConfirmations, ClaudeListeningBanner, ClaudePanel, useToolLabel } from "./ClaudePanel";
 import { AudioView, Avatar, displayName, Tile, type TileSource } from "./media";
 import { SELECT, useDevices } from "./PreJoin";
 import { clock } from "./recording";
@@ -145,9 +145,10 @@ export function InCall({ room, roomName, videoRecording }: { room: Room; roomNam
   // Claude's short spoken replies, heard by everyone (each device can mute them).
   const locale = useLocale();
   const voice = useClaudeVoice(room, locale);
-  const { announce: announceVoice, stopMine: stopMyVoice, sayLocal } = voice;
+  const { announce: announceVoice, stopMine: stopMyVoice, sayLocal, hush } = voice;
 
-  // "Claude commands": the local user's own voice/typed requests for their own Claude Code.
+  // "Claude commands": the local user's own push-to-talk / typed requests for their own Claude Code,
+  // optionally with the meeting's audio as context.
   const onClaudeNotice = useCallback(
     (n: ClaudeNotice) => {
       if (n.kind === "done") {
@@ -161,11 +162,15 @@ export function InCall({ room, roomName, videoRecording }: { room: Room; roomNam
       else if (n.kind === "noToken") flash(t("claudeNeedToken"));
       else if (n.kind === "notConfigured") flash(t("claudeNotConfigured"));
       else if (n.kind === "unsupported") flash(t("claudeUnsupported"));
+      else if (n.kind === "tooShort") flash(t("claudeTalkTooShort"));
+      else if (n.kind === "nothingHeard") flash(t("claudeHeardNothing"));
+      else if (n.kind === "micFailed") flash(t("claudeMicFailed"));
+      else if (n.kind === "listenStarted") flash(t("claudeListenStartedBy", { name: n.name }));
       else if (n.kind !== "error") flash(t(`claudeAction_${n.kind}`));
     },
     [flash, t, announceVoice, stopMyVoice],
   );
-  const claude = useClaudeCommands(room, roomName, { panelOpen: panel === "claude", notify: onClaudeNotice });
+  const claude = useClaudeCommands(room, roomName, { panelOpen: panel === "claude", notify: onClaudeNotice, onTalk: hush });
 
   // A write action waiting for the local user's OK is announced on their own device only.
   const toolLabel = useToolLabel();
@@ -348,6 +353,7 @@ export function InCall({ room, roomName, videoRecording }: { room: Room; roomNam
       {recording.active && (
         <RecordingBanner active={recording.active} busy={recording.busy} onStop={() => void recording.stop()} />
       )}
+      <ClaudeListeningBanner claude={claude} />
       {!room.canPlaybackAudio && (
         <div className="flex items-center justify-center gap-3 border-b border-line bg-sheet-muted px-4 py-2 text-[13px] text-ink-soft">
           <Volume2 size={14} aria-hidden />
@@ -361,7 +367,7 @@ export function InCall({ room, roomName, videoRecording }: { room: Room; roomNam
       <div className="flex min-h-0 flex-1">
         {/* Stage */}
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col p-2 md:p-3">
-          <ClaudeConfirmations claude={claude} voice={voice} />
+          <ClaudeConfirmations claude={claude} voice={voice} showTalk={panel !== "claude"} />
           {effectiveLayout === "grid" ? (
             <div
               className="grid min-h-0 flex-1 auto-rows-fr gap-2 [grid-template-columns:repeat(var(--cols-sm),minmax(0,1fr))] md:[grid-template-columns:repeat(var(--cols),minmax(0,1fr))]"
@@ -595,15 +601,17 @@ export function InCall({ room, roomName, videoRecording }: { room: Room; roomNam
             className={`icon-btn ${panel === "claude" ? "!bg-primary-soft !text-ink" : ""}`}
             onClick={() => togglePanel("claude")}
             aria-pressed={panel === "claude"}
-            aria-label={claude.enabled ? t("myClaudeListening") : t("myClaude")}
-            title={claude.enabled ? t("myClaudeListening") : t("myClaude")}
+            aria-label={claude.talking ? t("claudeRecording") : claude.capturing ? t("myClaudeListening") : t("myClaude")}
+            title={`${claude.capturing ? t("myClaudeListening") : t("myClaude")} · ${t("claudeTalkKeyHint")}`}
           >
             <span className="relative">
-              <Sparkles size={18} aria-hidden />
-              {(claude.enabled || !!claude.data?.confirmations.length) && (
+              <Sparkles size={18} aria-hidden className={claude.talking ? "text-danger" : ""} />
+              {(claude.talking || claude.capturing || !!claude.data?.confirmations.length) && (
                 <span
-                  className={`absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full border-2 border-sheet ${claude.data?.confirmations.length ? "animate-pulse bg-amber" : ""}`}
-                  style={claude.data?.confirmations.length ? undefined : { background: "var(--color-app-meet)" }}
+                  className={`absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full border-2 border-sheet ${
+                    claude.talking ? "animate-pulse bg-danger" : claude.data?.confirmations.length ? "animate-pulse bg-amber" : ""
+                  }`}
+                  style={claude.talking || claude.data?.confirmations.length ? undefined : { background: "var(--color-app-meet)" }}
                 />
               )}
             </span>

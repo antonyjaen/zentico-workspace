@@ -26,13 +26,6 @@ const LANG = /^[a-z]{2}(-[A-Za-z]{2})?$/;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-// Echo guard for the local "Claude commands" microphone capture: clips that overlap Claude's own
-// voice are not uploaded (see useClaudeCommands).
-let ttsActive = false;
-let ttsLastEnd = 0;
-/** Claude's voice was playing at some point since `since` (epoch ms). */
-export const ttsPlayedSince = (since: number) => ttsActive || ttsLastEnd >= since;
-
 const ES_WORDS = new Set(
   "el la los las que de del es está están son por para con una un y pero tu tus su sus ya hay tienes tiene mañana hoy correo reunión listo envié he hecho encontré no sí también esta este".split(" "),
 );
@@ -111,8 +104,6 @@ export function useClaudeVoice(room: Room, uiLang: string) {
     if (safety.current) clearTimeout(safety.current);
     safety.current = null;
     currentRef.current = null;
-    ttsActive = false;
-    ttsLastEnd = Date.now();
     setCurrent(null);
   }, []);
 
@@ -125,7 +116,6 @@ export function useClaudeVoice(room: Room, uiLang: string) {
       return;
     }
     currentRef.current = item;
-    ttsActive = true;
     setCurrent(item);
     const u = new SpeechSynthesisUtterance(item.text);
     u.lang = item.lang;
@@ -213,6 +203,12 @@ export function useClaudeVoice(room: Room, uiLang: string) {
     if (cur?.mine) stop(cur.id);
   }, [stop]);
 
+  /** Silences whatever reply is playing on this device only (e.g. the local user starts talking to Claude). */
+  const hush = useCallback(() => {
+    const cur = currentRef.current;
+    if (cur) stopLocal(cur.id);
+  }, [stopLocal]);
+
   const setMuted = useCallback((on: boolean) => {
     mutedRef.current = on;
     setMutedState(on);
@@ -261,10 +257,9 @@ export function useClaudeVoice(room: Room, uiLang: string) {
       if (currentRef.current && "speechSynthesis" in window) speechSynthesis.cancel();
       if (safety.current) clearTimeout(safety.current);
       currentRef.current = null;
-      ttsActive = false;
     },
     [],
   );
 
-  return { supported, current, muted, setMuted, speakAnswers, setSpeakAnswers, announce, sayLocal, stop, stopMine };
+  return { supported, current, muted, setMuted, speakAnswers, setSpeakAnswers, announce, sayLocal, stop, stopMine, hush };
 }

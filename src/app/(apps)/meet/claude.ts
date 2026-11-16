@@ -1,6 +1,8 @@
-// Client-safe types and limits for "Claude commands" in a call: things the local user says
-// ("Claude, …") or types are queued for THEIR OWN Claude Code, which runs them through the
-// zentico-bridge (tools/zentico-bridge.mjs). Shared by the call UI, /api/meet/voice and src/lib/mcp/agent.
+// Client-safe types and limits for "Claude commands" in a call: things the local user says (push to
+// talk) or types are queued for THEIR OWN Claude Code, which runs them through the zentico-bridge
+// (tools/zentico-bridge.mjs). Optionally ("Claude listens to the meeting") their browser also sends
+// the meeting's mixed audio in chunks so commands come with what was said.
+// Shared by the call UI, /api/meet/voice and src/lib/mcp/agent.
 
 export type CommandStatus = "queued" | "dispatched" | "needs_confirmation" | "done" | "failed" | "cancelled";
 export const COMMAND_STATUSES: readonly CommandStatus[] = ["queued", "dispatched", "needs_confirmation", "done", "failed", "cancelled"];
@@ -50,22 +52,43 @@ export type VoiceResponse = {
   /** What was heard in the clip (shown to the speaker only; not stored on the client). */
   heard: string;
   command?: CommandView;
-  /** "Claude confirm" / "Claude cancel" handled. */
+  /** "confirm" / "cancel" handled. */
   action?: "approved" | "rejected" | "cancelled";
 };
 
-/** One clip = one utterance of the local microphone (voice activity detection in the browser). */
+/** What a voice clip is: a push-to-talk command, or a chunk of meeting audio for context. */
+export type VoiceKind = "command" | "context";
+/** A push-to-talk command clip stops by itself at this length. */
 export const VOICE_MAX_CLIP_MS = 20_000;
+/** Shorter presses are taps, not commands: discarded in the browser. */
+export const PTT_MIN_MS = 500;
 /** ~32 kbit/s Opus for 20 s is ~80 KB; headroom for browsers that ignore the requested bitrate. */
 export const VOICE_MAX_BYTES = 2 * 1024 * 1024;
-/** A clip needs ≥ 600 ms of speech + 900 ms of trailing silence, so real clips are ≥ 1.5 s apart. */
+/** Server rate limit per user for command clips (a press is ≥ 500 ms plus the release). */
 export const VOICE_MIN_INTERVAL_MS = 1000;
+/**
+ * Meeting audio is recorded in chunks of this length (each a standalone file). Whisper on the CPU
+ * server takes ~11 s per chunk, so chunks barely keep up; the server drops older waiting ones.
+ */
+export const CONTEXT_CHUNK_MS = 15_000;
+/** Server rate limit per user for context chunks. */
+export const CONTEXT_MIN_INTERVAL_MS = 5000;
 export const COMMAND_MAX_CHARS = 2000;
 /** How long a write tool waits for Approve / Reject. */
 export const CONFIRM_TIMEOUT_MS = 120_000;
 export const COMMAND_ID = /^[A-Za-z0-9_-]{8,64}$/;
 
-export const CLAUDE_COMMANDS_PREF = "zw-meet-claude-commands";
+/**
+ * "1" = "Claude listens to the meeting" is on (off by default). A new key on purpose: the old
+ * "zw-meet-claude-commands" meant "my own microphone only" and must not turn on meeting capture.
+ */
+export const CLAUDE_LISTEN_PREF = "zw-meet-claude-listen";
+/**
+ * "Claude is listening" notice over the LiveKit data channel (reliable), repeated every few seconds
+ * so late joiners see it. Meeting audio is only captured after the "on" signal went out.
+ */
+export const CLAUDE_LISTEN_TOPIC = "zw-claude-listen";
+export type ClaudeListenSignal = { type: "listen"; on: boolean };
 
 /** Max length of the spoken summary of a result. */
 export const SPOKEN_MAX = 300;
