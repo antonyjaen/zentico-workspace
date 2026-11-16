@@ -3,6 +3,15 @@ import { fetchUserInfo, refreshTokens, type TokenSet, type UserInfo } from "./oi
 
 export const TX_COOKIE = "zw_tx";
 
+/**
+ * Short-lived result of the one-off MCP setup authorization (oidc.ts MCP_SETUP_SCOPES): an access
+ * token able to create the user's Stalwart API key for an MCP token. Consumed and revoked by
+ * Settings → Integrations.
+ */
+export const MCP_SETUP_COOKIE = "zw_mcp_setup";
+export const MCP_SETUP_MAX_AGE = 10 * 60;
+export type McpSetup = { sub: string; accessToken: string; expiresAt: number };
+
 // Multi-account layout: each signed-in account's sealed Session lives in its own cookie
 // (`zw_s0`…`zw_s4`), and `zw_active` holds the slots in most-recently-used order ("2.0.1"); its
 // first entry is the active account. `zw_session` is the pre-multi-account cookie, migrated to a

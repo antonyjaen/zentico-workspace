@@ -50,6 +50,9 @@ const MIGRATIONS = [
   );
   CREATE INDEX audit_user ON audit(user_sub, id);
   `,
+  // Dedicated Stalwart API key (lib/mcp/credential.ts) sealed with seal(); '' for rows still on a
+  // refresh token (until reconnected) and once revoked.
+  `ALTER TABLE tokens ADD COLUMN credential_sealed TEXT NOT NULL DEFAULT '';`,
 ];
 
 function open(): Database {
@@ -89,6 +92,7 @@ export type TokenRow = {
   scope: Scope;
   tokenPrefix: string;
   refreshSealed: string;
+  credentialSealed: string;
   created: number;
   expires: number | null;
   lastUsed: number | null;
@@ -108,6 +112,7 @@ function toToken(r: Row): TokenRow {
     scope: r.scope === "write" ? "write" : "read",
     tokenPrefix: String(r.token_prefix),
     refreshSealed: String(r.refresh_sealed ?? ""),
+    credentialSealed: String(r.credential_sealed ?? ""),
     created: Number(r.created),
     expires: num(r.expires),
     lastUsed: num(r.last_used),
@@ -125,15 +130,15 @@ export function insertToken(t: {
   scope: Scope;
   tokenHash: string;
   tokenPrefix: string;
-  refreshSealed: string;
+  credentialSealed: string;
   expires: number | null;
 }): void {
   db()
     .prepare(
-      `INSERT INTO tokens (id, user_sub, user_email, user_name, name, scope, token_hash, token_prefix, refresh_sealed, created, expires)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tokens (id, user_sub, user_email, user_name, name, scope, token_hash, token_prefix, refresh_sealed, credential_sealed, created, expires)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)`,
     )
-    .run(t.id, t.userSub, t.userEmail, t.userName, t.name, t.scope, t.tokenHash, t.tokenPrefix, t.refreshSealed, Date.now(), t.expires);
+    .run(t.id, t.userSub, t.userEmail, t.userName, t.name, t.scope, t.tokenHash, t.tokenPrefix, t.credentialSealed, Date.now(), t.expires);
 }
 
 export function tokenByHash(hash: string): TokenRow | null {
@@ -153,16 +158,23 @@ export function countUserTokens(userSub: string): number {
   return Number(db().prepare("SELECT COUNT(*) AS n FROM tokens WHERE user_sub = ? AND revoked IS NULL").get(userSub)?.n ?? 0);
 }
 
-/** Revokes one of the user's tokens and drops its stored refresh token. True if it was active. */
+/** Revokes one of the user's tokens and drops its stored credentials. True if it was active. */
 export function revokeToken(id: string, userSub: string): boolean {
   const r = db()
-    .prepare("UPDATE tokens SET revoked = ?, refresh_sealed = '' WHERE id = ? AND user_sub = ? AND revoked IS NULL")
+    .prepare("UPDATE tokens SET revoked = ?, refresh_sealed = '', credential_sealed = '' WHERE id = ? AND user_sub = ? AND revoked IS NULL")
     .run(Date.now(), id, userSub);
   return Number(r.changes) > 0;
 }
 
 export function updateRefresh(id: string, refreshSealed: string): void {
   db().prepare("UPDATE tokens SET refresh_sealed = ?, needs_reauth = 0 WHERE id = ? AND revoked IS NULL").run(refreshSealed, id);
+}
+
+/** Binds the token to a (new) Stalwart API key; the legacy refresh token, if any, is dropped. */
+export function updateCredential(id: string, credentialSealed: string): void {
+  db()
+    .prepare("UPDATE tokens SET credential_sealed = ?, refresh_sealed = '', needs_reauth = 0 WHERE id = ? AND revoked IS NULL")
+    .run(credentialSealed, id);
 }
 
 export function markNeedsReauth(id: string): void {

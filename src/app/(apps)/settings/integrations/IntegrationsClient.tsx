@@ -2,7 +2,7 @@
 
 import { Check, Copy, KeyRound } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { createTokenAction, reauthorizeTokenAction, revokeTokenAction } from "./actions";
 import { copyFor } from "./copy";
 
@@ -15,6 +15,8 @@ export type TokenView = {
   lastUsed: number | null;
   expires: number | null;
   needsReauth: boolean;
+  /** Still on the web session's refresh token (pre API key): reconnecting moves it to its own key. */
+  legacy: boolean;
 };
 
 export type AuditView = { id: number; tokenName: string; tool: string; at: number; ok: boolean; error: string | null };
@@ -87,6 +89,33 @@ const secondaryBtn =
   "inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line-strong px-3 text-[14px] text-ink transition-colors hover:bg-hover disabled:cursor-not-allowed disabled:opacity-60";
 const labelCls = "mb-1.5 block text-[13px] font-medium text-ink-soft";
 const EXPIRY_OPTIONS = [0, 7, 30, 90, 365];
+
+// Creating a token's Stalwart API key may need a one-off authorization on the mail server; the
+// pending request survives that round trip here and is retried on return (?mcp=ok).
+const PENDING_KEY = "zw-mcp-pending";
+type Pending = { op: "create"; name: string; scope: "read" | "write"; expiresInDays: number | null } | { op: "reconnect"; id: string };
+
+function authorizeAndRetry(pending: Pending) {
+  try {
+    sessionStorage.setItem(PENDING_KEY, JSON.stringify(pending));
+  } catch {
+    // Storage blocked: the user repeats the action after authorizing.
+  }
+  window.location.assign("/api/auth/login?mcp=1");
+}
+
+function takePending(): Pending | null {
+  try {
+    const raw = sessionStorage.getItem(PENDING_KEY);
+    sessionStorage.removeItem(PENDING_KEY);
+    const p = raw ? (JSON.parse(raw) as Pending) : null;
+    if (p?.op === "create" && typeof p.name === "string") return p;
+    if (p?.op === "reconnect" && typeof p.id === "string") return p;
+  } catch {
+    // Ignore malformed state.
+  }
+  return null;
+}
 
 function CopyButton({ text, label, done }: { text: string; label: string; done: string }) {
   const [copied, setCopied] = useState(false);
@@ -177,26 +206,45 @@ export function IntegrationsClient({
   const bridgeCmd = `node zentico-bridge.mjs --url ${appUrl} --token ${token} --cwd .`;
   const hasWrite = tokens.some((t) => t.scope === "write" && !t.needsReauth && (t.expires == null || t.expires > now));
 
-  const create = (e: React.FormEvent) => {
-    e.preventDefault();
+  const run = (p: Pending) => {
     setError(null);
     startTransition(async () => {
-      const r = await createTokenAction({ name, scope, expiresInDays: expiry || null });
-      if (!r.ok) return setError(c.errors[r.error]);
-      setCreated(r.token);
-      setName("");
+      if (p.op === "create") {
+        const r = await createTokenAction({ name: p.name, scope: p.scope, expiresInDays: p.expiresInDays });
+        if (!r.ok) return r.error === "authorize" ? authorizeAndRetry(p) : setError(c.errors[r.error]);
+        setCreated(r.token);
+        setName("");
+      } else {
+        const r = await reauthorizeTokenAction(p.id);
+        if (!r.ok && r.error === "authorize") return authorizeAndRetry(p);
+        if (!r.ok) setError(c.errors[r.error ?? "failed"]);
+      }
       router.refresh();
     });
   };
 
-  const reconnect = (t: TokenView) => {
-    setError(null);
-    startTransition(async () => {
-      const r = await reauthorizeTokenAction(t.id);
-      if (!r.ok) setError(c.errors[r.error ?? "failed"]);
-      router.refresh();
-    });
+  const create = (e: React.FormEvent) => {
+    e.preventDefault();
+    run({ op: "create", name, scope, expiresInDays: expiry || null });
   };
+
+  const reconnect = (t: TokenView) => run({ op: "reconnect", id: t.id });
+
+  // Back from the mail server's authorization: retry the pending request (or report why not).
+  const resumed = useRef(false);
+  useEffect(() => {
+    if (resumed.current) return;
+    resumed.current = true;
+    const params = new URLSearchParams(window.location.search);
+    const outcome = params.get("mcp");
+    const failure = params.get("mcp_error");
+    if (outcome == null && failure == null) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    const pending = takePending();
+    if (failure != null) return setError(failure === "invalid_scope" ? c.errors.not_allowed : c.errors.authorize_failed);
+    if (outcome === "ok" && pending) run(pending);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
+  }, []);
 
   const revoke = (t: TokenView) => {
     if (!window.confirm(c.revokeConfirm(t.name))) return;
@@ -298,9 +346,13 @@ export function IntegrationsClient({
                         c.neverExpires
                       )}
                     </p>
-                    {t.needsReauth && <p className="mt-1 text-[12.5px] text-amber">{c.reauth}</p>}
+                    {t.needsReauth ? (
+                      <p className="mt-1 text-[12.5px] text-amber">{c.reauth}</p>
+                    ) : (
+                      t.legacy && <p className="mt-1 text-[12.5px] text-ink-mute">{c.legacy}</p>
+                    )}
                   </div>
-                  {t.needsReauth && (
+                  {(t.needsReauth || t.legacy) && (
                     <button type="button" className={`${secondaryBtn} h-8 text-[13px]`} onClick={() => reconnect(t)} disabled={pending}>
                       {c.reconnect}
                     </button>

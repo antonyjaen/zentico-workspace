@@ -25,6 +25,7 @@ export default async function IntegrationsPage() {
     lastUsed: t.lastUsed,
     expires: t.expires,
     needsReauth: t.needsReauth,
+    legacy: !t.credentialSealed,
   }));
   const audit: AuditView[] = recentAudit(session.sub, 20).map((a) => ({
     id: a.id,

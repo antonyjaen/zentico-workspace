@@ -32,6 +32,7 @@ const en = {
   revoke: "Revoke",
   revokeConfirm: (name: string) => `Revoke "${name}"? Clients using it will stop working.`,
   reauth: "Its authorization expired. Reconnect it — the token itself stays the same.",
+  legacy: "Uses an older sign-in link that can expire. Reconnect it to give it its own key — the token itself stays the same.",
   reconnect: "Reconnect",
   expired: "Expired",
   connectTitle: "Connect Claude",
@@ -51,8 +52,12 @@ const en = {
   errors: {
     invalid_name: "Give the token a name.",
     invalid_expiry: "Choose a valid expiry.",
-    no_refresh: "Your sign-in can't be used offline. Sign out, sign in again and retry.",
     too_many: "You have too many tokens. Revoke one first.",
+    authorize: "The mail server needs your authorization first. Try again.",
+    authorize_failed: "The mail server authorization didn't complete. Try again.",
+    not_allowed:
+      "The mail server doesn't allow creating access keys for this app. Ask your administrator to allow the Security scope for the workspace's OAuth client.",
+    key_quota: "Your mail account has reached its limit of API keys. Revoke a token (or delete an unused API key in your mail account settings) first.",
     failed: "Something went wrong. Try again.",
   },
   neverExpires: "Never expires",
@@ -193,6 +198,7 @@ const es: Copy = {
   revoke: "Revocar",
   revokeConfirm: (name: string) => `¿Revocar «${name}»? Los clientes que lo usen dejarán de funcionar.`,
   reauth: "Su autorización caducó. Reconéctalo: el token sigue siendo el mismo.",
+  legacy: "Usa un enlace de sesión antiguo que puede caducar. Reconéctalo para darle su propia clave: el token sigue siendo el mismo.",
   reconnect: "Reconectar",
   expired: "Caducado",
   connectTitle: "Conectar Claude",
@@ -212,8 +218,12 @@ const es: Copy = {
   errors: {
     invalid_name: "Ponle un nombre al token.",
     invalid_expiry: "Elige una caducidad válida.",
-    no_refresh: "Tu sesión no se puede usar sin conexión. Cierra sesión, vuelve a entrar y reintenta.",
     too_many: "Tienes demasiados tokens. Revoca alguno primero.",
+    authorize: "El servidor de correo necesita antes tu autorización. Inténtalo de nuevo.",
+    authorize_failed: "La autorización del servidor de correo no se completó. Inténtalo de nuevo.",
+    not_allowed:
+      "El servidor de correo no permite crear claves de acceso para esta aplicación. Pide a tu administrador que permita el ámbito Security en el cliente OAuth del espacio de trabajo.",
+    key_quota: "Tu cuenta de correo alcanzó su límite de claves API. Revoca un token (o borra una clave API sin uso en los ajustes de tu cuenta de correo) primero.",
     failed: "Algo salió mal. Inténtalo de nuevo.",
   },
   neverExpires: "No caduca",

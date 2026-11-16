@@ -12,11 +12,27 @@ export const SCOPES = [
   "urn:ietf:params:oauth:scope:files",
 ].join(" ");
 
+/**
+ * One-off authorization used only to create the dedicated Stalwart API key behind an MCP token:
+ * the data scopes (so the key can be granted them) plus Stalwart's "security" scope, which is what
+ * allows managing API keys. No offline_access: nothing from this grant is kept; it is revoked
+ * right after use. The OAuth client in Stalwart must allow the Security scope.
+ */
+export const MCP_SETUP_SCOPES = [
+  "openid",
+  "urn:ietf:params:oauth:scope:mail",
+  "urn:ietf:params:oauth:scope:contacts",
+  "urn:ietf:params:oauth:scope:calendars",
+  "urn:ietf:params:oauth:scope:files",
+  "urn:stalwart:oauth:scope:security",
+].join(" ");
+
 type Discovery = {
   authorization_endpoint: string;
   token_endpoint: string;
   userinfo_endpoint: string;
   end_session_endpoint?: string;
+  revocation_endpoint?: string;
 };
 
 let discovery: Promise<Discovery> | undefined;
@@ -38,27 +54,30 @@ export const redirectUri = () => `${env.appUrl}/api/auth/callback`;
 /**
  * Short-lived login transaction kept in an encrypted cookie between /login and /callback.
  * `add` = sign in an additional account instead of replacing the active one.
+ * `mcp` = the one-off authorization for creating an MCP token's Stalwart API key (it doesn't
+ * touch the account cookies).
  */
-export type AuthTransaction = { state: string; verifier: string; returnTo: string; add?: boolean };
+export type AuthTransaction = { state: string; verifier: string; returnTo: string; add?: boolean; mcp?: boolean };
 
 export async function buildAuthorizeUrl(
   returnTo: string,
-  { add = false, loginHint }: { add?: boolean; loginHint?: string } = {},
+  { add = false, loginHint, mcp = false }: { add?: boolean; loginHint?: string; mcp?: boolean } = {},
 ) {
   const { authorization_endpoint } = await getDiscovery();
-  const tx: AuthTransaction = { state: randomToken(), verifier: randomToken(48), returnTo, add };
+  const tx: AuthTransaction = { state: randomToken(), verifier: randomToken(48), returnTo, add, mcp };
   const params = new URLSearchParams({
     response_type: "code",
     client_id: env.clientId,
     redirect_uri: redirectUri(),
-    scope: SCOPES,
+    scope: mcp ? MCP_SETUP_SCOPES : SCOPES,
     state: tx.state,
     code_challenge: base64url(await sha256(tx.verifier)),
     code_challenge_method: "S256",
   });
   // Adding or re-authenticating a specific account must not silently reuse the provider's
-  // current single sign-on session (which belongs to whichever account signed in last).
-  if (add || loginHint) params.set("prompt", "login");
+  // current single sign-on session (which belongs to whichever account signed in last). The MCP
+  // authorization may reuse it: its callback checks it's the same account.
+  if (add || (loginHint && !mcp)) params.set("prompt", "login");
   if (loginHint) params.set("login_hint", loginHint);
   const url = new URL(authorization_endpoint);
   url.search = params.toString();
@@ -103,6 +122,22 @@ export const exchangeCode = (code: string, verifier: string) =>
 
 export const refreshTokens = (refreshToken: string) =>
   tokenRequest({ grant_type: "refresh_token", refresh_token: refreshToken });
+
+/** Revokes a token and, with it, its whole grant (RFC 7009). Best effort: errors are swallowed. */
+export async function revokeGrant(token: string): Promise<void> {
+  try {
+    const { revocation_endpoint } = await getDiscovery();
+    if (!revocation_endpoint) return;
+    await fetch(revocation_endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token, client_id: env.clientId, client_secret: env.clientSecret }),
+      cache: "no-store",
+    });
+  } catch {
+    // The grant just idles out.
+  }
+}
 
 export type UserInfo = { sub: string; email?: string; name?: string; preferred_username?: string };
 
