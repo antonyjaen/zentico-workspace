@@ -1,6 +1,8 @@
 "use client";
 
-// Meeting recording in the browser of the participant who starts it (no server-side egress).
+// Meeting recording in the browser of the participant who starts it. Optionally ("video") the
+// server also records the room as an MP4 with LiveKit egress; audio for the transcript is still
+// recorded here.
 // Every speaker's microphone track (local + each remote) is recorded separately with
 // MediaRecorder and uploaded in chunks; tracks that come and go mid-meeting start new segments
 // with their offset from the start of the recording. Everyone in the call learns about the
@@ -10,11 +12,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { displayName } from "./media";
 import { AUDIO_BITRATE, AUDIO_MIMES, CHUNK_INTERVAL_MS, REC_TOPIC, type RecSignal } from "./recording";
 
-export type ActiveRecording = { id: string; by: string; byName: string; since: number; mine: boolean };
+export type ActiveRecording = { id: string; by: string; byName: string; since: number; mine: boolean; video: boolean };
+export type RecordingMode = "audio" | "video";
 export type RecordingNotice =
   | { kind: "started"; name: string; mine: boolean }
   | { kind: "stopped" }
-  | { kind: "busy" | "startFailed" | "uploadFailed" | "tooLarge" | "unsupported" };
+  | { kind: "busy" | "startFailed" | "uploadFailed" | "tooLarge" | "unsupported" | "videoFailed" };
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -247,7 +250,7 @@ export function useRecording(room: Room, roomName: string, notify: (n: Recording
   const announce = useCallback(
     (to?: string[]) => {
       const a = activeRef.current;
-      if (a?.mine) void send({ type: "state", recording: true, id: a.id, elapsedMs: Date.now() - a.since }, to);
+      if (a?.mine) void send({ type: "state", recording: true, id: a.id, elapsedMs: Date.now() - a.since, video: a.video }, to);
     },
     [send],
   );
@@ -268,7 +271,7 @@ export function useRecording(room: Room, roomName: string, notify: (n: Recording
     [send],
   );
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (mode: RecordingMode = "audio") => {
     if (recorderRef.current || activeRef.current || busy) return;
     if (!recordingSupported()) return notifyRef.current({ kind: "unsupported" });
     setBusy(true);
@@ -276,18 +279,31 @@ export function useRecording(room: Room, roomName: string, notify: (n: Recording
       const res = await fetch("/api/meet/recordings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ room: roomName, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+        body: JSON.stringify({
+          room: roomName,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          ...(mode === "video" ? { video: true } : {}),
+        }),
       });
       if (res.status === 409) return notifyRef.current({ kind: "busy" });
       if (!res.ok || res.redirected) return notifyRef.current({ kind: "startFailed" });
-      const { id } = (await res.json()) as { id: string };
+      const { id, video } = (await res.json()) as { id: string; video?: boolean };
       const lp = room.localParticipant;
       recorderRef.current = new MeetingRecorder(room, id, (reason) => void finishLocal(reason));
-      const next: ActiveRecording = { id, by: lp.identity, byName: displayName(lp), since: Date.now(), mine: true };
+      const next: ActiveRecording = {
+        id,
+        by: lp.identity,
+        byName: displayName(lp),
+        since: Date.now(),
+        mine: true,
+        video: video === true,
+      };
       activeRef.current = next;
       setActive(next);
       announce();
-      notifyRef.current({ kind: "started", name: next.byName, mine: true });
+      notifyRef.current(
+        mode === "video" && !next.video ? { kind: "videoFailed" } : { kind: "started", name: next.byName, mine: true },
+      );
     } catch {
       notifyRef.current({ kind: "startFailed" });
     } finally {
@@ -326,6 +342,7 @@ export function useRecording(room: Room, roomName: string, notify: (n: Recording
           byName: displayName(participant),
           since: Date.now() - elapsed,
           mine: false,
+          video: signal.video === true,
         };
         activeRef.current = next;
         setActive(next);

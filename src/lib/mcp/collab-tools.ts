@@ -86,6 +86,9 @@ const compactMeeting = (m: MeetingSummary) => ({
   startedBy: m.startedByName || m.startedBy,
   participants: m.participants?.map((p) => (p.name && p.name !== p.email ? `${p.name} <${p.email}>` : p.email)),
   transcriptFileId: m.driveFileId ?? undefined,
+  videoStatus: m.video?.status ?? undefined,
+  videoError: m.video?.error ?? undefined,
+  videoFileId: m.video?.fileId ?? undefined,
   url: m.url ? (m.url.startsWith("/") ? `${appUrl()}${m.url}` : m.url) : undefined,
 });
 

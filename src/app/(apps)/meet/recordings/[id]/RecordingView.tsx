@@ -1,12 +1,12 @@
 "use client";
 
-import { ArrowLeft, Check, Copy, Download, FolderOpen, Loader2, RotateCw, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, Clapperboard, Copy, Download, FolderOpen, Loader2, RotateCw, Search, Trash2 } from "lucide-react";
 import { useFormatter, useTranslations } from "next-intl";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { StatusPill } from "../../MeetLanding";
-import { clock, type AudioSegment, type MeetingDetail, type TranscriptSegment } from "../../recording";
+import { clock, type AudioSegment, type MeetingDetail, type MeetingVideo, type TranscriptSegment } from "../../recording";
 
 type Block = { start: number; speaker: string; text: string };
 
@@ -38,13 +38,14 @@ export function RecordingView({ detail, transcriptionConfigured }: { detail: Mee
   const [error, setError] = useState<string | null>(null);
   const audioRefs = useRef(new Map<number, HTMLAudioElement>());
 
-  // While recording/transcribing, keep the page fresh.
+  // While recording/transcribing (or the video is being finished), keep the page fresh.
   const pending = meeting.status === "recording" || meeting.status === "processing";
+  const videoPending = meeting.video?.status === "recording" || meeting.video?.status === "processing";
   useEffect(() => {
-    if (!pending) return;
-    const id = setInterval(() => router.refresh(), 5000);
+    if (!pending && !videoPending) return;
+    const id = setInterval(() => router.refresh(), pending ? 5000 : 15000);
     return () => clearInterval(id);
-  }, [pending, router]);
+  }, [pending, videoPending, router]);
 
   const all = useMemo(() => blocks(segments), [segments]);
   const speakers = useMemo(() => [...new Set(segments.map((s) => s.speaker))].sort(), [segments]);
@@ -102,8 +103,11 @@ export function RecordingView({ detail, transcriptionConfigured }: { detail: Mee
     }
   };
 
+  const videoRetry =
+    meeting.video?.status === "failed" &&
+    (meeting.video.error === "drive_failed" || meeting.video.error === "drive_session_expired");
   const canRetry =
-    meeting.status === "failed" || (meeting.status === "ready" && !meeting.driveFileId && !!meeting.error);
+    meeting.status === "failed" || (meeting.status === "ready" && !meeting.driveFileId && !!meeting.error) || videoRetry;
   const driveHref = meeting.driveFolderId ? `/drive?folder=${encodeURIComponent(meeting.driveFolderId)}` : "/drive";
 
   const statusText = (() => {
@@ -165,7 +169,7 @@ export function RecordingView({ detail, transcriptionConfigured }: { detail: Mee
               {t("recRetry")}
             </button>
           )}
-          {isStarter && !pending && (
+          {isStarter && !pending && !videoPending && (
             <button type="button" className={`${BTN} hover:!text-danger`} onClick={() => void act("delete")} disabled={!!busy}>
               <Trash2 size={14} aria-hidden />
               {t("recDelete")}
@@ -180,6 +184,10 @@ export function RecordingView({ detail, transcriptionConfigured }: { detail: Mee
           {pending && <Loader2 size={14} aria-hidden className="shrink-0 animate-spin" />}
           {statusText}
         </p>
+      )}
+
+      {meeting.video && (
+        <VideoSection video={meeting.video} isStarter={isStarter} starterName={meeting.startedByName} />
       )}
 
       {bySpeaker.length > 0 && (
@@ -276,5 +284,65 @@ export function RecordingView({ detail, transcriptionConfigured }: { detail: Mee
         </section>
       )}
     </div>
+  );
+}
+
+function VideoSection({ video, isStarter, starterName }: { video: MeetingVideo; isStarter: boolean; starterName: string }) {
+  const t = useTranslations("meet");
+  const failure = (() => {
+    const reason = video.error ?? "";
+    if (reason === "drive_session_expired") return t("recVideoErr_drive_session_expired");
+    if (reason === "drive_failed") return t("recVideoErr_drive_failed");
+    if (reason === "drive_too_large") return t("recVideoErr_drive_too_large");
+    if (reason === "egress_start_failed") return t("recVideoErr_egress_start_failed");
+    return t("recVideoErr", { reason: reason || "unknown" });
+  })();
+  const text =
+    video.status === "recording"
+      ? t("recVideo_recording")
+      : video.status === "processing"
+        ? video.error
+          ? t("recVideo_retrying")
+          : t("recVideo_processing")
+        : video.status === "failed"
+          ? failure
+          : isStarter
+            ? null
+            : t("recVideo_ready", { name: starterName });
+  const driveHref = video.folderId ? `/drive?folder=${encodeURIComponent(video.folderId)}` : "/drive";
+  // The MP4 lives in the starter's Drive, so only they can stream it through the Drive proxy.
+  const playable = video.status === "ready" && isStarter && !!video.fileId;
+
+  return (
+    <section className="mt-8">
+      <h2 className="text-[12px] font-medium tracking-wide text-ink-mute uppercase">{t("recVideo")}</h2>
+      {text && (
+        <p
+          role="status"
+          className={`mt-3 flex items-center gap-2 rounded-lg border border-line bg-sheet-muted px-4 py-3 text-[13px] ${
+            video.status === "failed" ? "text-danger" : "text-ink-soft"
+          }`}
+        >
+          {(video.status === "recording" || video.status === "processing") && (
+            <Loader2 size={14} aria-hidden className="shrink-0 animate-spin" />
+          )}
+          {text}
+        </p>
+      )}
+      {playable && (
+        <>
+          <video
+            controls
+            preload="metadata"
+            src={`/api/drive/file/${encodeURIComponent(video.fileId!)}?inline=1`}
+            className="mt-3 aspect-video w-full rounded-lg border border-line bg-black"
+          />
+          <Link href={driveHref} className={`${BTN} mt-3`}>
+            <Clapperboard size={14} aria-hidden />
+            {t("recVideoOpenDrive")}
+          </Link>
+        </>
+      )}
+    </section>
   );
 }

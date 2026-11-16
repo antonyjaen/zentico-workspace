@@ -83,6 +83,7 @@ export type MeetingSummary = {
   error?: string | null;
   participants?: { email: string; name: string }[];
   driveFileId?: string | null;
+  video?: { status?: string; error?: string | null; fileId?: string | null } | null;
   url?: string;
 };
 export type TranscriptSegment = { start: number; end: number; speaker: string; text: string };

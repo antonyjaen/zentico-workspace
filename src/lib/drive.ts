@@ -7,6 +7,9 @@
 // (principalId → rights), people/groups come from Principal/get, and data shared with the
 // user shows up as extra (non-personal) accounts in the session. Every read/write takes an
 // optional accountId; null/undefined means the user's primary FileNode account.
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
+import { Readable } from "node:stream";
 import { cache } from "react";
 import { getSession } from "./auth";
 import { env } from "./env";
@@ -897,6 +900,48 @@ export async function uploadStream(
   }
   const out = (await res.json()) as { blobId: string; type?: string; size?: number };
   return { blobId: out.blobId, type: out.type || type, size: out.size ?? (body instanceof ArrayBuffer ? body.byteLength : total) };
+}
+
+/**
+ * Uploads a local file to the JMAP upload endpoint as a stream (never buffered in memory), with
+ * Content-Length set so the server can reject an oversized body up front. For large server-side
+ * files such as meeting videos; `max` defaults to 2 GiB.
+ */
+export async function uploadFile(
+  path: string,
+  type: string,
+  opts: { max?: number; accountId?: string | null } = {},
+): Promise<{ blobId: string; type: string; size: number }> {
+  const s = await getDriveSession();
+  if (!s) throw new DriveError("Drive not available", "unavailable");
+  const acc = await account(opts.accountId);
+  const { size } = await stat(path);
+  if (size > (opts.max ?? 2 * 1024 ** 3)) throw new DriveError("File too large", "too_large");
+  const file = createReadStream(path);
+  const url = s.uploadUrl.replace("{accountId}", encodeURIComponent(acc));
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${s.token}`,
+        "Content-Type": MIME.test(type) ? type : "application/octet-stream",
+        "Content-Length": String(size),
+      },
+      body: Readable.toWeb(file) as ReadableStream<Uint8Array>,
+      cache: "no-store",
+      // Required by Node's fetch for streaming request bodies.
+      duplex: "half",
+    } as RequestInit);
+  } finally {
+    file.destroy();
+  }
+  if (!res.ok) {
+    logError("upload file", `HTTP ${res.status}`);
+    throw new DriveError(`Upload failed: ${res.status}`, res.status === 413 ? "too_large" : res.status === 403 ? "forbidden" : "failed");
+  }
+  const out = (await res.json()) as { blobId: string; type?: string; size?: number };
+  return { blobId: out.blobId, type: out.type || type, size: out.size ?? size };
 }
 
 /**

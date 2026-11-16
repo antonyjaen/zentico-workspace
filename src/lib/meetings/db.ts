@@ -77,6 +77,20 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX segments_meeting ON segments(meeting_id, offset_ms);
   `,
+  // Optional video (LiveKit room-composite egress → MP4 → starter's Drive). video_status:
+  // NULL (audio only) | recording | processing (egress finishing) | uploading (MP4 on disk,
+  // waiting for Drive) | ready | failed.
+  `
+  ALTER TABLE meetings ADD COLUMN egress_id TEXT;
+  ALTER TABLE meetings ADD COLUMN video_status TEXT;
+  ALTER TABLE meetings ADD COLUMN video_error TEXT;
+  ALTER TABLE meetings ADD COLUMN video_bytes INTEGER;
+  ALTER TABLE meetings ADD COLUMN video_file_id TEXT;
+  ALTER TABLE meetings ADD COLUMN video_folder_id TEXT;
+  ALTER TABLE meetings ADD COLUMN video_attempts INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE meetings ADD COLUMN video_next_at INTEGER NOT NULL DEFAULT 0;
+  CREATE INDEX meetings_video ON meetings(video_status);
+  `,
 ];
 
 function open(): Database {

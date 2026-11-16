@@ -25,7 +25,18 @@ function leftReason(reason?: DisconnectReason): LeftReason {
   }
 }
 
-export function MeetRoom({ room: roomName, name, email }: { room: string; name: string; email: string }) {
+export function MeetRoom({
+  room: roomName,
+  name,
+  email,
+  videoRecording,
+}: {
+  room: string;
+  name: string;
+  email: string;
+  /** Whether "Video + transcript" recording (LiveKit egress) is available. */
+  videoRecording: boolean;
+}) {
   const t = useTranslations("meet");
   const [phase, setPhase] = useState<Phase>({ kind: "prejoin" });
   const [joining, setJoining] = useState(false);
@@ -89,7 +100,7 @@ export function MeetRoom({ room: roomName, name, email }: { room: string; name: 
     }
   };
 
-  if (phase.kind === "call") return <InCall room={phase.room} roomName={roomName} />;
+  if (phase.kind === "call") return <InCall room={phase.room} roomName={roomName} videoRecording={videoRecording} />;
 
   if (phase.kind === "left") {
     const message = {

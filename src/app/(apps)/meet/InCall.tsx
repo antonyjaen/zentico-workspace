@@ -11,6 +11,8 @@ import {
 } from "livekit-client";
 import {
   CircleDot,
+  Clapperboard,
+  FileText,
   LayoutGrid,
   LayoutPanelLeft,
   Link2,
@@ -32,13 +34,20 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { usePopover } from "@/components/usePopover";
 import { ClaudeConfirmations, ClaudePanel } from "./ClaudePanel";
 import { AudioView, Avatar, displayName, Tile, type TileSource } from "./media";
 import { SELECT, useDevices } from "./PreJoin";
 import { clock } from "./recording";
 import { CHAT_MAX_LENGTH, CHAT_TOPIC, meetHref, type ChatMessage } from "./shared";
 import { useClaudeCommands, type ClaudeNotice } from "./useClaudeCommands";
-import { recordingSupported, useRecording, type ActiveRecording, type RecordingNotice } from "./useRecording";
+import {
+  recordingSupported,
+  useRecording,
+  type ActiveRecording,
+  type RecordingMode,
+  type RecordingNotice,
+} from "./useRecording";
 
 const ROOM_EVENTS = [
   RoomEvent.ParticipantConnected,
@@ -84,7 +93,7 @@ function mediaErrorKey(e: unknown): "permissionDenied" | "deviceMissing" | "devi
   return "deviceBusy";
 }
 
-export function InCall({ room, roomName }: { room: Room; roomName: string }) {
+export function InCall({ room, roomName, videoRecording }: { room: Room; roomName: string; videoRecording: boolean }) {
   const t = useTranslations("meet");
   useRoomVersion(room);
   const lp = room.localParticipant;
@@ -125,6 +134,12 @@ export function InCall({ room, roomName }: { room: Room; roomName: string }) {
   const recording = useRecording(room, roomName, onRecordingNotice);
   const [canRecord, setCanRecord] = useState(false);
   useEffect(() => setCanRecord(recordingSupported()), []);
+  // With video available, starting asks "Transcript only" vs "Video + transcript".
+  const recMenu = usePopover<HTMLSpanElement>();
+  const startRecording = (mode: RecordingMode) => {
+    recMenu.setOpen(false);
+    void recording.start(mode);
+  };
 
   // "Claude commands": the local user's own voice/typed requests for their own Claude Code.
   const onClaudeNotice = useCallback(
@@ -435,27 +450,61 @@ export function InCall({ room, roomName }: { room: Room; roomName: string }) {
             </button>
           )}
           {canRecord && (
-            <button
-              type="button"
-              className={ctrl(!!recording.active?.mine)}
-              onClick={() => void (recording.active?.mine ? recording.stop() : recording.start())}
-              disabled={recording.busy || (!!recording.active && !recording.active.mine)}
-              aria-pressed={!!recording.active?.mine}
-              aria-label={recording.active?.mine ? t("recStop") : t("recStart")}
-              title={
-                recording.active && !recording.active.mine
-                  ? t("recBy", { name: recording.active.byName })
-                  : recording.active?.mine
-                    ? t("recStop")
-                    : t("recStart")
-              }
-            >
-              {recording.active?.mine ? (
-                <Square size={15} aria-hidden className="text-danger" fill="currentColor" />
-              ) : (
-                <CircleDot size={18} aria-hidden className={recording.active ? "text-danger" : ""} />
+            <span ref={recMenu.ref} className="relative flex">
+              <button
+                type="button"
+                className={ctrl(!!recording.active?.mine)}
+                onClick={() =>
+                  recording.active?.mine
+                    ? void recording.stop()
+                    : videoRecording
+                      ? recMenu.toggle()
+                      : void recording.start("audio")
+                }
+                disabled={recording.busy || (!!recording.active && !recording.active.mine)}
+                aria-pressed={!!recording.active?.mine}
+                aria-haspopup={videoRecording && !recording.active ? "menu" : undefined}
+                aria-expanded={videoRecording && !recording.active ? recMenu.open : undefined}
+                aria-label={recording.active?.mine ? t("recStop") : t("recStart")}
+                title={
+                  recording.active && !recording.active.mine
+                    ? t("recBy", { name: recording.active.byName })
+                    : recording.active?.mine
+                      ? t("recStop")
+                      : t("recStart")
+                }
+              >
+                {recording.active?.mine ? (
+                  <Square size={15} aria-hidden className="text-danger" fill="currentColor" />
+                ) : (
+                  <CircleDot size={18} aria-hidden className={recording.active ? "text-danger" : ""} />
+                )}
+              </button>
+              {recMenu.open && !recording.active && (
+                <div role="menu" className="pop absolute bottom-full left-1/2 z-20 mb-2 w-64 -translate-x-1/2 p-1">
+                  {(
+                    [
+                      ["audio", FileText, t("recModeTranscript"), t("recModeTranscriptHint")],
+                      ["video", Clapperboard, t("recModeVideo"), t("recModeVideoHint")],
+                    ] as const
+                  ).map(([mode, Icon, label, hint]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => startRecording(mode)}
+                      className="flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left text-ink-soft hover:bg-hover hover:text-ink"
+                    >
+                      <Icon size={15} aria-hidden className="mt-0.5 shrink-0" />
+                      <span className="min-w-0">
+                        <span className="block text-[13.5px] text-ink">{label}</span>
+                        <span className="block text-[12px] text-ink-mute">{hint}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
               )}
-            </button>
+            </span>
           )}
           <button
             type="button"
@@ -575,7 +624,15 @@ function RecordingBanner({ active, busy, onStop }: { active: ActiveRecording; bu
         {t("recRecording")}
         <span className="font-mono text-[12px] text-ink-soft tabular-nums">{clock((now - active.since) / 1000)}</span>
       </span>
-      <span>{active.mine ? t("recNoticeSelf") : t("recNotice", { name: active.byName })}</span>
+      <span>
+        {active.video
+          ? active.mine
+            ? t("recNoticeSelfVideo")
+            : t("recNoticeVideo", { name: active.byName })
+          : active.mine
+            ? t("recNoticeSelf")
+            : t("recNotice", { name: active.byName })}
+      </span>
       {active.mine && (
         <button
           type="button"

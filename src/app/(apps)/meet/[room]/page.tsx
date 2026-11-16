@@ -4,6 +4,7 @@ import { MeetRoom } from "../MeetRoom";
 import { NotConfigured } from "../NotConfigured";
 import { requireSession } from "@/lib/auth";
 import { isValidRoom, livekitConfig } from "@/lib/livekit";
+import { egressConfig } from "@/lib/meetings/egress";
 
 export default async function MeetRoomPage({ params }: { params: Promise<{ room: string }> }) {
   const { room } = await params;
@@ -14,7 +15,7 @@ export default async function MeetRoomPage({ params }: { params: Promise<{ room:
   return (
     <main className="sheet flex min-w-0 flex-1 flex-col overflow-hidden">
       {livekitConfig() ? (
-        <MeetRoom room={room} name={session.name || session.email} email={session.email} />
+        <MeetRoom room={room} name={session.name || session.email} email={session.email} videoRecording={!!egressConfig()} />
       ) : (
         <NotConfigured title={t("notConfigured")} hint={t("notConfiguredHint")} />
       )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, Clock, FileAudio, Keyboard, Video } from "lucide-react";
+import { ArrowRight, Clapperboard, Clock, FileAudio, Keyboard, Video } from "lucide-react";
 import { useFormatter, useTranslations } from "next-intl";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -145,7 +145,11 @@ function RecordingsList({ recordings }: { recordings: MeetingSummary[] }) {
               href={recordingHref(r.id)}
               className="flex items-center gap-3 px-3 py-2.5 text-[14px] text-ink-soft transition-colors hover:bg-hover hover:text-ink"
             >
-              <FileAudio size={15} aria-hidden className="shrink-0 text-ink-mute" />
+              {r.video ? (
+                <Clapperboard size={15} aria-label={t("recVideoTag")} className="shrink-0 text-ink-mute" />
+              ) : (
+                <FileAudio size={15} aria-hidden className="shrink-0 text-ink-mute" />
+              )}
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-ink">{r.title}</span>
                 <span className="block truncate text-[12px] text-ink-mute">
@@ -155,6 +159,11 @@ function RecordingsList({ recordings }: { recordings: MeetingSummary[] }) {
                   {r.participants.map((p) => p.name || p.email).join(", ")}
                 </span>
               </span>
+              {r.video && r.video.status !== "ready" && (
+                <span className={`shrink-0 text-[12px] ${r.video.status === "failed" ? "text-danger" : "text-ink-mute"}`}>
+                  {t(`recVideoStatus_${r.video.status}`)}
+                </span>
+              )}
               <StatusPill status={r.status} error={r.error} />
             </Link>
           </li>

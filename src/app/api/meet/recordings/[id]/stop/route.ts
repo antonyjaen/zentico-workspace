@@ -1,8 +1,8 @@
-// Stops a recording (starter only) and queues transcription. Also called with
+// Stops a recording (starter only), its video egress if any, and queues transcription. Also called with
 // navigator.sendBeacon when the recorder's tab goes away, so any content type is accepted.
 import { NextResponse, type NextRequest } from "next/server";
 import { getSession } from "@/lib/auth";
-import { enqueue } from "@/lib/meetings/jobs";
+import { enqueue, stopVideo } from "@/lib/meetings/jobs";
 import { errorResponse, jsonError, NO_STORE, sameOrigin } from "@/lib/meetings/http";
 import { stopRecording } from "@/lib/meetings/store";
 import { MEETING_ID } from "@/app/(apps)/meet/recording";
@@ -18,7 +18,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!MEETING_ID.test(id)) return jsonError("not_found", 404);
   try {
     const { stopped } = await stopRecording(id, session);
-    if (stopped) enqueue(id);
+    if (stopped) {
+      enqueue(id);
+      await stopVideo(id);
+    }
     return NextResponse.json({ ok: true, stopped }, { headers: NO_STORE });
   } catch (e) {
     return errorResponse(e, "stop");

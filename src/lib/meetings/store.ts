@@ -22,8 +22,11 @@ import {
   type MeetingPerson,
   type MeetingStatus,
   type MeetingSummary,
+  type MeetingVideo,
   type TranscriptSegment,
+  type VideoStatus,
 } from "@/app/(apps)/meet/recording";
+import { videoPath } from "./egress";
 
 export type { MeetingDetail, MeetingStatus, MeetingSummary, TranscriptSegment };
 
@@ -53,6 +56,22 @@ function parsePeople(v: unknown): MeetingPerson[] {
   }
 }
 
+/** Video states still owned by the background poller. */
+const VIDEO_PENDING = "('recording', 'processing', 'uploading')";
+
+function toVideo(r: Row): MeetingVideo | null {
+  const raw = strOrNull(r.video_status);
+  if (!raw) return null;
+  const status: VideoStatus = raw === "uploading" ? "processing" : (raw as VideoStatus);
+  return {
+    status,
+    error: strOrNull(r.video_error),
+    fileId: strOrNull(r.video_file_id),
+    folderId: strOrNull(r.video_folder_id),
+    bytes: numOrNull(r.video_bytes),
+  };
+}
+
 function toSummary(r: Row): MeetingSummary {
   const startedAt = num(r.started_at);
   const endedAt = numOrNull(r.ended_at);
@@ -71,6 +90,7 @@ function toSummary(r: Row): MeetingSummary {
     participants: parsePeople(r.participants),
     driveFileId: strOrNull(r.drive_file_id),
     driveFolderId: strOrNull(r.drive_folder_id),
+    video: toVideo(r),
     url: recordingHref(id),
   };
 }
@@ -330,13 +350,31 @@ export async function retryMeeting(id: string, userEmail: string, session: Sessi
   if (!m) throw new RecordingError("not_found");
   // Failed transcriptions, and finished ones whose Drive copy couldn't be saved.
   const driveMissing = str(m.status) === "ready" && !strOrNull(m.drive_file_id) && !!strOrNull(m.error);
-  if (str(m.status) !== "failed" && !driveMissing) throw new RecordingError("invalid");
+  const transcriptRetry = str(m.status) === "failed" || driveMissing;
+  // A video whose Drive upload gave up (the MP4 is still on disk).
+  const videoRetry =
+    str(m.video_status) === "failed" &&
+    ["drive_failed", "drive_session_expired"].includes(str(m.video_error)) &&
+    (await exists(videoPath(id)));
+  if (!transcriptRetry && !videoRetry) throw new RecordingError("invalid");
   // A fresh session from the starter helps when their stored one expired.
   if (session && norm(session.email) === norm(str(m.started_by))) {
     run("UPDATE meetings SET starter_session = ?, session_at = ? WHERE id = ?", await sealSession(session), Date.now(), id);
   }
-  run("UPDATE meetings SET status = 'processing', error = NULL WHERE id = ?", id);
+  if (transcriptRetry) run("UPDATE meetings SET status = 'processing', error = NULL WHERE id = ?", id);
+  if (videoRetry) {
+    run(
+      "UPDATE meetings SET video_status = 'uploading', video_error = NULL, video_attempts = 0, video_next_at = 0 WHERE id = ?",
+      id,
+    );
+  }
 }
+
+const exists = (path: string) =>
+  stat(path).then(
+    () => true,
+    () => false,
+  );
 
 /** Deletes a recording and its audio (starter only). Copies already saved to Drive stay. */
 export async function deleteMeeting(id: string, userEmail: string): Promise<void> {
@@ -344,8 +382,10 @@ export async function deleteMeeting(id: string, userEmail: string): Promise<void
   if (!m) throw new RecordingError("not_found");
   if (norm(str(m.started_by)) !== norm(userEmail)) throw new RecordingError("forbidden");
   if (str(m.status) === "processing") throw new RecordingError("invalid");
+  if (["recording", "processing", "uploading"].includes(str(m.video_status))) throw new RecordingError("invalid");
   run("DELETE FROM meetings WHERE id = ?", id);
   await rm(join(meetingsDir(), id), { recursive: true, force: true });
+  await rm(videoPath(id), { force: true });
 }
 
 /* ------------------------------------------------------------- job helpers */
@@ -391,7 +431,8 @@ export function saveTranscript(id: string, segments: TranscriptSegment[], markdo
 export function markReady(id: string, drive: { fileId: string; folderId: string | null } | null, error: string | null) {
   run(
     `UPDATE meetings SET status = 'ready', error = ?, drive_file_id = coalesce(?, drive_file_id),
-       drive_folder_id = coalesce(?, drive_folder_id), starter_session = CASE WHEN ? IS NULL THEN starter_session ELSE NULL END
+       drive_folder_id = coalesce(?, drive_folder_id),
+       starter_session = CASE WHEN ? IS NULL OR video_status IN ${VIDEO_PENDING} THEN starter_session ELSE NULL END
      WHERE id = ?`,
     error,
     drive?.fileId ?? null,
@@ -417,3 +458,80 @@ export function finalizeStale(): string[] {
 }
 
 export const processingIds = () => all("SELECT id FROM meetings WHERE status = 'processing' ORDER BY started_at").map((r) => str(r.id));
+
+/* --------------------------------------------------------------- video */
+
+/** The egress of a recording's video, if any (for stopping it). */
+export function videoEgress(id: string): { egressId: string; videoStatus: string } | null {
+  const r = get("SELECT egress_id, video_status FROM meetings WHERE id = ?", id);
+  const egressId = strOrNull(r?.egress_id);
+  return egressId ? { egressId, videoStatus: str(r?.video_status) } : null;
+}
+
+export function setVideoStarted(id: string, egressId: string) {
+  run("UPDATE meetings SET egress_id = ?, video_status = 'recording', video_error = NULL WHERE id = ?", egressId, id);
+}
+
+/** recording → processing (egress asked to stop / ended); other states are left alone. */
+export function setVideoEnding(id: string) {
+  run("UPDATE meetings SET video_status = 'processing' WHERE id = ? AND video_status = 'recording'", id);
+}
+
+export function setVideoUploading(id: string, bytes: number) {
+  run(
+    "UPDATE meetings SET video_status = 'uploading', video_bytes = ?, video_error = NULL, video_attempts = 0, video_next_at = 0 WHERE id = ?",
+    bytes,
+    id,
+  );
+}
+
+export function setVideoFailed(id: string, error: string) {
+  run("UPDATE meetings SET video_status = 'failed', video_error = ? WHERE id = ?", error.slice(0, 200), id);
+}
+
+/** A failed Drive upload attempt: keeps the video queued, retried at `nextAt`. */
+export function setVideoRetry(id: string, error: string, attempts: number, nextAt: number) {
+  run(
+    "UPDATE meetings SET video_error = ?, video_attempts = ?, video_next_at = ? WHERE id = ?",
+    error.slice(0, 200),
+    attempts,
+    nextAt,
+    id,
+  );
+}
+
+/** The MP4 is in Drive. Drops the starter's session once the transcript no longer needs it. */
+export function setVideoReady(id: string, drive: { fileId: string; folderId: string }) {
+  run(
+    `UPDATE meetings SET video_status = 'ready', video_error = NULL, video_file_id = ?, video_folder_id = ?,
+       starter_session = CASE WHEN status = 'ready' AND drive_file_id IS NOT NULL THEN NULL ELSE starter_session END
+     WHERE id = ?`,
+    drive.fileId,
+    drive.folderId,
+    id,
+  );
+}
+
+export type PendingVideo = {
+  id: string;
+  meetingStatus: string;
+  videoStatus: "recording" | "processing" | "uploading";
+  egressId: string | null;
+  attempts: number;
+  nextAt: number;
+};
+
+/** Videos the poller still has to follow (egress running/finishing, or waiting for Drive). */
+export function pendingVideos(): PendingVideo[] {
+  return all(
+    `SELECT id, status, video_status, egress_id, video_attempts, video_next_at FROM meetings
+     WHERE video_status IN ${VIDEO_PENDING} ORDER BY started_at`,
+  ).map((r) => ({
+    id: str(r.id),
+    meetingStatus: str(r.status),
+    videoStatus: str(r.video_status) as PendingVideo["videoStatus"],
+    egressId: strOrNull(r.egress_id),
+    attempts: num(r.video_attempts),
+    nextAt: num(r.video_next_at),
+  }));
+}
