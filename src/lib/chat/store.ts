@@ -334,7 +334,26 @@ export function postMessage(
     threadRoot: input.threadRoot ?? null,
   });
   if (!input.fromAgent) dispatchToBots(message);
+  if (input.body.includes("https://")) unfurlLinks(message);
   return message;
+}
+
+/** Link previews from the author's connected apps (lib/connect/unfurl), after posting. */
+function unfurlLinks(message: ChatMessage) {
+  void import("../connect/unfurl")
+    .then((m) => m.unfurlMessage(message))
+    .catch((e) => console.error("[chat] unfurl failed:", e instanceof Error ? e.message : e));
+}
+
+/** Attaches link-preview cards to a person's message (once: only while it has no cards). */
+export function attachUnfurls(messageId: number, cards: BotCard[]): void {
+  const row = get("SELECT * FROM messages WHERE id = ?", messageId);
+  if (!row || num(row.deleted) || (strv(row.kind) !== "text" && strv(row.kind) !== "file")) return;
+  const meta = parseMeta(row.meta) ?? {};
+  if (meta.cards?.length) return;
+  run("UPDATE messages SET meta = ? WHERE id = ?", JSON.stringify({ ...meta, cards }), messageId);
+  const c = get("SELECT * FROM conversations WHERE id = ?", strv(row.conversation_id));
+  if (c) publishUpdate(convRow(c), messageId);
 }
 
 // ---------- Apps & bots ----------

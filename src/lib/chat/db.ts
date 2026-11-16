@@ -172,6 +172,40 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (bot_id, key)
   );
   `,
+  // Built-in apps (e.g. the GitHub app of Connected apps): one workspace-wide identity per app,
+  // named in the "builtin" column. SQLite can't change a CHECK in place, so the table is rebuilt (foreign
+  // keys are off while migrating, see open()).
+  `
+  CREATE TABLE bots_new (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id),
+    kind TEXT NOT NULL CHECK (kind IN ('http', 'webhook', 'claude', 'builtin')),
+    owner_id INTEGER NOT NULL REFERENCES users(id),
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    color INTEGER,
+    avatar TEXT,
+    endpoint_url TEXT,
+    signing_secret TEXT,
+    token_hash TEXT UNIQUE,
+    token_prefix TEXT,
+    shared INTEGER NOT NULL DEFAULT 0,
+    conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE,
+    key_hash TEXT UNIQUE,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    created INTEGER NOT NULL,
+    updated INTEGER NOT NULL,
+    builtin TEXT UNIQUE
+  );
+  INSERT INTO bots_new (id, user_id, kind, owner_id, name, description, color, avatar, endpoint_url, signing_secret, token_hash,
+    token_prefix, shared, conversation_id, key_hash, deleted, created, updated)
+  SELECT id, user_id, kind, owner_id, name, description, color, avatar, endpoint_url, signing_secret, token_hash,
+    token_prefix, shared, conversation_id, key_hash, deleted, created, updated FROM bots;
+  DROP TABLE bots;
+  ALTER TABLE bots_new RENAME TO bots;
+  CREATE INDEX bots_owner ON bots(owner_id, kind);
+  CREATE INDEX bots_conv ON bots(conversation_id);
+  `,
 ];
 
 function open(): Database {
@@ -180,6 +214,9 @@ function open(): Database {
   const db = new DatabaseSync(path, { enableForeignKeyConstraints: true, timeout: 5000 });
   db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;");
   const version = Number(db.prepare("PRAGMA user_version").get()?.user_version ?? 0);
+  // Table rebuilds (DROP + RENAME) must not cascade: foreign keys are off while migrating and
+  // checked afterwards (https://www.sqlite.org/lang_altertable.html#otheralter).
+  if (version < MIGRATIONS.length) db.exec("PRAGMA foreign_keys = OFF;");
   for (let v = version; v < MIGRATIONS.length; v++) {
     db.exec("BEGIN");
     try {
@@ -188,8 +225,13 @@ function open(): Database {
       db.exec("COMMIT");
     } catch (e) {
       db.exec("ROLLBACK");
+      db.exec("PRAGMA foreign_keys = ON;");
       throw e;
     }
+  }
+  if (version < MIGRATIONS.length) {
+    db.exec("PRAGMA foreign_keys = ON;");
+    if (db.prepare("PRAGMA foreign_key_check").all().length) console.error("[chat] foreign key check failed after migrating");
   }
   return db;
 }

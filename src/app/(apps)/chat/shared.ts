@@ -7,9 +7,11 @@ export type MessageKind = "text" | "meeting" | "system" | "file";
 /**
  * Apps and bots are chat users too (a `users` row with a synthetic address on BOT_EMAIL_DOMAIN):
  * "http" = an HTTP app with an endpoint (Settings → Apps & bots), "webhook" = an incoming webhook
- * of one conversation, "claude" = a person's own Claude (runs on their bridge, only obeys them).
+ * of one conversation, "claude" = a person's own Claude (runs on their bridge, only obeys them),
+ * "builtin" = an app that ships with Zentico (e.g. GitHub, acting with each person's own connection).
  */
-export type BotKind = "http" | "webhook" | "claude";
+export type BotKind = "http" | "webhook" | "claude" | "builtin";
+export type BuiltinApp = "github";
 export type BotCommand = { name: string; description: string };
 export type BotInfo = {
   id: string;
@@ -21,8 +23,10 @@ export type BotInfo = {
   avatar: string | null;
   ownerId: number;
   ownerName: string;
-  /** HTTP apps: slash commands. */
+  /** HTTP and built-in apps: slash commands. */
   commands?: BotCommand[];
+  /** Built-in apps: which one. */
+  app?: BuiltinApp;
   /** Deleted apps keep their identity on old messages. */
   deleted?: boolean;
 };
@@ -48,7 +52,15 @@ export type NoticeMeta =
   | { code: "claudeWorking" }
   | { code: "claudeQueued" }
   | { code: "claudeNoToken" }
-  | { code: "claudeFailed"; error: string };
+  | { code: "claudeFailed"; error: string }
+  /** Built-in apps (Connected apps). `provider` is a provider name such as "GitHub". */
+  | { code: "connectRequired"; provider: string }
+  | { code: "githubUsage" }
+  | { code: "githubSubscribed"; repo: string }
+  | { code: "githubUnsubscribed"; repo: string }
+  | { code: "githubNotSubscribed"; repo: string }
+  | { code: "githubSubscriptions"; repos: string[] }
+  | { code: "appError"; error: string };
 
 export type FileMeta = { id: string; name: string; mime: string; size: number };
 

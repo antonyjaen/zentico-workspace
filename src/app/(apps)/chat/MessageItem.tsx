@@ -249,6 +249,27 @@ function Notice({ notice }: { notice: NoticeMeta }) {
     case "claudeFailed":
       text = t("notice.claudeFailed", { error: notice.error || "—" });
       break;
+    case "connectRequired":
+      text = t("notice.connectRequired", { provider: notice.provider });
+      break;
+    case "githubUsage":
+      text = t("notice.githubUsage");
+      break;
+    case "githubSubscribed":
+      text = t("notice.githubSubscribed", { repo: notice.repo });
+      break;
+    case "githubUnsubscribed":
+      text = t("notice.githubUnsubscribed", { repo: notice.repo });
+      break;
+    case "githubNotSubscribed":
+      text = t("notice.githubNotSubscribed", { repo: notice.repo });
+      break;
+    case "githubSubscriptions":
+      text = notice.repos.length ? t("notice.githubSubscriptions", { repos: notice.repos.join(", ") }) : t("notice.githubNoSubscriptions");
+      break;
+    case "appError":
+      text = t("notice.appError", { error: notice.error || "—" });
+      break;
   }
   return <p className="text-[13.5px] leading-relaxed whitespace-pre-wrap text-ink-soft">{text}</p>;
 }

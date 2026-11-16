@@ -8,6 +8,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { meetHref } from "../meet/shared";
 import { listPeople } from "./actions";
 import { listUsableApps } from "./app-actions";
+import { ProviderIcon } from "./ProviderIcon";
 import { avatarGradient, initials, isBotEmail, type BotInfo, type ChatUser, type ConversationSummary, type Person } from "./shared";
 
 export const FIELD =
@@ -53,6 +54,8 @@ export function Avatar({
         <span style={{ fontSize: Math.round(size * 0.56), lineHeight: 1 }}>{bot.avatar}</span>
       ) : bot?.kind === "claude" ? (
         <Sparkles size={Math.round(size * 0.52)} />
+      ) : bot?.kind === "builtin" && bot.app ? (
+        <ProviderIcon id={bot.app} size={Math.round(size * 0.56)} />
       ) : (
         initials(name || email)
       )}

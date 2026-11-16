@@ -6,7 +6,8 @@
 // Nothing secret is ever logged.
 import { createHash, randomBytes } from "node:crypto";
 import type { Row } from "node:sqlite";
-import { BOT_EMAIL_DOMAIN, type BotCommand, type BotInfo, type BotKind } from "@/app/(apps)/chat/shared";
+import { BOT_EMAIL_DOMAIN, type BotCommand, type BotInfo, type BotKind, type BuiltinApp } from "@/app/(apps)/chat/shared";
+import { isConfigured } from "../connect/providers";
 import { base64url, seal } from "../crypto";
 import { all, get, run, tx } from "./db";
 
@@ -27,6 +28,18 @@ const ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 const newBotId = () => Array.from(randomBytes(16), (b) => ALPHABET[b % ALPHABET.length]).join("");
 
 // ---------- Identity cache ----------
+
+/** Apps that ship with Zentico: one workspace-wide identity each, available when their provider is configured. */
+const BUILTINS: Record<BuiltinApp, { name: string; handle: string; color: number; commands: BotCommand[]; available: () => boolean }> = {
+  github: {
+    name: "GitHub",
+    handle: "github",
+    color: 230,
+    commands: [{ name: "github", description: "issue <owner/repo> <title> · subscribe <owner/repo> · unsubscribe <owner/repo> · list" }],
+    available: () => isConfigured("github"),
+  },
+};
+const isBuiltinApp = (v: string): v is BuiltinApp => Object.hasOwn(BUILTINS, v);
 
 export type BotRow = BotInfo & {
   userId: number;
@@ -65,6 +78,7 @@ function load() {
 
 function toRow(r: Row, commands: BotCommand[]): BotRow {
   const kind = strv(r.kind) as BotKind;
+  const builtin = kind === "builtin" && isBuiltinApp(strv(r.builtin)) ? (strv(r.builtin) as BuiltinApp) : undefined;
   return {
     id: strv(r.id),
     kind,
@@ -77,6 +91,7 @@ function toRow(r: Row, commands: BotCommand[]): BotRow {
     ownerId: num(r.owner_id),
     ownerName: strv(r.owner_name) || strv(r.owner_email),
     ...(kind === "http" ? { commands } : {}),
+    ...(builtin ? { app: builtin, commands: BUILTINS[builtin].commands } : {}),
     ...(num(r.deleted) ? { deleted: true } : {}),
     endpointUrl: r.endpoint_url == null ? null : strv(r.endpoint_url),
     signingSecret: r.signing_secret == null ? null : strv(r.signing_secret),
@@ -109,6 +124,7 @@ export function publicInfo(b: BotRow): BotInfo {
     ownerId: b.ownerId,
     ownerName: b.ownerName,
     ...(b.commands ? { commands: b.commands } : {}),
+    ...(b.app ? { app: b.app } : {}),
     ...(b.deleted ? { deleted: true } : {}),
   };
 }
@@ -217,6 +233,29 @@ export function ensureClaudeBot(owner: { id: number; name: string; email: string
   );
   invalidateBots();
   return botById(id)!;
+}
+
+/**
+ * The workspace-wide identity of a built-in app (created on first use; `creator` is recorded as
+ * its owner but has no special rights over it).
+ */
+export function ensureBuiltinApp(app: BuiltinApp, creator: { id: number }): BotRow {
+  const existing = all("SELECT id FROM bots WHERE builtin = ? LIMIT 1", app)[0];
+  if (existing) return botById(strv(existing.id))!;
+  const def = BUILTINS[app];
+  const id = tx(() => {
+    const botId = insertIdentity({ kind: "builtin", ownerId: creator.id, name: def.name, handleBase: def.handle, description: "", color: def.color, avatar: null });
+    run("UPDATE bots SET builtin = ?, shared = 1 WHERE id = ?", app, botId);
+    return botId;
+  });
+  invalidateBots();
+  return botById(id)!;
+}
+
+/** A built-in app's identity if it exists (null before anyone used it). */
+export function builtinBot(app: BuiltinApp): BotRow | null {
+  for (const b of cache().byId.values()) if (b.kind === "builtin" && b.app === app && !b.deleted) return b;
+  return null;
 }
 
 export type HttpAppInput = {
@@ -338,6 +377,7 @@ export function myApps(ownerId: number): BotRow[] {
 /** Apps the user may add to a conversation or DM: their own and shared HTTP apps, and their Claude. */
 export function usableBots(user: { id: number; name: string; email: string }): BotRow[] {
   ensureClaudeBot(user);
+  for (const app of Object.keys(BUILTINS) as BuiltinApp[]) if (BUILTINS[app].available()) ensureBuiltinApp(app, user);
   return [...cache().byId.values()]
     .filter((b) => canUseBot(b, user.id))
     .sort((a, b) => (a.kind === "claude" ? -1 : b.kind === "claude" ? 1 : a.name.localeCompare(b.name)));
@@ -347,6 +387,7 @@ export function canUseBot(b: BotRow, userId: number): boolean {
   if (b.deleted) return false;
   if (b.kind === "claude") return b.ownerId === userId;
   if (b.kind === "http") return b.ownerId === userId || b.shared;
+  if (b.kind === "builtin") return !!b.app && BUILTINS[b.app].available();
   return false;
 }
 

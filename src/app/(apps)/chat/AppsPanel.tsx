@@ -99,7 +99,11 @@ export function AppsPanel({
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[13.5px] text-ink">{userName(u)}</span>
                     <span className="block truncate text-[12px] text-ink-mute">
-                      {u.bot?.kind === "claude" ? t("claudeOnlyYou") : u.bot?.description || `@${u.email.split("@")[0]}`}
+                      {u.bot?.kind === "claude"
+                        ? t("claudeOnlyYou")
+                        : u.bot?.kind === "builtin" && u.bot.app === "github"
+                          ? t("builtinGithub")
+                          : u.bot?.description || `@${u.email.split("@")[0]}`}
                     </span>
                   </span>
                   <button

@@ -52,9 +52,11 @@ export async function onHumanMessage(m: ChatMessage): Promise<void> {
   const slash = SLASH.exec(m.body.trim());
   if (slash) {
     const name = slash[1].toLowerCase();
-    const target = bots.find((b) => b.kind === "http" && b.commands?.some((c) => c.name === name));
+    const target = bots.find((b) => (b.kind === "http" || b.kind === "builtin") && b.commands?.some((c) => c.name === name));
     if (target) {
-      await deliver(target, conv, m.author, "slash_command", m, { name, args: (slash[2] ?? "").trim() });
+      const args = (slash[2] ?? "").trim();
+      if (target.kind === "builtin") await builtinCommand(target, conv, m, args);
+      else await deliver(target, conv, m.author, "slash_command", m, { name, args });
       return;
     }
   }
@@ -68,9 +70,20 @@ export async function onHumanMessage(m: ChatMessage): Promise<void> {
       else if (b.kind === "claude") {
         const { onClaudeAddressed } = await import("./claude-bot");
         await onClaudeAddressed(b, conv, m);
+      } else if (b.kind === "builtin" && b.app === "github") {
+        const { onGithubAddressed } = await import("../connect/github-app");
+        onGithubAddressed(b, conv, m);
       }
     }),
   );
+}
+
+/** Slash commands of the apps that ship with Zentico run in-process (lib/connect). */
+async function builtinCommand(b: BotRow, conv: ConversationBrief, m: ChatMessage, args: string) {
+  if (b.app === "github") {
+    const { onGithubCommand } = await import("../connect/github-app");
+    await onGithubCommand(b, conv, m, args);
+  }
 }
 
 /** An app was added to or removed from a conversation (HTTP apps only). */
@@ -80,6 +93,10 @@ export async function onBotMembership(botUserIds: number[], convId: string, acto
   await Promise.all(
     botUserIds.map((id) => {
       const b = botByUserId(id);
+      if (b?.kind === "builtin" && b.app === "github" && !added) {
+        // Removing the GitHub app stops this conversation's subscriptions.
+        return import("../connect/github-app").then((mod) => mod.onGithubRemoved(convId));
+      }
       return b && b.kind === "http" && !b.deleted ? deliver(b, conv, actor, added ? "added_to_space" : "removed_from_space") : undefined;
     }),
   );

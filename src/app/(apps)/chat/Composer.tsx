@@ -82,7 +82,7 @@ export function Composer({ conversationId, threadRoot, me, members, placeholder,
     if (slash === null) return [];
     const q = slash.toLowerCase();
     return members
-      .flatMap((m) => (m.bot?.kind === "http" && !m.bot.deleted ? (m.bot.commands ?? []).map((c) => ({ ...c, app: m })) : []))
+      .flatMap((m) => ((m.bot?.kind === "http" || m.bot?.kind === "builtin") && !m.bot.deleted ? (m.bot.commands ?? []).map((c) => ({ ...c, app: m })) : []))
       .filter((c) => c.name.startsWith(q))
       .slice(0, 8);
   }, [slash, members]);
