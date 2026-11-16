@@ -4,13 +4,13 @@ import { useTranslations } from "next-intl";
 import type { ActionResult } from "./actions";
 
 export const inputCls =
-  "h-9 w-full rounded-md border border-line-strong bg-sheet px-3 text-[14px] text-ink outline-none transition-colors placeholder:text-ink-mute focus:border-ink disabled:opacity-60";
+  "h-10 sm:h-9 w-full rounded-md border border-line-strong bg-sheet px-3 text-[14px] text-ink outline-none transition-colors placeholder:text-ink-mute focus:border-ink disabled:opacity-60";
 export const textareaCls =
   "w-full rounded-md border border-line-strong bg-sheet px-3 py-2 text-[14px] leading-relaxed text-ink outline-none transition-colors placeholder:text-ink-mute focus:border-ink";
 export const primaryBtn =
-  "inline-flex h-9 items-center justify-center gap-2 rounded-md bg-primary px-4 text-[14px] font-medium text-primary-ink transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex h-10 sm:h-9 items-center justify-center gap-2 rounded-md bg-primary px-4 text-[14px] font-medium text-primary-ink transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60";
 export const secondaryBtn =
-  "inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line-strong px-3 text-[14px] text-ink transition-colors hover:bg-hover disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex h-10 sm:h-9 items-center justify-center gap-2 rounded-md border border-line-strong px-3 text-[14px] text-ink transition-colors hover:bg-hover disabled:cursor-not-allowed disabled:opacity-60";
 export const labelCls = "mb-1.5 block text-[13px] font-medium text-ink-soft";
 
 export function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {

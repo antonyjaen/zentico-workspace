@@ -37,12 +37,15 @@ export function LabelPicker({
   onToggle,
   buttonClassName = "icon-btn h-9 w-9",
   align = "left",
+  menuClassName,
 }: {
   labels: Label[];
   stateOf: (id: string) => "all" | "some" | "none";
   onToggle: (id: string, on: boolean) => void;
   buttonClassName?: string;
   align?: "left" | "right";
+  /** Overrides the menu's position and width (e.g. a sheet above the phone bottom bar). */
+  menuClassName?: string;
 }) {
   const t = useTranslations("mailActions.labels");
   const { open, toggle, ref } = usePopover();
@@ -94,7 +97,7 @@ export function LabelPicker({
         <div
           role="menu"
           aria-label={t("label")}
-          className={`pop absolute top-11 z-50 w-64 p-1.5 ${align === "right" ? "right-0" : "left-0"}`}
+          className={`pop p-1.5 ${menuClassName ?? `absolute top-11 z-50 w-64 ${align === "right" ? "right-0" : "left-0"}`}`}
           style={{ transformOrigin: align === "right" ? "top right" : "top left" }}
         >
           <p className="px-3 pt-1.5 pb-1 font-mono text-[11px] uppercase tracking-[0.16em] text-ink-mute">{t("labelAs")}</p>
@@ -148,7 +151,7 @@ function LabelOption({ label, state, onChange }: { label: Label; state: "all" | 
     if (box.current) box.current.indeterminate = state === "some";
   }, [state]);
   return (
-    <label className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-[13.5px] text-ink-soft transition-colors hover:bg-hover hover:text-ink">
+    <label className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-[13.5px] max-sm:min-h-11 text-ink-soft transition-colors hover:bg-hover hover:text-ink">
       <input
         ref={box}
         type="checkbox"

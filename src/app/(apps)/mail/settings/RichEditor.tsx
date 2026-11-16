@@ -59,7 +59,7 @@ export function RichEditor({
 
   return (
     <div className="overflow-hidden rounded-md border border-line-strong focus-within:border-ink">
-      <div role="toolbar" aria-label={label} className="flex items-center gap-0.5 border-b border-line bg-sheet-muted px-1 py-1">
+      <div role="toolbar" aria-label={label} className="flex flex-wrap items-center gap-0.5 border-b border-line bg-sheet-muted px-1 py-1">
         {tools.map(({ icon: Icon, label: l, run }) => (
           <button
             key={l}
@@ -68,7 +68,7 @@ export function RichEditor({
             aria-label={l}
             onMouseDown={(e) => e.preventDefault()}
             onClick={run}
-            className="icon-btn h-7 w-7"
+            className="icon-btn h-9 w-9 sm:h-7 sm:w-7"
           >
             <Icon size={15} aria-hidden />
           </button>

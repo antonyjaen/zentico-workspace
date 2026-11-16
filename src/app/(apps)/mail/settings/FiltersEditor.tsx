@@ -18,7 +18,7 @@ const MAX_RULES = 100;
 const MAX_CONDITIONS = 10;
 
 const selectCls =
-  "h-9 rounded-md border border-line-strong bg-sheet px-2 text-[14px] text-ink outline-none transition-colors focus:border-ink";
+  "h-10 max-sm:max-w-full sm:h-9 rounded-md border border-line-strong bg-sheet px-2 text-[14px] text-ink outline-none transition-colors focus:border-ink";
 
 let seq = 0;
 
@@ -257,7 +257,7 @@ function RuleCard({
         </div>
       </div>
 
-      <div className="mt-3 space-y-2 pl-8">
+      <div className="mt-3 space-y-2 sm:pl-8">
         <div className="flex flex-wrap items-center gap-2 text-[13px]">
           <span className="font-medium text-ink">{t("if")}</span>
           {r.conditions.length > 1 && (
@@ -400,7 +400,7 @@ function RuleCard({
                 maxLength={254}
                 value={a.target ?? ""}
                 onChange={(e) => setAction(i, "forward", e.target.value)}
-                className={`${inputCls} w-auto min-w-[200px]`}
+                className={`${inputCls} w-full min-w-0 sm:w-auto sm:min-w-[200px]`}
               />
             )}
             {r.actions.length > 1 && (
@@ -523,7 +523,7 @@ function IconBtn({
   children: React.ReactNode;
 }) {
   return (
-    <button type="button" className="icon-btn h-8 w-8 disabled:opacity-35" aria-label={label} title={label} disabled={disabled} onClick={onClick}>
+    <button type="button" className="icon-btn h-10 w-10 disabled:opacity-35 sm:h-8 sm:w-8" aria-label={label} title={label} disabled={disabled} onClick={onClick}>
       {children}
     </button>
   );

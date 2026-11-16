@@ -36,12 +36,13 @@ const ROLE_ICON: Record<string, LucideIcon> = {
   trash: Trash2,
 };
 
+// Rows are 40px tall in the phone/tablet drawer (touch), 32px in the desktop sidebar.
 const ROW =
-  "flex h-8 items-center gap-3 rounded-md pr-3 text-[14px] transition-colors hover:bg-hover hover:text-ink aria-[current=page]:bg-primary-soft aria-[current=page]:text-ink";
+  "flex h-10 lg:h-8 items-center gap-3 rounded-md pr-3 text-[14px] transition-colors hover:bg-hover hover:text-ink aria-[current=page]:bg-primary-soft aria-[current=page]:text-ink";
 const MENU_ITEM =
-  "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13.5px] text-ink-soft transition-colors hover:bg-hover hover:text-ink";
+  "flex w-full items-center gap-2 rounded-lg px-3 py-2 max-lg:min-h-11 text-left text-[13.5px] text-ink-soft transition-colors hover:bg-hover hover:text-ink";
 const FIELD =
-  "h-8 w-full rounded-md border border-line-strong bg-sheet px-2.5 text-[13.5px] text-ink outline-none placeholder:text-ink-mute focus:border-ink";
+  "h-10 lg:h-8 w-full rounded-md border border-line-strong bg-sheet px-2.5 text-[13.5px] text-ink outline-none placeholder:text-ink-mute focus:border-ink";
 
 export type SharedInbox = { account: MailAccount; mailboxes: Mailbox[] };
 
@@ -170,14 +171,14 @@ export function MailboxNav({
                     window.dispatchEvent(new CustomEvent<DropDetail>(DROP_EVENT, { detail: { keys, mailboxId: m.id } }));
                   }}
                   style={{ paddingLeft: 12 + depth * 16 }}
-                  className={`${ROW} data-[drop]:bg-hover data-[drop]:text-ink data-[drop]:shadow-[inset_0_0_0_1px_var(--color-accent)] ${
+                  className={`${ROW} max-lg:pr-11 data-[drop]:bg-hover data-[drop]:text-ink data-[drop]:shadow-[inset_0_0_0_1px_var(--color-accent)] ${
                     m.unreadEmails > 0 && count > 0 ? "font-medium text-ink" : "text-ink-soft aria-[current=page]:font-medium"
                   }`}
                 >
                   <Icon size={16} aria-hidden className="shrink-0" />
                   <span className="flex-1 truncate">{folderLabel(m)}</span>
                   {count > 0 && (
-                    <span className="font-mono text-[12px] font-normal tabular-nums text-ink-mute group-focus-within:invisible group-hover:invisible">
+                    <span className="font-mono text-[12px] font-normal tabular-nums text-ink-mute lg:group-focus-within:invisible lg:group-hover:invisible">
                       {count}
                     </span>
                   )}
@@ -227,7 +228,7 @@ export function MailboxNav({
           labelsAvailable ? (
             <button
               type="button"
-              className="icon-btn h-6 w-6"
+              className="icon-btn h-10 w-10 lg:h-6 lg:w-6"
               aria-label={tn("newLabel")}
               title={tn("newLabel")}
               onClick={() => setEditing({ kind: "newLabel", id: null })}
@@ -249,7 +250,7 @@ export function MailboxNav({
               href={href}
               aria-current={pathname === href || pathname.startsWith(`${href}/`) ? "page" : undefined}
               style={{ paddingLeft: 16 }}
-              className={`${ROW} text-ink-soft aria-[current=page]:font-medium`}
+              className={`${ROW} max-lg:pr-11 text-ink-soft aria-[current=page]:font-medium`}
             >
               <LabelDot color={l.color} size={9} />
               <span className="flex-1 truncate pl-0.5">{l.name}</span>
@@ -290,7 +291,7 @@ export function MailboxNav({
 
 function SectionHeader({ title, action }: { title: string; action?: React.ReactNode }) {
   return (
-    <div className="mt-4 mb-0.5 flex h-7 items-center justify-between pr-1 pl-3">
+    <div className="mt-4 mb-0.5 flex h-10 lg:h-7 items-center justify-between pr-1 pl-3">
       <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-ink-mute">{title}</span>
       {action}
     </div>
@@ -321,7 +322,7 @@ function SharedAccount({
       <div className="flex items-center">
         <button
           type="button"
-          className="icon-btn h-8 w-6 shrink-0"
+          className="icon-btn h-10 w-8 shrink-0 lg:h-8 lg:w-6"
           aria-expanded={open}
           aria-label={open ? tn("collapse") : tn("expand")}
           onClick={() => setOpen((o) => !o)}
@@ -350,7 +351,7 @@ function SharedAccount({
               href={hrefOf(m)}
               aria-current={isActive(m) ? "page" : undefined}
               style={{ paddingLeft: 30 + depth * 14 }}
-              className={`${ROW} h-7 text-[13.5px] text-ink-soft aria-[current=page]:font-medium`}
+              className={`${ROW.replace("lg:h-8", "lg:h-7")} text-[13.5px] text-ink-soft aria-[current=page]:font-medium`}
             >
               <Icon size={14} aria-hidden className="shrink-0" />
               <span className="flex-1 truncate">{folderLabel(m)}</span>
@@ -416,8 +417,8 @@ function MoreButton({ open, label, onClick }: { open: boolean; label: string; on
       aria-label={label}
       title={label}
       onClick={onClick}
-      className={`icon-btn absolute top-1/2 right-1 h-7 w-7 -translate-y-1/2 bg-hover ${
-        open ? "flex" : "hidden group-focus-within:flex group-hover:flex"
+      className={`icon-btn absolute top-1/2 right-1 h-10 w-10 -translate-y-1/2 lg:h-7 lg:w-7 lg:bg-hover ${
+        open ? "flex" : "flex lg:hidden lg:group-focus-within:flex lg:group-hover:flex"
       }`}
     >
       <Ellipsis size={15} aria-hidden />
@@ -461,7 +462,7 @@ function FolderMenu({
     <div ref={ref}>
       <MoreButton open={open} label={t("folderOptions", { name })} onClick={toggle} />
       {open && (
-        <div role="menu" className="pop absolute top-8 right-0 z-50 w-56 p-1.5" style={{ transformOrigin: "top right" }}>
+        <div role="menu" className="pop absolute top-8 right-0 z-50 w-56 p-1.5 max-lg:top-10" style={{ transformOrigin: "top right" }}>
           {mode === "menu" && (
             <>
               <button type="button" role="menuitem" className={MENU_ITEM} onClick={pick(onNewSubfolder)}>
@@ -553,7 +554,7 @@ function LabelMenu({
     <div ref={ref}>
       <MoreButton open={open} label={t("labelOptions", { name: label.name })} onClick={toggle} />
       {open && (
-        <div role="menu" className="pop absolute top-8 right-0 z-50 w-56 p-1.5" style={{ transformOrigin: "top right" }}>
+        <div role="menu" className="pop absolute top-8 right-0 z-50 w-56 p-1.5 max-lg:top-10" style={{ transformOrigin: "top right" }}>
           {confirm ? (
             <div className="p-2 text-[13px] leading-snug text-ink-soft">
               <p>{t("confirmDeleteLabel", { name: label.name })}</p>

@@ -9,6 +9,7 @@ import {
   Keyboard,
   Mail,
   MailOpen,
+  Menu,
   OctagonAlert,
   Paperclip,
   RotateCw,
@@ -39,6 +40,8 @@ import {
 } from "./listShared";
 import { LabelChip, LabelPicker } from "./LabelPicker";
 import { MailLive } from "./MailLive";
+import { useOpenMailNav } from "./MailNavDrawer";
+import { MobileSearch } from "./MobileSearch";
 import { useShortcuts } from "./useShortcuts";
 
 /** One conversation row, pre-formatted on the server (dates use the server's view of "today"). */
@@ -147,6 +150,10 @@ export function MailListClient({
   const [density, setDensity] = useState<Density>(initialDensity);
   const [error, setError] = useState<string | null>(null);
   const help = useRef<HTMLDialogElement>(null);
+  const openNav = useOpenMailNav();
+  // Touch devices: rows are not draggable (long-press selects instead).
+  const [coarse, setCoarse] = useState(false);
+  useEffect(() => setCoarse(window.matchMedia("(pointer: coarse)").matches), []);
 
   // Search and label views span folders, so a moved conversation still matches: keep it shown.
   const spansFolders = view === "search" || view === "label";
@@ -362,9 +369,85 @@ export function MailListClient({
   const someSelected = selectedKeys.length > 0;
   const compact = density === "compact";
 
+  /** Bulk actions: inline in the header from `sm` up; in a bottom bar on phones (bigger targets, menus open upward). */
+  const bulkButtons = (phone: boolean) => {
+    const btn = phone ? "icon-btn h-11 w-10" : "icon-btn h-9 w-9";
+    const menu = phone ? PHONE_MENU : undefined;
+    return (
+      <>
+        {role !== "archive" && (
+          <ToolButton label={t("archive")} kbd="e" className={btn} onClick={() => act("archive", selectedKeys)}>
+            <Archive size={17} aria-hidden />
+          </ToolButton>
+        )}
+        <ToolButton
+          label={trashLike ? t("deleteForever") : t("delete")}
+          kbd="#"
+          className={btn}
+          onClick={() => act("delete", selectedKeys)}
+        >
+          <Trash2 size={17} aria-hidden />
+        </ToolButton>
+        {role === "junk" ? (
+          <ToolButton label={t("notSpam")} className={btn} onClick={() => act("notSpam", selectedKeys)}>
+            <ShieldCheck size={17} aria-hidden />
+          </ToolButton>
+        ) : (
+          <ToolButton label={t("spam")} className={btn} onClick={() => act("spam", selectedKeys)}>
+            <OctagonAlert size={17} aria-hidden />
+          </ToolButton>
+        )}
+        {!phone && <span className="mx-1 h-5 w-px bg-line" aria-hidden />}
+        <ToolButton label={t("markRead")} kbd="⇧I" className={btn} onClick={() => act("read", selectedKeys)}>
+          <MailOpen size={17} aria-hidden />
+        </ToolButton>
+        <ToolButton label={t("markUnread")} kbd="⇧U" className={btn} onClick={() => act("unread", selectedKeys)}>
+          <Mail size={17} aria-hidden />
+        </ToolButton>
+        <ToolButton
+          label={starKind(selectedKeys) === "star" ? t("star") : t("unstar")}
+          kbd="s"
+          className={btn}
+          onClick={() => act(starKind(selectedKeys), selectedKeys)}
+        >
+          <Star size={17} aria-hidden />
+        </ToolButton>
+        {!account && (
+          <LabelPicker
+            labels={labels}
+            stateOf={labelState}
+            onToggle={(id, on) => act(on ? "label" : "unlabel", selectedKeys, id)}
+            buttonClassName={btn}
+            menuClassName={menu}
+          />
+        )}
+        {view !== "unified" && (
+          <MovePicker
+            mailboxes={mailboxes.filter((m) => m.id !== mailboxId)}
+            label={folderLabel}
+            onPick={(id) => act("move", selectedKeys, id)}
+            buttonClassName={btn}
+            menuClassName={menu}
+          />
+        )}
+      </>
+    );
+  };
+
   return (
     <>
-      <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-3">
+      <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-3 max-sm:px-1.5">
+        {openNav && !someSelected && (
+          <button
+            type="button"
+            className="icon-btn h-10 w-10 lg:hidden"
+            aria-label={t("mobile.folders")}
+            title={t("mobile.folders")}
+            onClick={openNav}
+          >
+            <Menu size={19} aria-hidden />
+          </button>
+        )}
         <SelectMenu
           all={allSelected}
           some={someSelected}
@@ -390,58 +473,10 @@ export function MailListClient({
             <span className="mr-2 ml-1 font-mono text-[12px] tabular-nums text-ink-soft">
               {t("selected", { count: selectedKeys.length })}
             </span>
-            {role !== "archive" && (
-              <ToolButton label={t("archive")} kbd="e" onClick={() => act("archive", selectedKeys)}>
-                <Archive size={17} aria-hidden />
-              </ToolButton>
-            )}
-            <ToolButton
-              label={trashLike ? t("deleteForever") : t("delete")}
-              kbd="#"
-              onClick={() => act("delete", selectedKeys)}
-            >
-              <Trash2 size={17} aria-hidden />
-            </ToolButton>
-            {role === "junk" ? (
-              <ToolButton label={t("notSpam")} onClick={() => act("notSpam", selectedKeys)}>
-                <ShieldCheck size={17} aria-hidden />
-              </ToolButton>
-            ) : (
-              <ToolButton label={t("spam")} onClick={() => act("spam", selectedKeys)}>
-                <OctagonAlert size={17} aria-hidden />
-              </ToolButton>
-            )}
-            <span className="mx-1 h-5 w-px bg-line" aria-hidden />
-            <ToolButton label={t("markRead")} kbd="⇧I" onClick={() => act("read", selectedKeys)}>
-              <MailOpen size={17} aria-hidden />
-            </ToolButton>
-            <ToolButton label={t("markUnread")} kbd="⇧U" onClick={() => act("unread", selectedKeys)}>
-              <Mail size={17} aria-hidden />
-            </ToolButton>
-            <ToolButton
-              label={starKind(selectedKeys) === "star" ? t("star") : t("unstar")}
-              kbd="s"
-              onClick={() => act(starKind(selectedKeys), selectedKeys)}
-            >
-              <Star size={17} aria-hidden />
-            </ToolButton>
-            {!account && (
-              <LabelPicker
-                labels={labels}
-                stateOf={labelState}
-                onToggle={(id, on) => act(on ? "label" : "unlabel", selectedKeys, id)}
-              />
-            )}
-            {view !== "unified" && (
-              <MovePicker
-                mailboxes={mailboxes.filter((m) => m.id !== mailboxId)}
-                label={folderLabel}
-                onPick={(id) => act("move", selectedKeys, id)}
-              />
-            )}
+            <div className="hidden sm:contents">{bulkButtons(false)}</div>
             <button
               type="button"
-              className="icon-btn ml-auto h-9 w-9"
+              className="icon-btn ml-auto h-10 w-10 sm:h-9 sm:w-9"
               aria-label={t("clearSelection")}
               title={t("clearSelection")}
               onClick={() => setSelected(new Set())}
@@ -453,16 +488,17 @@ export function MailListClient({
           <>
             <button
               type="button"
-              className="icon-btn h-9 w-9"
+              className="icon-btn h-10 w-10 sm:h-9 sm:w-9"
               aria-label={tm("refresh")}
               title={tm("refresh")}
               onClick={() => startTransition(() => router.refresh())}
             >
               <RotateCw size={17} aria-hidden className={pending ? "animate-spin" : undefined} />
             </button>
+            <MobileSearch />
             <button
               type="button"
-              className="icon-btn h-9 w-9"
+              className="icon-btn h-9 w-9 max-sm:hidden"
               aria-label={compact ? t("comfortable") : t("compact")}
               title={`${t("density")}: ${compact ? t("compact") : t("comfortable")}`}
               onClick={changeDensity}
@@ -471,7 +507,7 @@ export function MailListClient({
             </button>
             <button
               type="button"
-              className="icon-btn h-9 w-9"
+              className="icon-btn h-9 w-9 max-sm:hidden"
               aria-label={t("shortcuts")}
               title={`${t("shortcuts")} (?)`}
               onClick={() => help.current?.showModal()}
@@ -481,12 +517,12 @@ export function MailListClient({
             <MailLive pending={pending} />
             {title && <h1 className="ml-2 min-w-0 truncate text-[14px] font-medium text-ink">{title}</h1>}
             {error && (
-              <span role="alert" className="ml-2 truncate text-[13px] text-danger">
+              <span role="alert" className="ml-2 truncate text-[13px] text-danger max-sm:hidden">
                 {error}
               </span>
             )}
-            <span className="ml-auto font-mono text-[12px] tabular-nums text-ink-mute">{rangeLabel}</span>
-            <PageLink href={prevHref} label={t("previousPage")}>
+            <span className="ml-auto font-mono text-[12px] tabular-nums text-ink-mute max-sm:hidden">{rangeLabel}</span>
+            <PageLink href={prevHref} label={t("previousPage")} className="max-sm:ml-auto">
               <ChevronLeft size={18} aria-hidden />
             </PageLink>
             <PageLink href={nextHref} label={t("nextPage")}>
@@ -504,7 +540,7 @@ export function MailListClient({
           </div>
         </div>
       ) : (
-        <ul className="flex-1 overflow-y-auto" aria-label={t("conversations")}>
+        <ul className="flex-1 overflow-y-auto max-lg:pb-24" aria-label={t("conversations")}>
           {rows.map((r, i) => (
             <Row
               key={r.key}
@@ -513,6 +549,8 @@ export function MailListClient({
               href={rowHref(r)}
               compact={compact}
               selected={selected.has(r.key)}
+              selecting={someSelected}
+              draggable={!coarse}
               focused={r.key === focusedKey}
               onToggle={(shift) => toggle(r.key, shift)}
               onFocus={() => setFocusedKey(r.key)}
@@ -529,6 +567,27 @@ export function MailListClient({
         </ul>
       )}
 
+      {/* Phones: the selection's actions sit in a bottom bar within thumb reach (hides the compose button). */}
+      {someSelected && (
+        <div
+          data-mail-bulkbar
+          role="toolbar"
+          aria-label={t("bulkActions")}
+          className="fixed inset-x-0 bottom-0 z-[45] flex items-center justify-around border-t border-line bg-sheet px-1 pt-1 pb-[calc(0.25rem+env(safe-area-inset-bottom))] shadow-[var(--shadow-pop)] sm:hidden"
+        >
+          {bulkButtons(true)}
+        </div>
+      )}
+
+      {error && (
+        <div
+          role="alert"
+          className="pop fixed inset-x-3 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-50 px-4 py-3 text-[14px] text-danger sm:hidden"
+        >
+          {error}
+        </div>
+      )}
+
       <ShortcutsDialog ref={help} />
     </>
   );
@@ -538,17 +597,19 @@ function ToolButton({
   label,
   kbd,
   onClick,
+  className = "icon-btn h-9 w-9",
   children,
 }: {
   label: string;
   kbd?: string;
   onClick: () => void;
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
-      className="icon-btn h-9 w-9"
+      className={className}
       aria-label={label}
       title={kbd ? `${label} (${kbd})` : label}
       onClick={onClick}
@@ -558,15 +619,28 @@ function ToolButton({
   );
 }
 
-function PageLink({ href, label, children }: { href: string | null; label: string; children: React.ReactNode }) {
+/** Label/move menus opened from the phone bottom bar: a sheet just above the bar. */
+const PHONE_MENU = "fixed inset-x-2 bottom-[calc(3.75rem+env(safe-area-inset-bottom))] z-50 max-h-[60dvh]";
+
+function PageLink({
+  href,
+  label,
+  className = "",
+  children,
+}: {
+  href: string | null;
+  label: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
   if (!href)
     return (
-      <span className="icon-btn h-9 w-9 opacity-35" aria-hidden>
+      <span className={`icon-btn h-10 w-10 opacity-35 sm:h-9 sm:w-9 ${className}`} aria-hidden>
         {children}
       </span>
     );
   return (
-    <Link href={href} className="icon-btn h-9 w-9" aria-label={label} title={label}>
+    <Link href={href} className={`icon-btn h-10 w-10 sm:h-9 sm:w-9 ${className}`} aria-label={label} title={label}>
       {children}
     </Link>
   );
@@ -596,7 +670,7 @@ function SelectMenu({
 
   return (
     <div ref={ref} className="relative flex items-center">
-      <label className="grid h-9 w-8 cursor-pointer place-items-center rounded-md hover:bg-hover" title={t("select")}>
+      <label className="grid h-10 w-9 cursor-pointer place-items-center rounded-md hover:bg-hover sm:h-9 sm:w-8" title={t("select")}>
         <input
           ref={box}
           type="checkbox"
@@ -609,7 +683,7 @@ function SelectMenu({
       </label>
       <button
         type="button"
-        className="icon-btn h-9 w-5"
+        className="icon-btn h-10 w-6 sm:h-9 sm:w-5"
         aria-label={t("selectMenu")}
         aria-expanded={open}
         disabled={disabled}
@@ -643,10 +717,15 @@ function MovePicker({
   mailboxes,
   label,
   onPick,
+  buttonClassName = "icon-btn h-9 w-9",
+  menuClassName = "absolute top-11 left-0 z-50 max-h-80 w-60",
 }: {
   mailboxes: MailboxLite[];
   label: (m: MailboxLite) => string;
   onPick: (mailboxId: string) => void;
+  buttonClassName?: string;
+  /** Position and size of the menu. */
+  menuClassName?: string;
 }) {
   const t = useTranslations("mailActions");
   const { open, toggle, setOpen, ref } = usePopover();
@@ -655,7 +734,7 @@ function MovePicker({
     <div ref={ref} className="relative">
       <button
         type="button"
-        className="icon-btn h-9 w-9"
+        className={buttonClassName}
         aria-label={t("moveTo")}
         title={t("moveTo")}
         aria-expanded={open}
@@ -668,7 +747,7 @@ function MovePicker({
         <div
           role="menu"
           aria-label={t("moveTo")}
-          className="pop absolute top-11 left-0 z-50 max-h-80 w-60 overflow-y-auto p-1.5"
+          className={`pop overflow-y-auto p-1.5 ${menuClassName}`}
           style={{ transformOrigin: "top left" }}
         >
           <p className="px-3 pt-1.5 pb-1 font-mono text-[11px] uppercase tracking-[0.16em] text-ink-mute">
@@ -679,7 +758,7 @@ function MovePicker({
               key={m.id}
               type="button"
               role="menuitem"
-              className="flex w-full items-center rounded-lg py-2 pr-3 text-left text-[14px] text-ink-soft transition-colors hover:bg-hover hover:text-ink"
+              className="flex w-full items-center rounded-lg py-2 pr-3 text-left text-[14px] text-ink-soft transition-colors hover:bg-hover hover:text-ink max-sm:min-h-11"
               style={{ paddingLeft: 12 + depth * 14 }}
               onClick={() => {
                 setOpen(false);
@@ -701,6 +780,8 @@ function Row({
   href,
   compact,
   selected,
+  selecting,
+  draggable,
   focused,
   onToggle,
   onFocus,
@@ -715,6 +796,9 @@ function Row({
   href: string;
   compact: boolean;
   selected: boolean;
+  /** Some row is selected: on touch, tapping a row toggles it instead of opening it. */
+  selecting: boolean;
+  draggable: boolean;
   focused: boolean;
   onToggle: (shift: boolean) => void;
   onFocus: () => void;
@@ -728,24 +812,55 @@ function Row({
   const tm = useTranslations("mail");
   const strong = r.unread ? "font-semibold text-ink" : "text-ink-soft";
 
+  // Touch: a long press selects the row (and starts selection mode).
+  const press = useRef<{ timer?: ReturnType<typeof setTimeout>; touch: boolean; fired: boolean; x: number; y: number }>({
+    touch: false,
+    fired: false,
+    x: 0,
+    y: 0,
+  });
+  const cancelPress = () => clearTimeout(press.current.timer);
+  useEffect(() => cancelPress, []);
+
   return (
     <li
       data-row={r.key}
-      draggable
+      draggable={draggable}
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = "move";
         e.dataTransfer.setData(DRAG_MIME, JSON.stringify(dragKeys()));
         e.dataTransfer.setData("text/plain", r.subject);
       }}
       onMouseDown={onFocus}
-      className={`rise group relative flex items-center gap-1 border-b border-line/70 pr-3 pl-2 transition-colors ${
-        compact ? "h-9 text-[13px]" : "h-12 text-[14px]"
+      onPointerDown={(e) => {
+        const p = press.current;
+        p.touch = e.pointerType === "touch";
+        p.fired = false;
+        cancelPress();
+        if (!p.touch || (e.target as HTMLElement).closest("button,label")) return;
+        p.x = e.clientX;
+        p.y = e.clientY;
+        p.timer = setTimeout(() => {
+          p.fired = true;
+          onToggle(false);
+          navigator.vibrate?.(10);
+        }, 450);
+      }}
+      onPointerMove={(e) => {
+        const p = press.current;
+        if (Math.abs(e.clientX - p.x) > 8 || Math.abs(e.clientY - p.y) > 8) cancelPress();
+      }}
+      onPointerUp={cancelPress}
+      onPointerCancel={cancelPress}
+      onContextMenu={(e) => press.current.touch && e.preventDefault()}
+      className={`rise group relative flex items-center gap-1 border-b border-line/70 pr-1 pl-1 transition-colors sm:pr-3 sm:pl-2 ${
+        compact ? "text-[13px] sm:h-9" : "text-[14px] sm:h-12"
       } ${selected ? "bg-primary-soft" : r.unread ? "bg-sheet" : "bg-sheet-muted/50"} hover:bg-hover ${
         focused ? "shadow-[inset_2px_0_0_var(--color-accent)]" : ""
       }`}
       style={{ animationDelay: `${Math.min(index, 12) * 18}ms` }}
     >
-      <label className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-md hover:bg-line/60">
+      <label className="grid h-10 w-10 shrink-0 cursor-pointer place-items-center rounded-md hover:bg-line/60 sm:h-8 sm:w-8">
         <input
           type="checkbox"
           className="h-4 w-4 cursor-pointer accent-primary"
@@ -757,7 +872,7 @@ function Row({
       </label>
       <button
         type="button"
-        className={`grid h-8 w-8 shrink-0 place-items-center rounded-md transition-colors hover:bg-line/60 ${
+        className={`grid h-10 w-10 shrink-0 place-items-center rounded-md transition-colors hover:bg-line/60 max-sm:order-last sm:h-8 sm:w-8 ${
           r.flagged ? "text-amber" : "text-ink-mute/60 hover:text-ink"
         }`}
         aria-pressed={r.flagged}
@@ -771,9 +886,23 @@ function Row({
       <Link
         href={href}
         draggable={false}
-        className="flex h-full min-w-0 flex-1 items-center gap-4 pl-1 focus-visible:rounded-sm focus-visible:outline-offset-[-2px]"
+        onClick={(e) => {
+          // After a long press, or while selecting on touch, a tap (de)selects instead of opening.
+          if (press.current.fired) {
+            e.preventDefault();
+            press.current.fired = false;
+          } else if (selecting && press.current.touch) {
+            e.preventDefault();
+            onToggle(false);
+          }
+        }}
+        // Phones: two lines (sender + date, then subject + preview); a single row from sm up.
+        className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 py-2 pl-1 select-none [-webkit-touch-callout:none] focus-visible:rounded-sm focus-visible:outline-offset-[-2px] sm:flex sm:h-full sm:gap-4 sm:py-0 sm:select-auto"
       >
-        <span className={`flex w-[200px] shrink-0 items-baseline gap-1.5 truncate ${strong}`} title={r.senderEmail}>
+        <span
+          className={`flex w-[200px] shrink-0 items-baseline gap-1.5 truncate max-sm:col-start-1 max-sm:row-start-1 max-sm:w-auto ${strong}`}
+          title={r.senderEmail}
+        >
           <span className="truncate">{r.sender}</span>
           {r.threadSize > 1 && (
             <span className="font-mono text-[11px] font-normal tabular-nums text-ink-mute">{r.threadSize}</span>
@@ -796,15 +925,21 @@ function Row({
             {labels.length > 3 && <span className="font-mono text-[11px] text-ink-mute">+{labels.length - 3}</span>}
           </span>
         )}
-        <span className="min-w-0 flex-1 truncate">
+        <span className="min-w-0 flex-1 truncate max-sm:col-start-1 max-sm:row-start-2">
           <span className={strong}>{r.subject || tm("noSubject")}</span>
           {r.preview && <span className="text-ink-mute"> — {r.preview}</span>}
         </span>
-        {r.hasAttachment && <Paperclip size={15} className="shrink-0 text-ink-mute" aria-label={t("attachment")} />}
+        {r.hasAttachment && (
+          <Paperclip
+            size={15}
+            className="shrink-0 text-ink-mute max-sm:col-start-2 max-sm:row-start-2 max-sm:justify-self-end"
+            aria-label={t("attachment")}
+          />
+        )}
         <time
           dateTime={r.receivedAt}
           title={r.dateTitle}
-          className={`w-16 shrink-0 text-right text-[12.5px] tabular-nums group-focus-within:invisible group-hover:invisible ${
+          className={`w-16 shrink-0 text-right text-[12.5px] tabular-nums max-sm:col-start-2 max-sm:row-start-1 sm:group-focus-within:invisible sm:group-hover:invisible ${
             r.unread ? "font-semibold text-ink" : "text-ink-mute"
           }`}
         >
@@ -812,7 +947,8 @@ function Row({
         </time>
       </Link>
 
-      <div className="absolute top-1/2 right-2 hidden -translate-y-1/2 items-center gap-0.5 rounded-lg bg-hover pl-1 group-focus-within:flex group-hover:flex">
+      {/* Hover actions (desktop); on phones the same actions come from selecting the row. */}
+      <div className="absolute top-1/2 right-2 hidden -translate-y-1/2 items-center gap-0.5 rounded-lg bg-hover pl-1 sm:group-focus-within:flex sm:group-hover:flex">
         {archiveable && (
           <QuickAction label={t("archive")} onClick={() => onAct("archive")}>
             <Archive size={16} aria-hidden />

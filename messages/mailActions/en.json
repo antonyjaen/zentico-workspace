@@ -149,6 +149,15 @@
       "labels": "Labels",
       "clear": "Clear",
       "submit": "Search"
+    },
+    "mobile": {
+      "mail": "Mail",
+      "folders": "Folders and labels",
+      "closeFolders": "Close folders",
+      "mailSettings": "Mail settings",
+      "search": "Search mail",
+      "closeSearch": "Close search",
+      "moreActions": "More actions"
     }
   }
 }

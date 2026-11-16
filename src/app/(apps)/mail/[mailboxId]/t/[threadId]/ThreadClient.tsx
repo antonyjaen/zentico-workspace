@@ -8,6 +8,7 @@ import {
   ImageOff,
   Keyboard,
   MailOpen,
+  MoreVertical,
   OctagonAlert,
   Printer,
   Reply,
@@ -25,6 +26,7 @@ import * as mail from "../../../actions";
 import { LabelChip, LabelPicker } from "../../../LabelPicker";
 import { composeHref, type ComposeMode } from "../../../hrefs";
 import { useShortcuts } from "../../../useShortcuts";
+import { usePopover } from "@/components/usePopover";
 import type { MailboxRole } from "@/lib/mail";
 import { labelsOf, type Label } from "@/lib/mail-labels";
 import type { ReadMessage } from "@/lib/mail-read";
@@ -118,6 +120,12 @@ export function ThreadView({
     const newest = messages[messages.length - 1];
     if (newest) setExpanded((s) => (s.has(newest.id) ? s : new Set(s).add(newest.id)));
   }, [messages]);
+
+  useEffect(() => {
+    if (!error) return;
+    const id = setTimeout(() => setError(false), 6000);
+    return () => clearTimeout(id);
+  }, [error]);
 
   useEffect(() => {
     if (!toast) return;
@@ -253,6 +261,8 @@ export function ThreadView({
   const target = (focusIndex >= 0 ? visible[focusIndex] : null) ?? latest;
   const compose = (mode: ComposeMode, id = target.id) => router.push(composeHref(currentPath, mode, id), { scroll: false });
 
+  const markUnread = () => run(() => setSeen(allIds, false), goBack);
+
   const print = () => {
     setShowOlder(true);
     setExpanded(new Set(allIds));
@@ -321,7 +331,7 @@ export function ThreadView({
       <MarkSeen ids={unreadIds} account={account} />
       <div className="flex h-12 shrink-0 items-center gap-0.5 border-b border-line px-2 sm:px-3 print:hidden">
         {backHref ? (
-          <Link href={backHref} className="icon-btn h-9 w-9" aria-label={t("back")} title={`${t("back")} (u)`}>
+          <Link href={backHref} className={TOOL} aria-label={t("back")} title={`${t("back")} (u)`}>
             <ArrowLeft size={18} aria-hidden />
           </Link>
         ) : (
@@ -335,7 +345,7 @@ export function ThreadView({
           <ToolButton icon={OctagonAlert} label={t("spam")} disabled={pending} onClick={() => run(() => moveToRole(actionIds, "junk"), goBack)} />
         )}
         <ToolButton icon={Trash2} label={inTrash ? t("deleteForever") : t("delete")} hint="#" disabled={pending} onClick={deleteThread} />
-        <ToolButton icon={MailOpen} label={t("markUnread")} disabled={pending} onClick={() => run(() => setSeen(allIds, false), goBack)} />
+        <ToolButton icon={MailOpen} label={t("markUnread")} disabled={pending} className={`${TOOL} max-sm:hidden`} onClick={markUnread} />
         <button
           type="button"
           onClick={toggleThreadStar}
@@ -343,12 +353,19 @@ export function ThreadView({
           aria-pressed={threadStarred}
           aria-label={threadStarred ? t("unstar") : t("star")}
           title={threadStarred ? t("unstar") : t("star")}
-          className="icon-btn h-9 w-9"
+          className={TOOL}
         >
           <Star size={17} aria-hidden className={threadStarred ? "fill-amber text-amber" : ""} />
         </button>
         {!account && (
-          <LabelPicker labels={allLabels} stateOf={(id) => (tagIds.includes(id) ? "all" : "none")} onToggle={toggleLabel} />
+          <LabelPicker
+            labels={allLabels}
+            stateOf={(id) => (tagIds.includes(id) ? "all" : "none")}
+            onToggle={toggleLabel}
+            buttonClassName={TOOL}
+            // Phones: the menu would overflow from the toolbar; show it as a sheet near the bottom.
+            menuClassName="absolute top-11 left-0 z-50 w-64 max-sm:fixed max-sm:inset-x-2 max-sm:top-auto max-sm:bottom-[calc(1rem+env(safe-area-inset-bottom))] max-sm:w-auto"
+          />
         )}
 
         {error && (
@@ -357,7 +374,18 @@ export function ThreadView({
           </span>
         )}
 
-        <div className="ml-auto flex items-center gap-0.5">
+        {/* Phones: reply/forward, mark unread and print move into an overflow menu. */}
+        <ThreadMoreMenu
+          items={[
+            { icon: Reply, label: latest.keywords.$draft ? t("editDraft") : t("reply"), href: composeHref(currentPath, latest.keywords.$draft ? "draft" : "reply", latest.id) },
+            { icon: ReplyAll, label: t("replyAll"), href: composeHref(currentPath, "replyAll", latest.id) },
+            { icon: Forward, label: t("forward"), href: composeHref(currentPath, "forward", latest.id) },
+            { icon: MailOpen, label: t("markUnread"), onClick: markUnread, disabled: pending },
+            { icon: Printer, label: t("print"), onClick: print },
+          ]}
+        />
+
+        <div className="ml-auto hidden items-center gap-0.5 sm:flex">
           <ToolButton icon={Printer} label={t("print")} onClick={print} />
           <ToolButton icon={Keyboard} label={t("shortcuts.title")} hint="?" onClick={() => helpRef.current?.showModal()} />
           <span className="mx-1 h-5 w-px bg-line" aria-hidden />
@@ -388,7 +416,7 @@ export function ThreadView({
               <button
                 type="button"
                 onClick={toggleAll}
-                className="icon-btn h-8 w-8 shrink-0 print:hidden"
+                className="icon-btn h-10 w-10 shrink-0 sm:h-8 sm:w-8 print:hidden"
                 aria-label={allExpanded ? t("collapseAll") : t("expandAll")}
                 title={`${allExpanded ? t("collapseAll") : t("expandAll")} (;)`}
               >
@@ -486,6 +514,11 @@ export function ThreadView({
 
       <ShortcutHelp ref={helpRef} />
 
+      {error && (
+        <div role="alert" className="pop fixed inset-x-3 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-50 px-4 py-3 text-[14px] text-danger sm:hidden print:hidden">
+          {t("actionFailed")}
+        </div>
+      )}
       {toast && (
         <div role="status" className="pop fixed bottom-4 left-1/2 z-50 max-w-[calc(100vw-2rem)] -translate-x-1/2 px-4 py-2.5 text-[13px] text-ink print:hidden">
           {toast}
@@ -552,7 +585,7 @@ function ReplyButton({ href, label, icon: Icon }: { href: string; label: string;
     <Link
       href={href}
       scroll={false}
-      className="inline-flex h-9 items-center gap-2 rounded-lg border border-line-strong px-3.5 text-[13.5px] font-medium text-ink transition-colors hover:bg-hover"
+      className="inline-flex h-10 items-center gap-2 rounded-lg border border-line-strong px-3.5 sm:h-9 text-[13.5px] font-medium text-ink transition-colors hover:bg-hover"
     >
       <Icon size={15} aria-hidden className="text-ink-soft" />
       {label}
@@ -560,18 +593,23 @@ function ReplyButton({ href, label, icon: Icon }: { href: string; label: string;
   );
 }
 
+/** Toolbar button: 40px touch target on phones, 36px from sm up. */
+const TOOL = "icon-btn h-10 w-10 sm:h-9 sm:w-9";
+
 function ToolButton({
   icon: Icon,
   label,
   hint,
   onClick,
   disabled,
+  className = TOOL,
 }: {
   icon: LucideIcon;
   label: string;
   hint?: string;
   onClick: () => void;
   disabled?: boolean;
+  className?: string;
 }) {
   return (
     <button
@@ -580,7 +618,7 @@ function ToolButton({
       disabled={disabled}
       aria-label={label}
       title={hint ? `${label} (${hint})` : label}
-      className="icon-btn h-9 w-9"
+      className={className}
     >
       <Icon size={17} aria-hidden />
     </button>
@@ -592,5 +630,56 @@ function ComposeLink({ icon: Icon, label, hint, href }: { icon: LucideIcon; labe
     <Link href={href} scroll={false} aria-label={label} title={`${label} (${hint})`} className="icon-btn h-9 w-9">
       <Icon size={17} aria-hidden />
     </Link>
+  );
+}
+
+type MoreItem = { icon: LucideIcon; label: string; href?: string; onClick?: () => void; disabled?: boolean };
+
+/** Phone-only overflow menu for the thread actions that don't fit the toolbar. */
+function ThreadMoreMenu({ items }: { items: MoreItem[] }) {
+  const t = useTranslations("mailActions.mobile");
+  const { open, toggle, setOpen, ref } = usePopover();
+  const item = "flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-[14px] text-ink-soft transition-colors hover:bg-hover hover:text-ink disabled:opacity-40";
+  return (
+    <div ref={ref} className="relative ml-auto sm:hidden">
+      <button
+        type="button"
+        className={TOOL}
+        aria-label={t("moreActions")}
+        title={t("moreActions")}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={toggle}
+      >
+        <MoreVertical size={18} aria-hidden />
+      </button>
+      {open && (
+        <div role="menu" aria-label={t("moreActions")} className="pop absolute top-11 right-0 z-50 w-56 p-1.5">
+          {items.map(({ icon: Icon, label, href, onClick, disabled }) =>
+            href ? (
+              <Link key={label} href={href} scroll={false} role="menuitem" className={item} onClick={() => setOpen(false)}>
+                <Icon size={16} aria-hidden />
+                {label}
+              </Link>
+            ) : (
+              <button
+                key={label}
+                type="button"
+                role="menuitem"
+                disabled={disabled}
+                className={item}
+                onClick={() => {
+                  setOpen(false);
+                  onClick?.();
+                }}
+              >
+                <Icon size={16} aria-hidden />
+                {label}
+              </button>
+            ),
+          )}
+        </div>
+      )}
+    </div>
   );
 }

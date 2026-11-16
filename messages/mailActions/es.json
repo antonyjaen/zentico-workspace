@@ -149,6 +149,15 @@
       "labels": "Etiquetas",
       "clear": "Borrar",
       "submit": "Buscar"
+    },
+    "mobile": {
+      "mail": "Correo",
+      "folders": "Carpetas y etiquetas",
+      "closeFolders": "Cerrar carpetas",
+      "mailSettings": "Ajustes de correo",
+      "search": "Buscar en el correo",
+      "closeSearch": "Cerrar búsqueda",
+      "moreActions": "Más acciones"
     }
   }
 }

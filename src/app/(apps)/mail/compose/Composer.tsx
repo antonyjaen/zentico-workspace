@@ -40,6 +40,8 @@ export function Composer() {
   }, [params, pathname, router]);
 
   const qs = params.toString();
+  // Phone compose button: on lists only (threads have reply buttons, settings has its own forms).
+  const fab = !pathname.startsWith("/mail/settings") && !/^\/mail\/[^/]+\/t\//.test(pathname);
   return (
     <>
       {parsed && value ? (
@@ -52,16 +54,17 @@ export function Composer() {
             close();
           }}
         />
-      ) : (
+      ) : fab ? (
         <Link
           href={composeHref(qs ? `${pathname}?${qs}` : pathname, "new")}
           scroll={false}
           aria-label={t("newMessage")}
-          className="fixed right-4 bottom-4 z-40 grid h-14 w-14 place-items-center rounded-2xl bg-primary text-primary-ink shadow-[var(--shadow-pop)] transition-colors hover:bg-primary-hover lg:hidden"
+          // Hidden while the phone selection bar is up (it takes the bottom edge).
+          className="fixed right-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-40 grid h-14 w-14 place-items-center rounded-2xl bg-primary text-primary-ink shadow-[var(--shadow-pop)] transition-colors hover:bg-primary-hover lg:hidden [body:has([data-mail-bulkbar])_&]:hidden"
         >
           <Pencil size={20} aria-hidden />
         </Link>
-      )}
+      ) : null}
       {toast && (
         <div
           role="status"
