@@ -14,9 +14,10 @@ type Corner = "tl" | "tr" | "bl" | "br";
 const CORNER_KEY = "zw.meet.miniCorner";
 const CORNERS: readonly Corner[] = ["tl", "tr", "bl", "br"];
 const CORNER_CLASS: Record<Corner, string> = {
-  tl: "top-4 left-4",
-  tr: "top-4 right-4",
-  bl: "bottom-4 left-4",
+  // Top corners sit below the top bar and right of the app rail so they never cover navigation.
+  tl: "top-16 left-16",
+  tr: "top-16 right-4",
+  bl: "bottom-4 left-16",
   br: "bottom-4 right-4",
 };
 
