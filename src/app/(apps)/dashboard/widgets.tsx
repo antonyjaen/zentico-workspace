@@ -69,7 +69,7 @@ export function useQuery<T>(name: DataQuery | null, args: unknown, refreshKey = 
 
 /* ------------------------------------------------------------------ helpers */
 
-function useWhen() {
+export function useWhen() {
   const locale = useLocale();
   return useMemo(() => {
     const time = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" });
@@ -83,7 +83,7 @@ function useWhen() {
   }, [locale]);
 }
 
-function State({ loading, error, empty, onRetry, children }: { loading: boolean; error: string | null; empty: boolean; onRetry: () => void; children: ReactNode }) {
+export function State({ loading, error, empty, onRetry, children }: { loading: boolean; error: string | null; empty: boolean; onRetry: () => void; children: ReactNode }) {
   const t = useTranslations("dashboard.widget");
   if (error && empty) {
     return (
@@ -112,9 +112,9 @@ function State({ loading, error, empty, onRetry, children }: { loading: boolean;
   return <>{children}</>;
 }
 
-const Empty = ({ children }: { children: ReactNode }) => <p className="grid h-full place-items-center p-4 text-center text-[13px] text-ink-mute">{children}</p>;
+export const Empty = ({ children }: { children: ReactNode }) => <p className="grid h-full place-items-center p-4 text-center text-[13px] text-ink-mute">{children}</p>;
 
-const ROW = "flex min-w-0 items-start gap-2.5 rounded-md px-2 py-1.5 transition-colors hover:bg-hover";
+export const ROW = "flex min-w-0 items-start gap-2.5 rounded-md px-2 py-1.5 transition-colors hover:bg-hover";
 
 /* ------------------------------------------------------------------ agenda */
 
@@ -183,7 +183,7 @@ function AgendaWidget({ widget, refreshKey }: { widget: Widget; refreshKey: numb
 
 type MailItem = { threadId: string; from: string; subject: string; preview: string; receivedAt: string; unread: boolean; messages: number; href: string };
 
-function MailWidget({ widget, refreshKey }: { widget: Widget; refreshKey: number }) {
+function MailWidget({ widget, refreshKey, onOpen, activeId }: { widget: Widget; refreshKey: number; onOpen?: (m: MailItem) => void; activeId?: string | null }) {
   const t = useTranslations("dashboard.widget");
   const when = useWhen();
   const q = widgetQuery(widget)!;
@@ -193,9 +193,9 @@ function MailWidget({ widget, refreshKey }: { widget: Widget; refreshKey: number
     <State loading={loading} error={error} empty={!data} onRetry={reload}>
       {items.length ? (
         <ul>
-          {items.map((m) => (
-            <li key={m.threadId}>
-              <Link href={m.href} className={ROW}>
+          {items.map((m) => {
+            const body = (
+              <>
                 <Mail size={14} aria-hidden className={`mt-0.5 shrink-0 ${m.unread ? "text-[var(--dash-accent)]" : "text-ink-mute"}`} />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline gap-2">
@@ -208,9 +208,22 @@ function MailWidget({ widget, refreshKey }: { widget: Widget; refreshKey: number
                   <span className={`block truncate text-[13px] ${m.unread ? "font-medium text-ink" : "text-ink-soft"}`}>{m.subject || t("noSubject")}</span>
                   <span className="block truncate text-[12px] text-ink-mute">{m.preview}</span>
                 </span>
-              </Link>
-            </li>
-          ))}
+              </>
+            );
+            return (
+              <li key={m.threadId}>
+                {onOpen ? (
+                  <button type="button" onClick={() => onOpen(m)} aria-current={activeId === m.threadId || undefined} className={`${ROW} w-full text-left aria-[current=true]:bg-primary-soft`}>
+                    {body}
+                  </button>
+                ) : (
+                  <Link href={m.href} className={ROW}>
+                    {body}
+                  </Link>
+                )}
+              </li>
+            );
+          })}
         </ul>
       ) : (
         <Empty>{widget.config.mode === "search" ? t("noResults") : t("inboxZero")}</Empty>
@@ -619,17 +632,21 @@ export function WidgetBody({
   refreshKey,
   onNotesSave,
   custom,
+  onOpenMail,
+  activeMail,
 }: {
   widget: Widget;
   refreshKey: number;
   onNotesSave: (text: string) => void;
   custom: (w: Widget) => ReactNode;
+  onOpenMail?: (m: { threadId: string; subject: string; href: string }) => void;
+  activeMail?: string | null;
 }) {
   switch (widget.type) {
     case "agenda":
       return <AgendaWidget widget={widget} refreshKey={refreshKey} />;
     case "mail":
-      return <MailWidget widget={widget} refreshKey={refreshKey} />;
+      return <MailWidget widget={widget} refreshKey={refreshKey} onOpen={onOpenMail} activeId={activeMail} />;
     case "chat":
       return <ChatWidget widget={widget} refreshKey={refreshKey} />;
     case "drive":

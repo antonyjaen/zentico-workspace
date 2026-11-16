@@ -1,20 +1,20 @@
 "use client";
 
-// 12-column widget grid. Desktop: absolutely positioned cells; in edit mode the widget header drags
-// it and the corner handle resizes it, snapping to the grid (others are pushed down live). Keyboard
-// (edit mode, widget focused): arrows move, Shift+arrows resize. Phones: one column in (y, x) order.
+// 12-column grid region of a Zentico UI layout. Desktop: absolutely positioned cells; in edit mode
+// the card header drags an item and the corner handle resizes it, snapping to the grid (others are
+// pushed down live). Keyboard (edit mode, item focused): arrows move, Shift+arrows resize. Phones:
+// one column in (y, x) order.
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { GRID_COLS, MAX_H, normalizeLayout, WIDGETS, type Density, type Widget } from "./model";
+import { GRID_COLUMNS as GRID_COLS, normalizeBoxes, type Box as GridBox } from "@/lib/ui/schema";
 
-export const GRID_METRICS: Record<Density, { row: number; gap: number }> = {
-  comfortable: { row: 44, gap: 12 },
-  compact: { row: 36, gap: 8 },
-};
+const MAX_H = 40;
+type Widget = GridBox;
 
 const DESKTOP_MIN_PX = 720;
 
 type Box = { id: string; x: number; y: number; w: number; h: number };
+const normalizeLayout = (items: Widget[], pinned: string[]) => normalizeBoxes(items, pinned);
 type Drag = { id: string; mode: "move" | "resize"; startX: number; startY: number; box: Box; pointerId: number };
 
 const sameBox = (a: Box, b: Box) => a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
@@ -22,13 +22,15 @@ const sameBox = (a: Box, b: Box) => a.x === b.x && a.y === b.y && a.w === b.w &&
 export function Grid({
   widgets,
   editing,
-  density,
+  row,
+  gap,
   onCommit,
   renderCard,
 }: {
   widgets: Widget[];
   editing: boolean;
-  density: Density;
+  row: number;
+  gap: number;
   /** New positions of the widgets that changed (already resolved). */
   onCommit: (items: Box[], announce: string) => void;
   renderCard: (w: Widget, opts: { dragHandle: (e: React.PointerEvent) => void; resizeHandle: ReactNode; desktop: boolean }) => ReactNode;
@@ -43,7 +45,6 @@ export function Grid({
     setPreviewState(p);
   };
   const drag = useRef<Drag | null>(null);
-  const { row, gap } = GRID_METRICS[density];
 
   useEffect(() => {
     const el = ref.current;
@@ -83,7 +84,7 @@ export function Grid({
       if (!d || e.pointerId !== d.pointerId) return;
       const dx = Math.round((e.clientX - d.startX) / (col + gap));
       const dy = Math.round((e.clientY - d.startY) / (row + gap));
-      const spec = WIDGETS[widgets.find((w) => w.id === d.id)?.type ?? "notes"];
+      const spec = widgets.find((w) => w.id === d.id) ?? { minW: 1, minH: 1 };
       const box =
         d.mode === "move"
           ? { ...d.box, x: Math.min(GRID_COLS - d.box.w, Math.max(0, d.box.x + dx)), y: Math.max(0, d.box.y + dy) }
@@ -118,7 +119,7 @@ export function Grid({
     const s = step[e.key];
     if (!s) return;
     e.preventDefault();
-    const spec = WIDGETS[w.type];
+    const spec = w;
     const box: Box = e.shiftKey
       ? { id: w.id, x: w.x, y: w.y, w: Math.min(GRID_COLS - w.x, Math.max(spec.minW, w.w + s[0])), h: Math.min(MAX_H, Math.max(spec.minH, w.h + s[1])) }
       : { id: w.id, x: Math.min(GRID_COLS - w.w, Math.max(0, w.x + s[0])), y: Math.max(0, w.y + s[1]), w: w.w, h: w.h };
