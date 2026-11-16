@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Zentico Workspace",
+  "mainBinaryName": "zentico-workspace",
+  "version": "0.1.0",
+  "identifier": "dev.zentico.workspace",
+  "build": {
+    "frontendDist": "../../launcher"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [],
+    "security": {
+      "csp": null,
+      "capabilities": ["local-launcher"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "publisher": "Zentico",
+    "shortDescription": "Zentico Workspace",
+    "longDescription": "Mail, calendar, chat, meetings and Drive for your Zentico workspace.",
+    "category": "Productivity",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" },
+      "nsis": { "installMode": "currentUser" }
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": { "schemes": ["zentico"] }
+    }
+  }
+}

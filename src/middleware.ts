@@ -89,8 +89,9 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Everything except sign-in, auth endpoints, WOPI (Collabora, token-authenticated), MCP (personal
-  // access tokens), the Claude bridge endpoints (/api/agent, same tokens), Chat incoming webhooks and
-  // the app API (/api/chat/hooks, /api/chat/bots: their own keys/tokens), Next internals and static files.
-  matcher: ["/((?!signin|bridge\\.mjs$|api/auth|api/wopi|api/mcp|api/agent/|api/chat/hooks/|api/chat/bots/|_next/|favicon|icon|.*\\.(?:svg|png|jpg|ico|webp|woff2?)$).*)"],
+  // Everything except sign-in, auth endpoints, the public workspace-info probe (desktop/mobile apps),
+  // WOPI (Collabora, token-authenticated), MCP (personal access tokens), the Claude bridge endpoints
+  // (/api/agent, same tokens), Chat incoming webhooks and the app API (/api/chat/hooks, /api/chat/bots:
+  // their own keys/tokens), Next internals and static files.
+  matcher: ["/((?!signin|bridge\\.mjs$|api/auth|api/wopi|api/workspace-info$|api/mcp|api/agent/|api/chat/hooks/|api/chat/bots/|_next/|favicon|icon|.*\\.(?:svg|png|jpg|ico|webp|woff2?)$).*)"],
 };

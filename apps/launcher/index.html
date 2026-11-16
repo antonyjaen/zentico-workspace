@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Zentico Workspace</title>
+<style>
+  :root { color-scheme: light dark; --bg: #fafafa; --ink: #0a0a0a; --soft: #737373; --line: #d4d4d4; --field: #fff;
+    --btn: #0a0a0a; --btn-ink: #fff; --err: #b91c1c; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0a0a0a; --ink: #ededed; --soft: #a3a3a3; --line: #404040;
+    --field: #171717; --btn: #ededed; --btn-ink: #0a0a0a; --err: #f87171; } }
+  html, body { height: 100%; margin: 0; }
+  body { display: grid; place-items: center; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  main { text-align: center; padding: 24px 16px; width: 100%; max-width: 380px; box-sizing: border-box; }
+  .logo { width: 56px; height: 56px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 16px 0 4px; }
+  p { color: var(--soft); margin: 0 0 20px; }
+  form { display: grid; gap: 10px; text-align: left; }
+  label { font-size: 13px; font-weight: 500; }
+  input { font: inherit; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--field);
+    color: var(--ink); width: 100%; box-sizing: border-box; }
+  .row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  button { font: inherit; font-weight: 500; border: 1px solid var(--btn); border-radius: 8px; padding: 8px 18px; cursor: pointer;
+    background: var(--btn); color: var(--btn-ink); }
+  button.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+  button:disabled { opacity: .6; cursor: default; }
+  .err { color: var(--err); font-size: 13px; min-height: 1.5em; margin: 0; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#0a0a0a"/><path d="M10 10.5h12l-12 11h12" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+
+  <section id="connecting"><h1>Zentico Workspace</h1><p data-t="connecting"></p></section>
+
+  <section id="offline" hidden>
+    <h1 data-t="offlineTitle"></h1>
+    <p id="offline-text"></p>
+    <div class="row">
+      <button id="retry" type="button" data-t="retry"></button>
+      <button id="change" type="button" class="ghost" data-t="change"></button>
+    </div>
+  </section>
+
+  <section id="setup" hidden>
+    <h1 data-t="setupTitle"></h1>
+    <p data-t="setupText"></p>
+    <form id="form" novalidate>
+      <label for="server" data-t="label"></label>
+      <input id="server" name="server" type="url" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false"
+        placeholder="team.example.com" required>
+      <p id="error" class="err" role="alert"></p>
+      <div class="row">
+        <button id="submit" type="submit" data-t="continue"></button>
+        <button id="cancel" type="button" class="ghost" data-t="cancel" hidden></button>
+      </div>
+    </form>
+  </section>
+</main>
+<script>
+// Bundled launcher shared by the desktop (Tauri) and mobile (Capacitor) apps:
+// - first run / "Change workspace": asks for the server, checks /api/workspace-info, saves it natively;
+// - later runs: checks the saved server is reachable, then hands the window to it;
+// - unreachable: offline screen with Retry and Change workspace.
+(function () {
+  var T = {
+    en: {
+      connecting: "Connecting…", offlineTitle: "Can't reach your workspace", offlineText: "Check your connection to {host} and try again.",
+      retry: "Retry", change: "Change workspace", setupTitle: "Connect to your workspace",
+      setupText: "Enter the address of your Zentico Workspace.", label: "Workspace address", continue: "Continue", cancel: "Cancel",
+      checking: "Checking…", errEmpty: "Enter your workspace address.", errInvalid: "That doesn't look like a valid address.",
+      errHttps: "The workspace must use https://.", errUnreachable: "Couldn't reach a Zentico Workspace at {host}. Check the address.", errNotZentico: "{host} isn't a Zentico Workspace server.",
+      errSave: "Couldn't save the workspace."
+    },
+    es: {
+      connecting: "Conectando…", offlineTitle: "No se puede acceder a tu espacio de trabajo", offlineText: "Revisa tu conexión con {host} e inténtalo de nuevo.",
+      retry: "Reintentar", change: "Cambiar espacio de trabajo", setupTitle: "Conecta con tu espacio de trabajo",
+      setupText: "Introduce la dirección de tu Zentico Workspace.", label: "Dirección del espacio de trabajo", continue: "Continuar", cancel: "Cancelar",
+      checking: "Comprobando…", errEmpty: "Introduce la dirección de tu espacio de trabajo.", errInvalid: "Esa dirección no parece válida.",
+      errHttps: "El espacio de trabajo debe usar https://.", errUnreachable: "No se encontró un Zentico Workspace en {host}. Revisa la dirección.", errNotZentico: "{host} no es un servidor de Zentico Workspace.",
+      errSave: "No se pudo guardar el espacio de trabajo."
+    }
+  };
+  var lang = (navigator.language || "en").slice(0, 2) === "es" ? "es" : "en";
+  document.documentElement.lang = lang;
+  function t(k, vars) {
+    var s = T[lang][k] || T.en[k];
+    for (var v in vars || {}) s = s.replace("{" + v + "}", vars[v]);
+    return s;
+  }
+  document.querySelectorAll("[data-t]").forEach(function (el) { el.textContent = t(el.getAttribute("data-t")); });
+
+  // Native bridge: Tauri commands on desktop, the app's "Workspace" plugin on mobile.
+  var tauri = window.__TAURI_INTERNALS__;
+  var cap = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Workspace;
+  var native = tauri ? {
+    get: function () { return tauri.invoke("get_launch"); },
+    // Resolves true when the app restarts itself to apply a different workspace.
+    save: function (ws) { return tauri.invoke("set_workspace", ws); },
+    allowLoopbackHttp: true
+  } : cap ? {
+    get: function () { return cap.getLaunch(); },
+    save: function (ws) { return cap.setWorkspace(ws).then(function () { return false; }); },
+    allowLoopbackHttp: false
+  } : null;
+
+  var params = new URLSearchParams(location.search);
+  var launch = { workspace: null, start: null, prefill: null };
+  var busy = false;
+
+  function show(id) {
+    ["connecting", "offline", "setup"].forEach(function (s) { document.getElementById(s).hidden = s !== id; });
+    if (id === "setup") setTimeout(function () { document.getElementById("server").focus(); }, 0);
+  }
+  function hostOf(origin) { try { return new URL(origin).host; } catch (e) { return origin; } }
+  function timeout(ms) {
+    var ctl = new AbortController();
+    setTimeout(function () { ctl.abort(); }, ms);
+    return ctl.signal;
+  }
+
+  function normalize(input) {
+    var s = (input || "").trim();
+    if (!s) throw new Error(t("errEmpty"));
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) s = "https://" + s;
+    var u;
+    try { u = new URL(s); } catch (e) { throw new Error(t("errInvalid")); }
+    var loop = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(u.hostname);
+    if (u.protocol === "http:" && !(loop && native && native.allowLoopbackHttp)) throw new Error(t("errHttps"));
+    if (u.protocol !== "https:" && u.protocol !== "http:") throw new Error(t("errInvalid"));
+    if (u.username || u.password || !u.hostname) throw new Error(t("errInvalid"));
+    return u.origin;
+  }
+
+  function probe(origin) {
+    return fetch(origin + "/api/workspace-info", { cache: "no-store", credentials: "omit", signal: timeout(10000) })
+      .then(function (r) {
+        if (!r.ok) throw { notZentico: true };
+        return r.json().catch(function () { throw { notZentico: true }; });
+      }, function () { throw { unreachable: true }; })
+      .then(function (info) {
+        if (!info || info.product !== "zentico-workspace") throw { notZentico: true };
+        return {
+          origin: origin,
+          authHost: typeof info.authHost === "string" ? info.authHost : null,
+          officeHost: typeof info.officeHost === "string" ? info.officeHost : null
+        };
+      });
+  }
+
+  function open(ws) {
+    var start = launch.start && launch.start.indexOf(ws.origin + "/") === 0 ? launch.start : ws.origin + "/";
+    location.replace(start);
+  }
+
+  function connect() {
+    var ws = launch.workspace;
+    if (!ws || busy) return;
+    busy = true;
+    show("connecting");
+    fetch(ws.origin + "/api/workspace-info", { mode: "no-cors", cache: "no-store", signal: timeout(10000) })
+      .then(function () { open(ws); }, function () {
+        busy = false;
+        document.getElementById("offline-text").textContent = t("offlineText", { host: hostOf(ws.origin) });
+        show("offline");
+      });
+  }
+
+  function setup(prefill) {
+    var input = document.getElementById("server");
+    input.value = prefill || (launch.workspace ? hostOf(launch.workspace.origin) : "");
+    document.getElementById("cancel").hidden = !launch.workspace;
+    document.getElementById("error").textContent = "";
+    show("setup");
+  }
+
+  document.getElementById("form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    if (busy) return;
+    var err = document.getElementById("error");
+    var btn = document.getElementById("submit");
+    var origin;
+    try { origin = normalize(document.getElementById("server").value); } catch (x) { err.textContent = x.message; return; }
+    busy = true;
+    btn.disabled = true;
+    btn.textContent = t("checking");
+    err.textContent = "";
+    probe(origin)
+      .then(function (ws) {
+        return native.save(ws).then(function (restarting) {
+          if (!restarting) open(ws);
+        }, function () { throw { save: true }; });
+      })
+      .catch(function (x) {
+        var host = hostOf(origin);
+        err.textContent = x && x.unreachable ? t("errUnreachable", { host: host })
+          : x && x.notZentico ? t("errNotZentico", { host: host }) : t("errSave");
+        busy = false;
+        btn.disabled = false;
+        btn.textContent = t("continue");
+      });
+  });
+  document.getElementById("cancel").addEventListener("click", connect);
+  document.getElementById("retry").addEventListener("click", connect);
+  document.getElementById("change").addEventListener("click", function () { setup(); });
+  window.addEventListener("online", function () { if (!document.getElementById("offline").hidden) connect(); });
+
+  if (!native) { setup(); return; }
+  native.get().then(function (l) {
+    launch = l || launch;
+    if (launch.prefill || params.has("setup") || !launch.workspace) return setup(launch.prefill);
+    if (params.has("offline")) {
+      document.getElementById("offline-text").textContent = t("offlineText", { host: hostOf(launch.workspace.origin) });
+      return show("offline");
+    }
+    connect();
+  }, function () { setup(); });
+})();
+</script>
+</body>
+</html>
