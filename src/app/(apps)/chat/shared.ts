@@ -77,13 +77,61 @@ export type MeetingMeta = {
   ended?: number;
   /** A calendar event with invitations was created. */
   calendar?: boolean;
+  /** Set when the meeting was started by a ringing call (the card then reads as a call). */
+  call?: CallMeta;
+};
+
+export type CallMeta = {
+  id: string;
+  media: CallMedia;
+  state: CallState;
+  answeredAt?: number;
+  endedAt?: number;
 };
 
 export type SystemMeta = {
-  action: "created" | "added" | "joined" | "left" | "renamed" | "removed";
+  action: "created" | "added" | "joined" | "left" | "renamed" | "removed" | "call";
   names?: string[];
   name?: string;
+  /** action "call": how an unanswered call ended. */
+  outcome?: "missed" | "declined";
+  media?: CallMedia;
 };
+
+// ---------- Calls (ringing) ----------
+
+export type CallMedia = "audio" | "video";
+/** ringing → answered → ended, or ringing → cancelled (caller hung up) / missed (timeout) / declined (everyone said no). */
+export type CallState = "ringing" | "answered" | "cancelled" | "missed" | "declined" | "ended";
+export type CallMemberState = "ringing" | "accepted" | "declined" | "missed" | "cancelled";
+
+/** A call as its participants see it (GET /api/calls, call.ring / call.update events). */
+export type CallView = {
+  id: string;
+  conversationId: string;
+  conversationKind: ConversationKind;
+  /** Channel or named group; null for DMs and unnamed groups (shown as the people). */
+  conversationName: string | null;
+  room: string;
+  media: CallMedia;
+  state: CallState;
+  caller: { id: number; name: string; email: string };
+  callees: { id: number; name: string; email: string; state: CallMemberState }[];
+  created: number;
+  answeredAt: number | null;
+  endedAt: number | null;
+  /** When unanswered ringing stops (server-side timeout). */
+  ringUntil: number;
+};
+
+export const CALL_RING_MS = 45_000;
+/** Channels only ring everyone on request, and only this small. */
+export const CALL_RING_CHANNEL_MAX = 10;
+/** Groups ring at most this many people. */
+export const CALL_RING_MAX = 50;
+export const CALL_ID = /^[a-z0-9]{16}$/;
+export const isCallId = (v: unknown): v is string => typeof v === "string" && CALL_ID.test(v);
+export const isCallActive = (c: Pick<CallView, "state">) => c.state === "ringing" || c.state === "answered";
 
 /**
  * A Drive file or folder posted in a conversation (a `file` message with `meta.drive`). Name,

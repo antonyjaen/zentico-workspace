@@ -81,7 +81,8 @@ export function onChatMessage(message: ChatMessage): void {
     // A meeting started here: everyone who can read the conversation.
     if (message.kind === "meeting") {
       const meeting = message.meta?.meeting;
-      if (!meeting || meeting.type !== "instant") return;
+      // Calls ring the people instead (lib/chat/calls.ts); a missed one is notified there.
+      if (!meeting || meeting.type !== "instant" || meeting.call) return;
       for (const r of others) {
         if (!r.member && conv.kind === "channel") continue;
         const where = conv.kind === "dm" ? "" : conv.kind === "channel" ? `#${conv.name ?? ""}` : groupName(conv, r.id);
@@ -120,14 +121,17 @@ export function onChatMessage(message: ChatMessage): void {
       const name = conv.kind === "channel" ? `#${conv.name ?? ""}` : conv.kind === "group" ? groupName(conv, r.id) : "";
       const title = name ? `${author} · ${name}` : author;
       const base = { category: "chat" as const, body, href: chatHref(conv.id), ref: conv.id };
+      // Direct messages, group messages and mentions interrupt (in-app toast) like a chat app;
+      // thread replies and channel chatter only land in the bell (or a desktop notification).
+      const direct = { ...base, priority: "high" as const };
 
       if (mentioned) {
-        notify(r.email, { ...base, kind: "mention", title, key: `mention:${message.id}`, once: true });
+        notify(r.email, { ...direct, kind: "mention", title, key: `mention:${message.id}`, once: true });
       } else if (inThread) {
         notify(r.email, { ...base, kind: "reply", title, key: `thread:${message.threadRoot}` });
       } else if (message.threadRoot === null && r.member) {
-        if (conv.kind === "dm") notify(r.email, { ...base, kind: "dm", title, key: `chat:${conv.id}` });
-        else if (conv.kind === "group") notify(r.email, { ...base, kind: "group", title, key: `chat:${conv.id}` });
+        if (conv.kind === "dm") notify(r.email, { ...direct, kind: "dm", title, key: `chat:${conv.id}` });
+        else if (conv.kind === "group") notify(r.email, { ...direct, kind: "group", title, key: `chat:${conv.id}` });
         else if (!getPrefs(r.email).channelMentionsOnly) notify(r.email, { ...base, kind: "channel", title, key: `chat:${conv.id}` });
       }
     }

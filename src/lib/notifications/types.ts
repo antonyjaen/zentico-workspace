@@ -1,11 +1,12 @@
 // Client-safe notification types, preferences and helpers (no server imports here).
+import type { CallView } from "@/app/(apps)/chat/shared";
 
 export type NotificationCategory = "chat" | "meet" | "mail" | "calendar" | "claude";
 
 /**
  * What happened. chat: dm, group, channel (any channel message), mention, reply (thread I'm in),
  * added (to a conversation); meet: meeting (started in one of my conversations); mail: mail,
- * mailBatch (several at once; title is the count);
+ * missedCall (a call to me nobody answered); mailBatch (several at once; title is the count);
  * calendar: reminder, invite; claude: done, failed, confirm.
  */
 export type NotificationKind =
@@ -16,6 +17,7 @@ export type NotificationKind =
   | "reply"
   | "added"
   | "meeting"
+  | "missedCall"
   | "mail"
   | "mailBatch"
   | "reminder"
@@ -52,6 +54,8 @@ export type NotificationPrefs = {
   claude: boolean;
   desktop: boolean;
   sound: boolean;
+  /** Ring incoming calls out loud (off = the call still shows, silently). */
+  ringtone: boolean;
   /** Epoch ms; no desktop notifications, toasts or sounds until then. 0 = off. */
   dndUntil: number;
 };
@@ -64,11 +68,12 @@ export const DEFAULT_PREFS: NotificationPrefs = {
   meetings: true,
   claude: true,
   desktop: false,
-  sound: false,
+  sound: true,
+  ringtone: true,
   dndUntil: 0,
 };
 
-const BOOL_PREFS = ["chat", "channelMentionsOnly", "mail", "calendar", "meetings", "claude", "desktop", "sound"] as const;
+const BOOL_PREFS = ["chat", "channelMentionsOnly", "mail", "calendar", "meetings", "claude", "desktop", "sound", "ringtone"] as const;
 export const DND_MAX_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Validates untrusted input into a full prefs object (unknown keys dropped, bad values defaulted). */
@@ -104,7 +109,11 @@ export type NotifyEvent =
   | { type: "notification"; notification: AppNotification }
   | { type: "read"; ids: string[] }
   | { type: "readAll" }
-  | { type: "prefs"; prefs: NotificationPrefs };
+  | { type: "prefs"; prefs: NotificationPrefs }
+  /** A call is ringing me (sent to the people being called). */
+  | { type: "call.ring"; call: CallView }
+  /** A call I'm part of changed (answered, declined, cancelled, missed, ended…). */
+  | { type: "call.update"; call: CallView };
 
 export type NotificationsResponse = { items: AppNotification[]; unread: number; prefs: NotificationPrefs };
 

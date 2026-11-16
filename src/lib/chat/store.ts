@@ -7,6 +7,7 @@ import {
   MEETING_LIVE_MS,
   PAGE_SIZE,
   type BotCard,
+  type CallMeta,
   type ChatMessage,
   type ChatOverview,
   type ChatUser,
@@ -950,7 +951,7 @@ function meetingCard(conv: ConvRow, userId: number, meeting: MeetingMeta, body =
   return postAndPublish(conv, userId, { kind: "meeting", body, meta: { meeting } });
 }
 
-export function startInstantMeeting(convId: string, userId: number, code: string, title: string): ChatMessage {
+export function startInstantMeeting(convId: string, userId: number, code: string, title: string, call?: CallMeta): ChatMessage {
   const conv = writable(convId, userId);
   const meetingId = num(
     run(
@@ -962,7 +963,7 @@ export function startInstantMeeting(convId: string, userId: number, code: string
       userId,
     ).lastInsertRowid,
   );
-  const message = meetingCard(conv, userId, { meetingId, code, type: "instant", title });
+  const message = meetingCard(conv, userId, { meetingId, code, type: "instant", title, ...(call ? { call } : {}) });
   run("UPDATE meetings SET message_id = ? WHERE id = ?", message.id, meetingId);
   publish(audience(conv), { type: "meeting", conversationId: convId });
   return message;
@@ -1018,6 +1019,53 @@ export function endMeeting(meetingId: number, userId: number): void {
   });
   if (r.message_id != null) publishUpdate(conv, num(r.message_id));
   publish(audience(conv), { type: "meeting", conversationId: conv.id });
+  // A ringing call in this meeting stops ringing; an answered one ends.
+  void import("./calls")
+    .then((m) => m.onMeetingEnded(meetingId))
+    .catch((e) => console.error("[calls] meeting end:", e instanceof Error ? e.message : e));
+}
+
+// ---------- Calls (lib/chat/calls.ts owns the call state; these keep chat in step) ----------
+
+/** Who a call in this conversation would ring: its people other than me (no apps). Requires membership. */
+export function callTarget(convId: string, userId: number): { id: string; kind: ConversationKind; name: string | null; title: string; others: number[] } {
+  const conv = writable(convId, userId);
+  if (isBotUser(userId)) throw new ChatError("forbidden");
+  const others = all(
+    `SELECT u.id FROM conversation_members cm JOIN users u ON u.id = cm.user_id
+     WHERE cm.conversation_id = ? AND u.id != ? AND u.bot_id IS NULL ORDER BY cm.joined LIMIT 1000`,
+    convId,
+    userId,
+  ).map((r) => num(r.id));
+  return { id: conv.id, kind: conv.kind, name: conv.kind === "dm" ? null : conv.name, title: summarize(conv, userId).name, others };
+}
+
+/**
+ * Updates the call shown on a meeting's card (state, answered/ended times). `end` also marks the
+ * meeting itself as ended, so the conversation's "ongoing" banner goes away.
+ */
+export function patchMeetingCall(meetingId: number, patch: Partial<CallMeta>, end: boolean): void {
+  const r = get("SELECT * FROM meetings WHERE id = ?", meetingId);
+  if (!r) return;
+  const now = Date.now();
+  tx(() => {
+    if (end && r.ended_at == null) run("UPDATE meetings SET ended_at = ? WHERE id = ?", now, meetingId);
+    if (r.message_id == null) return;
+    const meta = parseMeta(get("SELECT meta FROM messages WHERE id = ?", num(r.message_id))?.meta);
+    if (!meta?.meeting?.call) return;
+    meta.meeting.call = { ...meta.meeting.call, ...patch };
+    if (end) meta.meeting.ended ??= now;
+    run("UPDATE messages SET meta = ? WHERE id = ?", JSON.stringify(meta), num(r.message_id));
+  });
+  const conv = convById(strv(r.conversation_id));
+  if (r.message_id != null) publishUpdate(conv, num(r.message_id));
+  if (end) publish(audience(conv), { type: "meeting", conversationId: conv.id });
+}
+
+/** "Missed call from X" / "X's call was declined" line in the conversation (authored by the caller). */
+export function callSystemMessage(convId: string, callerId: number, meta: SystemMeta): void {
+  const r = get("SELECT * FROM conversations WHERE id = ?", convId);
+  if (r) systemMessage(convRow(r), callerId, meta);
 }
 
 export function conversationMeetings(convId: string, userId: number) {

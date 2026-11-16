@@ -206,6 +206,34 @@ const MIGRATIONS: string[] = [
   CREATE INDEX bots_owner ON bots(owner_id, kind);
   CREATE INDEX bots_conv ON bots(conversation_id);
   `,
+  // Ringing calls (lib/chat/calls.ts): one row per call, one per person being called.
+  // meeting_id is set only when the call started its own meeting (and owns that meeting's card).
+  `
+  CREATE TABLE calls (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    meeting_id INTEGER REFERENCES meetings(id) ON DELETE SET NULL,
+    room TEXT NOT NULL,
+    caller_id INTEGER NOT NULL REFERENCES users(id),
+    media TEXT NOT NULL CHECK (media IN ('audio', 'video')),
+    state TEXT NOT NULL CHECK (state IN ('ringing', 'answered', 'cancelled', 'missed', 'declined', 'ended')),
+    created INTEGER NOT NULL,
+    answered_at INTEGER,
+    ended_at INTEGER
+  );
+  CREATE INDEX calls_conv ON calls(conversation_id, created);
+  CREATE INDEX calls_state ON calls(state, created);
+
+  CREATE TABLE call_members (
+    call_id TEXT NOT NULL REFERENCES calls(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    state TEXT NOT NULL CHECK (state IN ('ringing', 'accepted', 'declined', 'missed', 'cancelled')),
+    updated INTEGER NOT NULL,
+    reply TEXT,
+    PRIMARY KEY (call_id, user_id)
+  );
+  CREATE INDEX call_members_user ON call_members(user_id, state);
+  `,
 ];
 
 function open(): Database {

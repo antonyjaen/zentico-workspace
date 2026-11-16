@@ -107,6 +107,11 @@ function emit(email: string, event: NotifyEvent) {
   bus().emit(channel(email), event);
 }
 
+/** Pushes a live-only event (not stored) to all of a user's open tabs, e.g. a ringing call. */
+export function pushEvent(email: string, event: NotifyEvent): void {
+  emit(email, event);
+}
+
 export function subscribe(email: string, listener: (event: NotifyEvent) => void): () => void {
   const b = bus();
   const ch = channel(email);
@@ -223,10 +228,11 @@ export function notify(email: string, input: NotifyInput): AppNotification | nul
         .prepare("SELECT id FROM notifications WHERE user_email = ? AND key = ? AND read = 0 ORDER BY created DESC LIMIT 1")
         .get(user, key);
       if (existing) {
-        d.prepare("UPDATE notifications SET title = ?, body = ?, href = ?, count = count + 1, created = ? WHERE id = ?").run(
+        d.prepare("UPDATE notifications SET title = ?, body = ?, href = ?, priority = ?, count = count + 1, created = ? WHERE id = ?").run(
           title,
           body,
           input.href,
+          input.priority ?? "normal",
           now,
           s(existing.id),
         );
