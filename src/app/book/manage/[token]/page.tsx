@@ -3,7 +3,7 @@ import { getLocale, getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { joinUrl, manageContext } from "@/lib/booking/service";
 import { publicView } from "@/lib/booking/types";
-import { formatRange } from "../../_ui/BookingWidget";
+import { formatRange } from "../../_ui/format";
 import { Shell } from "../../_ui/Shell";
 import { ManageActions } from "./ManageActions";
 

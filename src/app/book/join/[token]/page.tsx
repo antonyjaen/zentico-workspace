@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { joinContext } from "@/lib/booking/service";
 import { livekitConfig } from "@/lib/livekit";
-import { formatRange } from "../../_ui/BookingWidget";
+import { formatRange } from "../../_ui/format";
 import { Shell } from "../../_ui/Shell";
 import { GuestCall } from "./GuestCall";
 

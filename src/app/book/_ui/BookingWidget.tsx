@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { addMonths, daysBetween, isTimeZone, viewRange, weekStartFor, zonedParts, zonedToUtc } from "@/app/(apps)/calendar/time";
 import type { PublicBookingType } from "@/lib/booking/types";
+import { formatRange } from "./format";
 import { BTN_PRIMARY, BTN_SECONDARY, INPUT } from "./Shell";
 
 type Mode = { kind: "book"; handle: string; slug: string } | { kind: "reschedule"; token: string; duration: number };
@@ -410,12 +411,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export function formatRange(start: number, end: number, tz: string, locale: string): string {
-  const tag = locale === "en" ? "en-US" : "es-ES";
-  const day = new Intl.DateTimeFormat(tag, { timeZone: tz, weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(start);
-  const time = new Intl.DateTimeFormat(tag, { timeZone: tz, hour: "2-digit", minute: "2-digit" });
-  return `${day.charAt(0).toUpperCase()}${day.slice(1)} · ${time.format(start)} – ${time.format(end)} (${tz.replace(/_/g, " ")})`;
-}
 
 /** Icon for each kind of location. */
 export const LOCATION_ICON = { meet: Video, phone: Phone, inPerson: MapPin, custom: MapPin } as const;

@@ -1,13 +1,15 @@
-import { Clock } from "lucide-react";
+import { Clock, MapPin, Phone, Video } from "lucide-react";
 import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { activePage } from "@/lib/booking/service";
 import { HANDLE, publicView, SLUG } from "@/lib/booking/types";
-import { BookingWidget, LOCATION_ICON } from "../../_ui/BookingWidget";
+import { BookingWidget } from "../../_ui/BookingWidget";
 import { Shell } from "../../_ui/Shell";
 
 export const dynamic = "force-dynamic";
+
+const LOCATION_ICON = { meet: Video, phone: Phone, inPerson: MapPin, custom: MapPin } as const;
 
 type Params = { params: Promise<{ handle: string; slug: string }> };
 
