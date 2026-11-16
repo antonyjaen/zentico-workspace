@@ -71,7 +71,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       // doesn't run inside a CSP sandbox, so PDFs get frame-ancestors only.
       "Content-Security-Policy": isPdf && inline ? "frame-ancestors 'self'" : "default-src 'none'; style-src 'unsafe-inline'; sandbox",
       "X-Frame-Options": "SAMEORIGIN",
-      "Cache-Control": "private, no-cache",
+      // no-transform: Next's gzip would drop Content-Length/Content-Range and break media playback.
+      "Cache-Control": "private, no-cache, no-transform",
       "Cross-Origin-Resource-Policy": "same-origin",
       "Referrer-Policy": "no-referrer",
       "Accept-Ranges": "bytes",
