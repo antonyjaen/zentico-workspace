@@ -7,6 +7,7 @@
 // until reconnected, which moves them to an API key.
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { seal, unseal } from "../crypto";
+import { isGated } from "../security/store";
 import type { Session } from "../session";
 import { apiKeyWorks, createApiKey, CredentialError, destroyApiKey, type StalwartKey } from "./credential";
 import {
@@ -128,6 +129,8 @@ export function verifyToken(bearer: string | null | undefined): TokenRow | null 
   if (!bearer || !TOKEN_PATTERN.test(bearer)) return null;
   const row = tokenByHash(hashToken(bearer));
   if (!row || row.revoked || (row.expires != null && row.expires <= Date.now())) return null;
+  // Held back by the workspace two-step verification policy: no MCP/bridge access either.
+  if (isGated(row.userSub)) return null;
   return row;
 }
 

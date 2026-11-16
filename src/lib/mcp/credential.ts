@@ -36,9 +36,9 @@ const USING = ["urn:ietf:params:jmap:core", "urn:stalwart:jmap"];
 const KEEP = /^(authenticate$|jmap|email|calendar|dav)/;
 const SELF_DESTROY = "sysApiKeyDestroy";
 
-type JmapSessionInfo = { apiUrl: string; primaryAccounts: Record<string, string> };
+export type JmapSessionInfo = { apiUrl: string; primaryAccounts: Record<string, string> };
 
-async function jmapSession(bearer: string): Promise<JmapSessionInfo> {
+export async function jmapSession(bearer: string): Promise<JmapSessionInfo> {
   const res = await fetch(`${env.issuer}/jmap/session`, {
     headers: { Authorization: `Bearer ${bearer}` },
     cache: "no-store",
@@ -47,7 +47,7 @@ async function jmapSession(bearer: string): Promise<JmapSessionInfo> {
   return (await res.json()) as JmapSessionInfo;
 }
 
-const accountOf = (s: JmapSessionInfo) =>
+export const accountOf = (s: JmapSessionInfo) =>
   s.primaryAccounts["urn:stalwart:jmap"] ?? s.primaryAccounts["urn:ietf:params:jmap:mail"] ?? null;
 
 /** The effective permissions of `bearer` (Stalwart's /api/account, as used by its web admin). */

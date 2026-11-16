@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { env } from "@/lib/env";
+import { exceedsLifetime } from "@/lib/security/store";
 import { appRoot, isSameOrigin } from "@/lib/oidc";
 import {
   ACTIVE_COOKIE,
@@ -37,7 +38,8 @@ export async function POST(req: NextRequest) {
     redirect(
       `/api/auth/login?add=1&hint=${encodeURIComponent(session.email)}&returnTo=${encodeURIComponent(target)}`,
     );
-  if (isSignedOut(session)) return reauth();
+  // Past the workspace session lifetime counts as signed out too (fresh sign-in via the hint).
+  if (isSignedOut(session) || exceedsLifetime(session.signedInAt)) return reauth();
 
   const res = redirect(target);
   if (needsRefresh(session)) {

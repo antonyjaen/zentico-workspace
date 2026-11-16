@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { Wordmark } from "@/components/Logo";
-import { getSession, listAccounts } from "@/lib/auth";
+import { getSession, getSessionForSetup, listAccounts } from "@/lib/auth";
 import { safeLoginHint, safeReturnTo } from "@/lib/oidc";
 
 export const metadata: Metadata = { title: "Sign in" };
@@ -17,6 +17,8 @@ export default async function SignIn({
 }) {
   const { returnTo, error, hint } = await searchParams;
   if (await getSession()) redirect(safeReturnTo(returnTo));
+  // Signed in but held back by the workspace 2FA policy: finish setup first.
+  if (await getSessionForSetup()) redirect("/signin/security");
 
   // Re-authenticating a signed-out account: pre-fill it, and offer the other signed-in accounts.
   const loginHint = safeLoginHint(hint);

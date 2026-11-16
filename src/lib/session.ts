@@ -12,6 +12,19 @@ export const MCP_SETUP_COOKIE = "zw_mcp_setup";
 export const MCP_SETUP_MAX_AGE = 10 * 60;
 export type McpSetup = { sub: string; accessToken: string; expiresAt: number };
 
+/**
+ * Short-lived security grant (oidc.ts SECURITY_SCOPES) for managing the user's own sign-in
+ * security in Stalwart (TOTP, app passwords). `stepUp` = obtained with a fresh sign-in
+ * (prompt=login) rather than the provider's existing single sign-on session.
+ */
+export const SECURITY_COOKIE = "zw_sec";
+export const SECURITY_MAX_AGE = 10 * 60;
+export type SecurityGrant = { sub: string; accessToken: string; expiresAt: number; stepUp: boolean };
+
+/** TOTP secret being enrolled, kept sealed until the user confirms a code from their app. */
+export const TOTP_PENDING_COOKIE = "zw_totp";
+export type TotpPending = { sub: string; secret: string; expiresAt: number };
+
 // Multi-account layout: each signed-in account's sealed Session lives in its own cookie
 // (`zw_s0`…`zw_s4`), and `zw_active` holds the slots in most-recently-used order ("2.0.1"); its
 // first entry is the active account. `zw_session` is the pre-multi-account cookie, migrated to a
@@ -32,6 +45,11 @@ export type Session = {
   expiresAt: number;
   /** Set when a refresh failed: the account stays listed but must sign in again. */
   stale?: boolean;
+  /**
+   * Epoch ms of the interactive sign-in this session comes from; kept across token refreshes. The
+   * workspace session lifetime (Settings → Security, admins) is measured from it.
+   */
+  signedInAt?: number;
 };
 
 export const cookieOptions = (maxAgeSeconds: number) => ({
@@ -54,6 +72,7 @@ export function sessionFromTokens(tokens: TokenSet, user: UserInfo, previous?: S
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token ?? previous?.refreshToken,
     expiresAt: Date.now() + (tokens.expires_in ?? 3600) * 1000,
+    signedInAt: previous?.signedInAt ?? Date.now(),
   };
 }
 

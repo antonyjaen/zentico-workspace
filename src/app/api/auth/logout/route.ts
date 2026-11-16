@@ -5,6 +5,8 @@ import {
   ACTIVE_COOKIE,
   LEGACY_SESSION_COOKIE,
   readAccounts,
+  SECURITY_COOKIE,
+  TOTP_PENDING_COOKIE,
   serializeOrder,
   slotCookie,
   SLOTS,
@@ -25,6 +27,13 @@ export async function POST(req: NextRequest) {
   const accounts = await readAccounts(req.cookies);
   const remaining = all ? [] : accounts.order.slice(1);
 
+  // The short-lived security grant and any pending TOTP enrollment belong to the account signing out.
+  const clearSecurity = (res: NextResponse) => {
+    res.cookies.delete(SECURITY_COOKIE);
+    res.cookies.delete(TOTP_PENDING_COOKIE);
+    return res;
+  };
+
   if (remaining.length) {
     const res = NextResponse.redirect(
       `${env.appUrl}${appRoot(typeof returnValue === "string" ? returnValue : null)}`,
@@ -32,7 +41,7 @@ export async function POST(req: NextRequest) {
     );
     writeCookie(res, slotCookie(accounts.order[0]), null);
     writeCookie(res, ACTIVE_COOKIE, serializeOrder(remaining));
-    return res;
+    return clearSecurity(res);
   }
 
   let target = `${env.appUrl}/signin`;
@@ -53,5 +62,5 @@ export async function POST(req: NextRequest) {
   }
   writeCookie(res, ACTIVE_COOKIE, null);
   writeCookie(res, LEGACY_SESSION_COOKIE, null);
-  return res;
+  return clearSecurity(res);
 }

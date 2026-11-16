@@ -5,7 +5,9 @@ import { NotificationsProvider } from "@/components/notifications/NotificationsP
 import { VersionWatcher } from "@/components/VersionWatcher";
 import { TopBar } from "@/components/TopBar";
 import { UiShellProvider } from "@/components/UiShell";
+import { SecurityNudge } from "@/components/security/SecurityNudge";
 import { requireSession } from "@/lib/auth";
+import { getPolicy, statusOf } from "@/lib/security/store";
 import type { UiShell } from "@/lib/ui/schema";
 import { shellOf } from "@/lib/ui/service";
 
@@ -17,6 +19,12 @@ export default async function AppsLayout({ children }: { children: React.ReactNo
   } catch (e) {
     console.error("[ui] shell:", e instanceof Error ? e.message : e);
   }
+  // Two-step verification nudge: recommended when off/unknown, a deadline during the grace period.
+  const policy = getPolicy();
+  const nudge = {
+    show: statusOf(session.sub) !== true,
+    deadline: policy.required && policy.enforceAfter > Date.now() ? policy.enforceAfter : null,
+  };
 
   return (
     <UiShellProvider initial={shell}>
@@ -30,6 +38,7 @@ export default async function AppsLayout({ children }: { children: React.ReactNo
               <VersionWatcher />
               <div className="flex min-w-0 flex-1 flex-col">
                 <TopBar session={session} />
+                {nudge.show && <SecurityNudge deadline={nudge.deadline} />}
                 <div className="flex min-h-0 flex-1 pr-2 pb-2 md:pr-3 md:pb-3">{children}</div>
               </div>
             </div>

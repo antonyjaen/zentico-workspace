@@ -4,6 +4,7 @@
 // user's refresh token (Stalwart revokes the whole grant when a superseded copy is presented).
 import { NextResponse, type NextRequest } from "next/server";
 import { isSameOrigin } from "@/lib/oidc";
+import { exceedsLifetime, isGated } from "@/lib/security/store";
 import { readAccounts, refreshSession, sealSession, slotCookie, writeCookie } from "@/lib/session";
 import { renewWopiCreds } from "@/lib/wopi";
 
@@ -22,6 +23,8 @@ export async function POST(req: NextRequest) {
   const slot = order[0];
   let session = slot === undefined ? null : sessions[slot];
   if (slot === undefined || !session || session.stale) return NextResponse.json({ ok: false }, { status: 401 });
+  // Same rules as getSession(): session lifetime and the two-step verification policy.
+  if (exceedsLifetime(session.signedInAt) || isGated(session.sub)) return NextResponse.json({ ok: false }, { status: 401 });
 
   // Too close to expiry: refresh the browser session itself (its rotated refresh token goes back
   // into its cookie, exactly as the middleware does).

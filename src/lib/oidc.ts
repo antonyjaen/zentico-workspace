@@ -27,6 +27,16 @@ export const MCP_SETUP_SCOPES = [
   "urn:stalwart:oauth:scope:security",
 ].join(" ");
 
+/**
+ * Short-lived authorization for Settings → Security: Stalwart's "security" scope is the one that
+ * grants managing the user's own password credential (TOTP) and app passwords. No offline_access
+ * and nothing kept beyond a 10-minute cookie.
+ */
+export const SECURITY_SCOPES = ["openid", "urn:stalwart:oauth:scope:security"].join(" ");
+
+/** `check` reuses the provider's single sign-on session; `manage` asks for a fresh sign-in. */
+export type SecurityMode = "check" | "manage";
+
 type Discovery = {
   authorization_endpoint: string;
   token_endpoint: string;
@@ -57,19 +67,32 @@ export const redirectUri = () => `${env.appUrl}/api/auth/callback`;
  * `mcp` = the one-off authorization for creating an MCP token's Stalwart API key (it doesn't
  * touch the account cookies).
  */
-export type AuthTransaction = { state: string; verifier: string; returnTo: string; add?: boolean; mcp?: boolean };
+export type AuthTransaction = {
+  state: string;
+  verifier: string;
+  returnTo: string;
+  add?: boolean;
+  mcp?: boolean;
+  /** The security grant for Settings → Security (doesn't touch the account cookies). */
+  security?: SecurityMode;
+};
 
 export async function buildAuthorizeUrl(
   returnTo: string,
-  { add = false, loginHint, mcp = false }: { add?: boolean; loginHint?: string; mcp?: boolean } = {},
+  {
+    add = false,
+    loginHint,
+    mcp = false,
+    security,
+  }: { add?: boolean; loginHint?: string; mcp?: boolean; security?: SecurityMode } = {},
 ) {
   const { authorization_endpoint } = await getDiscovery();
-  const tx: AuthTransaction = { state: randomToken(), verifier: randomToken(48), returnTo, add, mcp };
+  const tx: AuthTransaction = { state: randomToken(), verifier: randomToken(48), returnTo, add, mcp, security };
   const params = new URLSearchParams({
     response_type: "code",
     client_id: env.clientId,
     redirect_uri: redirectUri(),
-    scope: mcp ? MCP_SETUP_SCOPES : SCOPES,
+    scope: mcp ? MCP_SETUP_SCOPES : security ? SECURITY_SCOPES : SCOPES,
     state: tx.state,
     code_challenge: base64url(await sha256(tx.verifier)),
     code_challenge_method: "S256",
@@ -77,7 +100,8 @@ export async function buildAuthorizeUrl(
   // Adding or re-authenticating a specific account must not silently reuse the provider's
   // current single sign-on session (which belongs to whichever account signed in last). The MCP
   // authorization may reuse it: its callback checks it's the same account.
-  if (add || (loginHint && !mcp)) params.set("prompt", "login");
+  // The security "manage" grant is a step-up: it always asks for the password (and code) again.
+  if (add || security === "manage" || (loginHint && !mcp && !security)) params.set("prompt", "login");
   if (loginHint) params.set("login_hint", loginHint);
   const url = new URL(authorization_endpoint);
   url.search = params.toString();

@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, getSessionForSetup } from "@/lib/auth";
 import { seal } from "@/lib/crypto";
 import { env } from "@/lib/env";
 import { appRoot, buildAuthorizeUrl, safeLoginHint, safeReturnTo } from "@/lib/oidc";
@@ -8,10 +8,23 @@ import { cookieOptions, TX_COOKIE } from "@/lib/session";
 /**
  * Starts an OIDC sign-in. `?add=1` signs in an additional account (kept alongside the others);
  * `?hint=<email>` re-authenticates a specific account; `?mcp=1` starts the one-off authorization
- * that lets Settings → Integrations create the Stalwart API key behind an MCP token.
+ * that lets Settings → Integrations create the Stalwart API key behind an MCP token;
+ * `?security=check|manage` starts the security grant used by Settings → Security and the 2FA policy
+ * check after sign-in (`manage` asks for a fresh sign-in).
  */
 export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
+  const security = params.get("security");
+  if (security === "check" || security === "manage") {
+    // Also allowed while the account is held back by the 2FA policy: it's how setup starts.
+    const session = await getSessionForSetup();
+    if (!session) return NextResponse.redirect(`${env.appUrl}/signin`);
+    const returnTo = safeReturnTo(params.get("returnTo") ?? "/settings/security");
+    const { url, tx } = await buildAuthorizeUrl(returnTo, { security, loginHint: safeLoginHint(session.email) });
+    const res = NextResponse.redirect(url);
+    res.cookies.set(TX_COOKIE, await seal(tx), cookieOptions(60 * 30));
+    return res;
+  }
   if (params.get("mcp") === "1") {
     const session = await getSession();
     if (!session) return NextResponse.redirect(`${env.appUrl}/signin`);
