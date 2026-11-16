@@ -7,7 +7,7 @@ import { usePopover } from "@/components/usePopover";
 import { sendMessage } from "./actions";
 import { DrivePickerDialog } from "./DrivePicker";
 import { BODY_MAX, FILE_MAX_BYTES, formatSize, isPreviewableImage, type ChatMessage, type ChatUser } from "./shared";
-import { Avatar, fold, useErrorText } from "./ui";
+import { AppBadge, Avatar, fold, useErrorText, useUserName } from "./ui";
 
 const TYPING_EVERY_MS = 3000;
 const MAX_FILES = 10;
@@ -35,6 +35,8 @@ export function Composer({ conversationId, threadRoot, me, members, placeholder,
   const [error, setError] = useState<string | null>(null);
   const [mention, setMention] = useState<{ query: string; start: number } | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [slash, setSlash] = useState<string | null>(null);
+  const userName = useUserName();
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const lastTyping = useRef(0);
@@ -75,6 +77,27 @@ export function Composer({ conversationId, threadRoot, me, members, placeholder,
       .slice(0, 6);
   }, [mention, members, me.id]);
 
+  // Slash commands of the apps in this conversation ("/" at the start of the message).
+  const commands = useMemo(() => {
+    if (slash === null) return [];
+    const q = slash.toLowerCase();
+    return members
+      .flatMap((m) => (m.bot?.kind === "http" && !m.bot.deleted ? (m.bot.commands ?? []).map((c) => ({ ...c, app: m })) : []))
+      .filter((c) => c.name.startsWith(q))
+      .slice(0, 8);
+  }, [slash, members]);
+  const menuSize = suggestions.length || commands.length;
+
+  const pickCommand = (name: string) => {
+    const next = `/${name} `;
+    setText(next);
+    setSlash(null);
+    requestAnimationFrame(() => {
+      ref.current?.setSelectionRange(next.length, next.length);
+      ref.current?.focus();
+    });
+  };
+
   const pingTyping = () => {
     const now = Date.now();
     if (now - lastTyping.current < TYPING_EVERY_MS) return;
@@ -89,6 +112,8 @@ export function Composer({ conversationId, threadRoot, me, members, placeholder,
   const updateMention = (value: string, caret: number) => {
     const m = /(^|\s)@([a-z0-9._-]{0,40})$/i.exec(value.slice(0, caret));
     setMention(m ? { query: m[2], start: caret - m[2].length - 1 } : null);
+    const s = /^\/([a-z0-9_-]{0,32})$/i.exec(value.slice(0, caret));
+    setSlash(s && caret === value.length ? s[1] : null);
     setMentionIndex(0);
   };
 
@@ -162,6 +187,8 @@ export function Composer({ conversationId, threadRoot, me, members, placeholder,
     setError(null);
     outbox.current.push({ body, files });
     setText("");
+    setMention(null);
+    setSlash(null);
     setFiles([]);
     lastTyping.current = 0;
     ref.current?.focus();
@@ -186,9 +213,31 @@ export function Composer({ conversationId, threadRoot, me, members, placeholder,
                   onClick={() => pickMention(u)}
                   className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ${i === mentionIndex ? "bg-hover" : "hover:bg-hover"}`}
                 >
-                  <Avatar name={u.name} email={u.email} size={22} />
-                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{u.name}</span>
+                  <Avatar name={u.name} email={u.email} bot={u.bot} size={22} />
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{userName(u)}</span>
+                  {u.bot && <AppBadge bot={u.bot} />}
                   <span className="shrink-0 text-[11.5px] text-ink-mute">@{handleOf(u)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {!suggestions.length && commands.length > 0 && (
+          <ul role="listbox" className="pop absolute bottom-full left-2 z-20 mb-1 w-80 max-w-[calc(100%-1rem)] p-1">
+            {commands.map((c, i) => (
+              <li key={`${c.app.id}-${c.name}`} role="option" aria-selected={i === mentionIndex}>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => pickCommand(c.name)}
+                  className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ${i === mentionIndex ? "bg-hover" : "hover:bg-hover"}`}
+                >
+                  <Avatar name={c.app.name} email={c.app.email} bot={c.app.bot} size={22} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-mono text-[12.5px] text-ink">/{c.name}</span>
+                    {c.description && <span className="block truncate text-[11.5px] text-ink-mute">{c.description}</span>}
+                  </span>
+                  <span className="max-w-[40%] shrink-0 truncate text-[11.5px] text-ink-mute">{c.app.name}</span>
                 </button>
               </li>
             ))}
@@ -289,20 +338,22 @@ export function Composer({ conversationId, threadRoot, me, members, placeholder,
               }
             }}
             onKeyDown={(e) => {
-              if (suggestions.length) {
+              if (menuSize) {
                 if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                   e.preventDefault();
                   const d = e.key === "ArrowDown" ? 1 : -1;
-                  setMentionIndex((i) => (i + d + suggestions.length) % suggestions.length);
+                  setMentionIndex((i) => (i + d + menuSize) % menuSize);
                   return;
                 }
                 if (e.key === "Enter" || e.key === "Tab") {
                   e.preventDefault();
-                  pickMention(suggestions[mentionIndex]);
+                  if (suggestions.length) pickMention(suggestions[Math.min(mentionIndex, suggestions.length - 1)]);
+                  else pickCommand(commands[Math.min(mentionIndex, commands.length - 1)].name);
                   return;
                 }
                 if (e.key === "Escape") {
                   setMention(null);
+                  setSlash(null);
                   return;
                 }
               }

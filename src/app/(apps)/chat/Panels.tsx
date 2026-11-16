@@ -4,13 +4,14 @@ import { Check, Loader2, LogOut, Pencil, UserPlus, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { addChannelMembers, addPeople, getTeamMembers, getThread, leaveConversation, renameConversation } from "./actions";
+import { addApps, removeApp } from "./app-actions";
 import type { Subscribe } from "./ChatApp";
 import { Composer } from "./Composer";
 import { MessageItem } from "./MessageItem";
 import { NAME_MAX, TYPING_TTL_MS, type ChatMessage, type ChatUser, type ConversationDetail, type Person } from "./shared";
-import { Avatar, BTN, BTN_PRIMARY, FIELD, Label, PeoplePicker, usePeople, useErrorText } from "./ui";
+import { AppBadge, appsAsPeople, Avatar, BTN, BTN_PRIMARY, FIELD, Label, PeoplePicker, useApps, usePeople, useErrorText, useUserName } from "./ui";
 
-function PanelHeader({ title, sub, onClose }: { title: string; sub?: string; onClose: () => void }) {
+export function PanelHeader({ title, sub, onClose }: { title: string; sub?: string; onClose: () => void }) {
   const t = useTranslations("chat");
   return (
     <div className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-4">
@@ -151,7 +152,9 @@ export function MembersPanel({
   onLeft: () => void;
 }) {
   const t = useTranslations("chat");
+  const ta = useTranslations("apps");
   const errorText = useErrorText();
+  const userName = useUserName();
   const [adding, setAdding] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
@@ -207,10 +210,14 @@ export function MembersPanel({
               conversation={conversation}
               busy={busy}
               onCancel={() => setAdding(false)}
-              onAdd={async (people, ids) => {
-                const ok = await run(() =>
-                  conversation.kind === "channel" ? addChannelMembers(conversation.id, ids) : addPeople(conversation.id, people),
-                );
+              onAdd={async (people, ids, appIds) => {
+                const humans = people.filter((p) => !p.bot);
+                let ok = true;
+                if (humans.length)
+                  ok = await run(() =>
+                    conversation.kind === "channel" ? addChannelMembers(conversation.id, ids) : addPeople(conversation.id, humans),
+                  );
+                if (ok && appIds.length) ok = await run(() => addApps(conversation.id, appIds));
                 if (ok) {
                   setAdding(false);
                   await onChanged();
@@ -228,17 +235,34 @@ export function MembersPanel({
 
         <ul className="space-y-0.5">
           {conversation.members.map((u) => (
-            <li key={u.id} className="flex items-center gap-2.5 rounded-md px-2 py-1.5">
-              <Avatar name={u.name} email={u.email} size={30} />
+            <li key={u.id} className="group flex items-center gap-2.5 rounded-md px-2 py-1.5">
+              <Avatar name={u.name} email={u.email} bot={u.bot} size={30} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13.5px] text-ink">
-                  {u.name}
-                  {u.id === me.id && <span className="text-ink-mute"> ({t("you")})</span>}
+                <span className="flex items-center gap-1.5">
+                  <span className="truncate text-[13.5px] text-ink">
+                    {userName(u)}
+                    {u.id === me.id && <span className="text-ink-mute"> ({t("you")})</span>}
+                  </span>
+                  {u.bot && <AppBadge bot={u.bot} />}
                 </span>
-                <span className="block truncate text-[12px] text-ink-mute">{u.email}</span>
+                <span className="block truncate text-[12px] text-ink-mute">{u.bot ? u.bot.description || `@${u.email.split("@")[0]}` : u.email}</span>
               </span>
-              {conversation.kind === "channel" && u.role === "owner" && (
+              {conversation.kind === "channel" && u.role === "owner" && !u.bot && (
                 <span className="shrink-0 rounded border border-line px-1.5 py-px text-[10.5px] text-ink-mute">{t("owner")}</span>
+              )}
+              {u.bot && conversation.joined && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={async () => {
+                    if (await run(() => removeApp(conversation.id, u.id))) await onChanged();
+                  }}
+                  className="icon-btn h-7 w-7 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-danger"
+                  aria-label={ta("remove", { name: userName(u) })}
+                  title={ta("remove", { name: userName(u) })}
+                >
+                  <X size={14} aria-hidden />
+                </button>
               )}
             </li>
           ))}
@@ -342,11 +366,14 @@ function AddMembers({
 }: {
   conversation: ConversationDetail;
   busy: boolean;
-  onAdd: (people: Person[], ids: number[]) => void;
+  onAdd: (people: Person[], ids: number[], appIds: number[]) => void;
   onCancel: () => void;
 }) {
   const t = useTranslations("chat");
+  const ta = useTranslations("apps");
   const directory = usePeople();
+  const apps = useApps();
+  const userName = useUserName();
   const [teamPeople, setTeamPeople] = useState<ChatUser[] | null>(null);
   const [picked, setPicked] = useState<Person[]>([]);
   const isChannel = conversation.kind === "channel";
@@ -358,13 +385,21 @@ function AddMembers({
 
   const memberEmails = useMemo(() => new Set(conversation.members.map((m) => m.email)), [conversation.members]);
   const candidates = useMemo(() => {
-    const source = isChannel ? (teamPeople?.map((u) => ({ email: u.email, name: u.name })) ?? null) : directory;
-    return source ? source.filter((p) => !memberEmails.has(p.email)) : null;
-  }, [isChannel, teamPeople, directory, memberEmails]);
+    const source = isChannel ? (teamPeople?.filter((u) => !u.bot).map((u) => ({ email: u.email, name: u.name })) ?? null) : directory;
+    // Apps are searchable too (mine, shared ones and my Claude).
+    const appPeople = appsAsPeople(apps, userName) ?? [];
+    return source ? [...appPeople, ...source].filter((p) => !memberEmails.has(p.email)) : null;
+  }, [isChannel, teamPeople, directory, memberEmails, apps, userName]);
 
   return (
     <div className="mb-3 space-y-2 rounded-lg border border-line p-3">
-      <PeoplePicker value={picked} onChange={setPicked} people={candidates} autoFocus placeholder={isChannel ? t("searchTeamMembers") : t("searchPeople")} />
+      <PeoplePicker
+        value={picked}
+        onChange={setPicked}
+        people={candidates}
+        autoFocus
+        placeholder={isChannel ? ta("searchTeamMembersOrApps") : ta("searchPeopleOrApps")}
+      />
       {isChannel && candidates?.length === 0 && <p className="text-[12px] text-ink-mute">{t("everyoneIsHere")}</p>}
       <div className="flex justify-end gap-2">
         <button type="button" onClick={onCancel} className={BTN}>
@@ -374,8 +409,9 @@ function AddMembers({
           type="button"
           disabled={busy || picked.length === 0}
           onClick={() => {
-            const ids = isChannel ? (teamPeople ?? []).filter((u) => picked.some((p) => p.email === u.email)).map((u) => u.id) : [];
-            onAdd(picked, ids);
+            const ids = isChannel ? (teamPeople ?? []).filter((u) => picked.some((p) => p.email === u.email && !p.bot)).map((u) => u.id) : [];
+            const appIds = (apps ?? []).filter((u) => picked.some((p) => p.bot && p.email === u.email)).map((u) => u.id);
+            onAdd(picked, ids, appIds);
           }}
           className={BTN_PRIMARY}
         >

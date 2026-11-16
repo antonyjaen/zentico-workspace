@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, ExternalLink, Languages, LogOut, Plug, UserPlus } from "lucide-react";
+import { Bell, Blocks, ExternalLink, Languages, LogOut, Plug, UserPlus } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -42,6 +42,7 @@ const itemClass =
 export function AccountMenu({ accounts, accountUrl }: { accounts: AccountSummary[]; accountUrl: string }) {
   const t = useTranslations("account");
   const tn = useTranslations("notifications");
+  const ta = useTranslations("apps.settings");
   const locale = useLocale();
   const router = useRouter();
   const pathname = usePathname();
@@ -134,6 +135,9 @@ export function AccountMenu({ accounts, accountUrl }: { accounts: AccountSummary
           <div className="border-t border-line p-1 py-1.5">
             <Link href="/settings/integrations" onClick={toggle} className={itemClass}>
               <Plug size={16} aria-hidden /> {locale === "es" ? "Integraciones (Claude / MCP)" : "Integrations (Claude / MCP)"}
+            </Link>
+            <Link href="/settings/apps" onClick={toggle} className={itemClass}>
+              <Blocks size={16} aria-hidden /> {ta("title")}
             </Link>
             <Link href="/settings/notifications" onClick={toggle} className={itemClass}>
               <Bell size={16} aria-hidden /> {tn("title")}

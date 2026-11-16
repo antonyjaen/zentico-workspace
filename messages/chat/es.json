@@ -137,7 +137,8 @@
       "joined": "{who} se unió",
       "left": "{who} salió",
       "renamed": "{who} cambió el nombre a {name}",
-      "renamedCleared": "{who} quitó el nombre"
+      "renamedCleared": "{who} quitó el nombre",
+      "removed": "{who} quitó a {names}"
     },
     "errors": {
       "failed": "Algo salió mal. Inténtalo de nuevo.",
@@ -159,7 +160,12 @@
       "calendarFailed": "No se pudo crear el evento en el calendario. No se publicó nada.",
       "unauthorized": "Tu sesión caducó. Recarga la página.",
       "driveNotFound": "Ese elemento de Drive ya no está disponible.",
-      "driveUnavailable": "Drive no está disponible ahora mismo."
+      "driveUnavailable": "Drive no está disponible ahora mismo.",
+      "tooManyApps": "Ya tienes el máximo de apps (25). Borra alguna primero.",
+      "tooManyWebhooks": "Esta conversación ya tiene 10 webhooks.",
+      "invalidAvatar": "El avatar debe ser un emoji.",
+      "invalidUrl": "La URL debe empezar por https:// y apuntar a un servidor público.",
+      "invalidCommand": "Los comandos usan minúsculas, números, - o _ (hasta 32 caracteres) y no se pueden repetir."
     },
     "tabChats": "Chats",
     "tabPeople": "Personas",
@@ -253,6 +259,7 @@
       "sentTo": "Enviado a {name}.",
       "openChat": "Abrir chat",
       "grantFailed": "{count, plural, one {No se pudo dar un acceso} other {No se pudieron dar # accesos}}; esas personas quizá no puedan abrirlo."
-    }
+    },
+    "appsAndWebhooks": "Apps y webhooks"
   }
 }

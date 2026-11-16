@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { addTeamPeople, createChannel, createTeam, getTeamMembers, scheduleMeeting, startChat } from "./actions";
 import { NAME_MAX, type ChatMessage, type ChatUser, type ConversationDetail, type Person, type TeamSummary } from "./shared";
-import { Avatar, BTN, BTN_MEET, BTN_PRIMARY, FIELD, Label, Modal, PeoplePicker, usePeople, useErrorText } from "./ui";
+import { appsAsPeople, Avatar, BTN, BTN_MEET, BTN_PRIMARY, FIELD, Label, Modal, PeoplePicker, useApps, usePeople, useErrorText, useUserName } from "./ui";
 
 function useSubmit() {
   const errorText = useErrorText();
@@ -38,7 +38,12 @@ function ErrorLine({ error }: { error: string | null }) {
 
 export function NewChatDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const t = useTranslations("chat");
-  const people = usePeople();
+  const ta = useTranslations("apps");
+  const directory = usePeople();
+  const apps = useApps();
+  const userName = useUserName();
+  // Apps can be DM'd or added to the new group too.
+  const people = useMemo(() => (directory ? [...(appsAsPeople(apps, userName) ?? []), ...directory] : null), [directory, apps, userName]);
   const [picked, setPicked] = useState<Person[]>([]);
   const [name, setName] = useState("");
   const { busy, error, submit } = useSubmit();
@@ -62,7 +67,7 @@ export function NewChatDialog({ onClose, onCreated }: { onClose: () => void; onC
       }
     >
       <Label>{t("to")}</Label>
-      <PeoplePicker value={picked} onChange={setPicked} people={people} autoFocus placeholder={t("searchPeople")} />
+      <PeoplePicker value={picked} onChange={setPicked} people={people} autoFocus placeholder={ta("searchPeopleOrApps")} />
       {group && (
         <div className="mt-4">
           <Label htmlFor="group-name">{t("groupNameOptional")}</Label>

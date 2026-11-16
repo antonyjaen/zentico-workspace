@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarCheck, Download, FileText, MessageSquareReply, Pencil, SmilePlus, Trash2, Video } from "lucide-react";
+import { CalendarCheck, Download, EyeOff, ExternalLink, FileText, MessageSquareReply, Pencil, SmilePlus, Trash2, Video } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { memo, useEffect, useRef, useState } from "react";
 import { usePopover } from "@/components/usePopover";
@@ -15,12 +15,14 @@ import {
   isPreviewableImage,
   MEETING_LIVE_MS,
   REACTIONS,
+  type BotCard,
   type ChatMessage,
   type ChatUser,
   type FileMeta,
   type MeetingMeta,
+  type NoticeMeta,
 } from "./shared";
-import { Avatar, BTN, BTN_MEET, shortTime, timeOf, useErrorText } from "./ui";
+import { AppBadge, Avatar, BTN, BTN_MEET, shortTime, timeOf, useErrorText, useUserName } from "./ui";
 
 type Props = {
   m: ChatMessage;
@@ -42,8 +44,11 @@ export const MessageItem = memo(function MessageItem({ m, me, grouped, nameOf, o
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const picker = usePopover();
+  const userName = useUserName();
   const mine = m.author?.id === me.id;
   const meHandle = me.email.split("@")[0].toLowerCase();
+  // Ephemeral app notices can't be reacted to, replied to or edited.
+  if (m.ephemeral) canInteract = false;
 
   if (m.kind === "system") return <SystemLine m={m} />;
 
@@ -80,13 +85,14 @@ export const MessageItem = memo(function MessageItem({ m, me, grouped, nameOf, o
             {timeOf(m.created, locale)}
           </span>
         ) : (
-          m.author && <Avatar name={m.author.name} email={m.author.email} size={32} className="mt-0.5" />
+          m.author && <Avatar name={m.author.name} email={m.author.email} bot={m.author.bot} size={32} className="mt-0.5" />
         )}
       </div>
       <div className="min-w-0 flex-1">
         {!grouped && (
           <div className="flex items-baseline gap-2">
-            <span className="truncate text-[13.5px] font-semibold text-ink">{m.author?.name ?? t("someone")}</span>
+            <span className="truncate text-[13.5px] font-semibold text-ink">{m.author ? userName(m.author) : t("someone")}</span>
+            {m.author?.bot && <AppBadge bot={m.author.bot} />}
             <time dateTime={new Date(m.created).toISOString()} className="shrink-0 text-[11px] text-ink-mute tabular-nums" title={new Date(m.created).toLocaleString(locale)}>
               {shortTime(m.created, locale) === timeOf(m.created, locale) ? timeOf(m.created, locale) : `${shortTime(m.created, locale)} ${timeOf(m.created, locale)}`}
             </time>
@@ -111,6 +117,8 @@ export const MessageItem = memo(function MessageItem({ m, me, grouped, nameOf, o
           <>
             {m.kind === "meeting" && m.meta?.meeting ? (
               <MeetingCard created={m.created} meeting={m.meta.meeting} author={m.author} description={m.body} canInteract={canInteract} me={me} />
+            ) : m.meta?.notice ? (
+              <Notice notice={m.meta.notice} />
             ) : (
               m.body && (
                 <div className="text-[14px] leading-relaxed break-words whitespace-pre-wrap text-ink">
@@ -119,6 +127,8 @@ export const MessageItem = memo(function MessageItem({ m, me, grouped, nameOf, o
                 </div>
               )
             )}
+            {m.meta?.cards && m.meta.cards.length > 0 && <BotCards cards={m.meta.cards} meHandle={meHandle} />}
+            {m.ephemeral && <OnlyYou />}
             {m.meta?.files && m.meta.files.length > 0 && <Attachments files={m.meta.files} />}
             <DriveCards m={m} me={me} canInteract={canInteract} />
           </>
@@ -220,6 +230,77 @@ export const MessageItem = memo(function MessageItem({ m, me, grouped, nameOf, o
   );
 });
 
+function Notice({ notice }: { notice: NoticeMeta }) {
+  const t = useTranslations("apps");
+  let text = "";
+  switch (notice.code) {
+    case "claudeOwnerOnly":
+      text = t("notice.claudeOwnerOnly", { owner: notice.owner });
+      break;
+    case "claudeWorking":
+      text = t("notice.claudeWorking");
+      break;
+    case "claudeQueued":
+      text = t("notice.claudeQueued");
+      break;
+    case "claudeNoToken":
+      text = t("notice.claudeNoToken");
+      break;
+    case "claudeFailed":
+      text = t("notice.claudeFailed", { error: notice.error || "—" });
+      break;
+  }
+  return <p className="text-[13.5px] leading-relaxed whitespace-pre-wrap text-ink-soft">{text}</p>;
+}
+
+function OnlyYou() {
+  const t = useTranslations("apps");
+  return (
+    <p className="mt-0.5 flex items-center gap-1 text-[11px] text-ink-mute">
+      <EyeOff size={11} aria-hidden />
+      {t("onlyYou")}
+    </p>
+  );
+}
+
+/** Cards posted by apps and webhooks: header, sections of Markdown-lite text, link buttons. */
+function BotCards({ cards, meHandle }: { cards: BotCard[]; meHandle: string }) {
+  return (
+    <div className="mt-1.5 space-y-1.5">
+      {cards.map((c, i) => (
+        <div key={i} className="max-w-md overflow-hidden rounded-lg border border-line bg-sheet">
+          {(c.title || c.subtitle) && (
+            <div className="border-b border-line px-3 py-2">
+              {c.title && <p className="text-[13.5px] font-semibold break-words text-ink">{c.title}</p>}
+              {c.subtitle && <p className="text-[12px] break-words text-ink-mute">{c.subtitle}</p>}
+            </div>
+          )}
+          {c.sections.map((s, j) => (
+            <div key={j} className={`px-3 py-2 ${j > 0 ? "border-t border-line" : ""}`}>
+              {s.header && <p className="mb-0.5 text-[11.5px] font-medium tracking-wide text-ink-mute uppercase">{s.header}</p>}
+              {s.text && (
+                <div className="text-[13px] leading-relaxed break-words whitespace-pre-wrap text-ink-soft">
+                  <Markdown text={s.text} meHandle={meHandle} />
+                </div>
+              )}
+              {s.buttons && s.buttons.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {s.buttons.map((b, k) => (
+                    <a key={k} href={b.url} target="_blank" rel="noopener noreferrer nofollow" className={BTN}>
+                      {b.text}
+                      <ExternalLink size={12} aria-hidden />
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function SystemLine({ m }: { m: ChatMessage }) {
   const t = useTranslations("chat");
   const locale = useLocale();
@@ -241,6 +322,9 @@ function SystemLine({ m }: { m: ChatMessage }) {
       break;
     case "renamed":
       text = s.name ? t("sys.renamed", { who, name: s.name }) : t("sys.renamedCleared", { who });
+      break;
+    case "removed":
+      text = t("sys.removed", { who, names: (s.names ?? []).join(", ") });
       break;
     default:
       text = m.body;

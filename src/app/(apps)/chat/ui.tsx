@@ -2,12 +2,13 @@
 
 // Small building blocks shared by the Chat views: avatars, the people picker, the modal shell,
 // the cached directory and date formatting.
-import { Hash, Lock, Users, X } from "lucide-react";
+import { Hash, Lock, Sparkles, Users, X } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { meetHref } from "../meet/shared";
 import { listPeople } from "./actions";
-import { avatarGradient, initials, type ConversationSummary, type Person } from "./shared";
+import { listUsableApps } from "./app-actions";
+import { avatarGradient, initials, isBotEmail, type BotInfo, type ChatUser, type ConversationSummary, type Person } from "./shared";
 
 export const FIELD =
   "h-9 w-full rounded-md border border-line bg-sheet px-2.5 text-[14px] text-ink outline-none transition-colors placeholder:text-ink-mute hover:border-line-strong focus:border-ink-mute";
@@ -23,21 +24,88 @@ export const isEmail = (s: string) => EMAIL.test(s);
 
 export const fold = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
-export function Avatar({ name, email, size = 32, className = "" }: { name: string; email: string; size?: number; className?: string }) {
+/** Apps and bots get a rounded square (people are round), their own hue and optional emoji. */
+export function Avatar({
+  name,
+  email,
+  size = 32,
+  className = "",
+  bot,
+}: {
+  name: string;
+  email: string;
+  size?: number;
+  className?: string;
+  bot?: BotInfo | null;
+}) {
+  const isBot = !!bot || isBotEmail(email);
+  const background =
+    bot?.color != null
+      ? `linear-gradient(135deg, oklch(0.72 0.15 ${bot.color}), oklch(0.6 0.17 ${(bot.color + 35) % 360}))`
+      : avatarGradient(email || name);
   return (
     <span
       aria-hidden
-      className={`grid shrink-0 place-items-center rounded-full font-semibold text-white select-none ${className}`}
-      style={{ width: size, height: size, background: avatarGradient(email || name), fontSize: Math.max(10, Math.round(size * 0.38)) }}
+      className={`grid shrink-0 place-items-center font-semibold text-white select-none ${isBot ? "rounded-[28%]" : "rounded-full"} ${className}`}
+      style={{ width: size, height: size, background, fontSize: Math.max(10, Math.round(size * 0.38)) }}
     >
-      {initials(name || email)}
+      {bot?.avatar ? (
+        <span style={{ fontSize: Math.round(size * 0.56), lineHeight: 1 }}>{bot.avatar}</span>
+      ) : bot?.kind === "claude" ? (
+        <Sparkles size={Math.round(size * 0.52)} />
+      ) : (
+        initials(name || email)
+      )}
     </span>
   );
 }
 
+/** "App" / "Webhook" tag next to a bot's name. */
+export function AppBadge({ bot }: { bot: BotInfo }) {
+  const t = useTranslations("apps");
+  return (
+    <span
+      className="shrink-0 rounded border border-line px-1 py-px text-[10px] leading-none font-medium tracking-wide text-ink-mute uppercase"
+      title={bot.kind === "claude" ? t("claudeHint", { owner: bot.ownerName }) : bot.description || undefined}
+    >
+      {bot.kind === "webhook" ? t("badgeWebhook") : t("badgeApp")}
+    </span>
+  );
+}
+
+/** How to show a user's name: a person's Claude reads "Claude (de Ana)". */
+export function useUserName() {
+  const t = useTranslations("apps");
+  return useCallback((u: Pick<ChatUser, "name" | "bot">) => (u.bot?.kind === "claude" ? t("claudeOf", { owner: u.bot.ownerName }) : u.name), [t]);
+}
+
+let apps: Promise<ChatUser[]> | null = null;
+
+/** Apps I may add or DM (my Claude, mine and shared ones), loaded once per page; null while loading. */
+export function useApps(): ChatUser[] | null {
+  const [list, setList] = useState<ChatUser[] | null>(null);
+  useEffect(() => {
+    apps ??= listUsableApps().then((r) => {
+      if (!r.ok) apps = null;
+      return r.ok ? r.data : [];
+    });
+    let live = true;
+    apps.then((l) => live && setList(l));
+    return () => {
+      live = false;
+    };
+  }, []);
+  return list;
+}
+
+/** Apps as picker entries (their synthetic address identifies them). */
+export function appsAsPeople(list: ChatUser[] | null, name: (u: ChatUser) => string): Person[] | null {
+  return list ? list.map((u) => ({ email: u.email, name: name(u), bot: u.bot })) : null;
+}
+
 /** The icon/avatar used for a conversation in lists and headers. */
 export function ConversationIcon({ c, size = 32 }: { c: Pick<ConversationSummary, "kind" | "peer" | "isPrivate" | "name">; size?: number }) {
-  if (c.kind === "dm" && c.peer) return <Avatar name={c.peer.name} email={c.peer.email} size={size} />;
+  if (c.kind === "dm" && c.peer) return <Avatar name={c.peer.name} email={c.peer.email} bot={c.peer.bot} size={size} />;
   const Icon = c.kind === "channel" ? (c.isPrivate ? Lock : Hash) : Users;
   return (
     <span
@@ -121,7 +189,7 @@ export function PeoplePicker({
       >
         {value.map((p) => (
           <span key={p.email} className="flex max-w-full items-center gap-1 rounded bg-hover py-0.5 pr-1 pl-0.5 text-[12.5px] text-ink">
-            <Avatar name={p.name} email={p.email} size={18} />
+            <Avatar name={p.name} email={p.email} bot={p.bot} size={18} />
             <span className="truncate">{p.name || p.email}</span>
             <button
               type="button"
@@ -182,10 +250,13 @@ export function PeoplePicker({
                 onClick={() => add(p)}
                 className={`flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left ${i === active ? "bg-hover" : "hover:bg-hover"}`}
               >
-                <Avatar name={p.name} email={p.email} size={26} />
+                <Avatar name={p.name} email={p.email} bot={p.bot} size={26} />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13.5px] text-ink">{p.name}</span>
-                  <span className="block truncate text-[12px] text-ink-mute">{p.email}</span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="truncate text-[13.5px] text-ink">{p.name}</span>
+                    {p.bot && <AppBadge bot={p.bot} />}
+                  </span>
+                  <span className="block truncate text-[12px] text-ink-mute">{p.bot ? p.bot.description || `@${p.email.split("@")[0]}` : p.email}</span>
                 </span>
               </button>
             </li>

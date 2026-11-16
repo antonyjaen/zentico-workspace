@@ -1,12 +1,14 @@
 "use client";
 
-import { ArrowLeft, CalendarClock, CalendarPlus, Loader2, Upload, Video } from "lucide-react";
+import { ArrowLeft, Blocks, CalendarClock, CalendarPlus, Loader2, Upload, Video } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePopover } from "@/components/usePopover";
 import { meetHref } from "../meet/shared";
 import { endMeeting, getConversation, getMeetings, getMessages, joinChannel, markRead, startMeeting } from "./actions";
+import { AppsPanel } from "./AppsPanel";
 import type { Subscribe } from "./ChatApp";
+import { ClaudeStrip } from "./ClaudeStrip";
 import { Composer } from "./Composer";
 import { ScheduleDialog } from "./Dialogs";
 import { MessageItem } from "./MessageItem";
@@ -27,7 +29,7 @@ type Props = {
   autoSchedule?: boolean;
 };
 
-type Panel = { kind: "thread"; root: number } | { kind: "members" } | null;
+type Panel = { kind: "thread"; root: number } | { kind: "members" } | { kind: "apps" } | null;
 
 const GROUP_GAP_MS = 5 * 60_000;
 const groupable = (m: ChatMessage) => m.kind === "text" || m.kind === "file";
@@ -165,8 +167,8 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
     return () => clearInterval(timer);
   }, [typingNames.length]);
 
-  // Read marker: everything visible at the bottom counts as read.
-  const lastId = messages?.at(-1)?.id ?? 0;
+  // Read marker: everything visible at the bottom counts as read (ephemeral app notices aren't stored).
+  const lastId = messages?.findLast((m) => !m.ephemeral)?.id ?? 0;
   const joined = detail?.joined ?? false;
   // Once per (conversation, message): onRead re-renders the parent, which hands us a new onRead,
   // which re-ran this effect — an endless markRead loop that also queued every other server
@@ -194,7 +196,7 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
 
   // Scroll management: initial position, keep position when prepending, stick to bottom.
   const firstUnread = useMemo(
-    () => messages?.find((m) => m.id > marker && m.author?.id !== me.id && m.kind !== "system")?.id ?? null,
+    () => messages?.find((m) => m.id > marker && m.author?.id !== me.id && m.kind !== "system" && !m.ephemeral)?.id ?? null,
     [messages, marker, me.id],
   );
   useLayoutEffect(() => {
@@ -235,7 +237,7 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
     if (!messages?.length || loadingOlder || !hasMore) return;
     setLoadingOlder(true);
     const el = scroller.current!;
-    const r = await getMessages(id, messages[0].id);
+    const r = await getMessages(id, Math.ceil(messages[0].id));
     if (r.ok) {
       restore.current = { height: el.scrollHeight, top: el.scrollTop };
       setMessages((list) => {
@@ -261,6 +263,9 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
     atBottom.current = true;
     upsert(m, true);
   };
+
+  // My own Claude is in this conversation: show its running commands and approvals (to me only).
+  const myClaudeHere = !!detail?.members.some((u) => u.bot?.kind === "claude" && u.bot.ownerId === me.id);
 
   const nameOf = useCallback(
     (userId: number) => (userId === me.id ? t("you") : (detail?.members.find((u) => u.id === userId)?.name ?? t("someone"))),
@@ -291,7 +296,9 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
       ? [detail.teamName, detail.description].filter(Boolean).join(" · ")
       : detail.kind === "group"
         ? t("memberCount", { count: detail.memberCount })
-        : (detail.peer?.email ?? "")
+        : detail.peer?.bot
+          ? detail.peer.bot.description || `@${detail.peer.email.split("@")[0]}`
+          : (detail.peer?.email ?? "")
     : "";
 
   if (failed) {
@@ -364,6 +371,19 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
           )}
 
           {detail && <MeetingsPopover detail={detail} />}
+
+          {joined && (
+            <button
+              type="button"
+              onClick={() => setPanel((p) => (p?.kind === "apps" ? null : { kind: "apps" }))}
+              className="icon-btn h-8 w-8"
+              aria-label={t("appsAndWebhooks")}
+              aria-pressed={panel?.kind === "apps"}
+              title={t("appsAndWebhooks")}
+            >
+              <Blocks size={17} aria-hidden />
+            </button>
+          )}
 
           {joined && (
             <>
@@ -488,15 +508,18 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
           </div>
         ) : (
           detail && (
-            <Composer
-              conversationId={id}
-              threadRoot={null}
-              me={me}
-              members={detail.members}
-              placeholder={t("messagePlaceholder", { name: detail.kind === "channel" ? `#${detail.name}` : detail.name })}
-              onSent={onSent}
-              addFilesRef={addFilesRef}
-            />
+            <>
+              {myClaudeHere && <ClaudeStrip conversationId={id} subscribe={subscribe} />}
+              <Composer
+                conversationId={id}
+                threadRoot={null}
+                me={me}
+                members={detail.members}
+                placeholder={t("messagePlaceholder", { name: detail.kind === "channel" ? `#${detail.name}` : detail.name })}
+                onSent={onSent}
+                addFilesRef={addFilesRef}
+              />
+            </>
           )
         )}
 
@@ -513,7 +536,16 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
 
       {panel && detail && (
         <aside className="absolute inset-0 z-20 flex flex-col bg-sheet lg:static lg:z-auto lg:w-[360px] lg:shrink-0 lg:border-l lg:border-line">
-          {panel.kind === "thread" ? (
+          {panel.kind === "apps" ? (
+            <AppsPanel
+              conversation={detail}
+              onClose={() => setPanel(null)}
+              onChanged={async () => {
+                await reloadDetail();
+                onChanged();
+              }}
+            />
+          ) : panel.kind === "thread" ? (
             <ThreadPanel
               key={panel.root}
               rootId={panel.root}

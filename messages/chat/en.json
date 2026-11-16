@@ -137,7 +137,8 @@
       "joined": "{who} joined",
       "left": "{who} left",
       "renamed": "{who} renamed this to {name}",
-      "renamedCleared": "{who} removed the name"
+      "renamedCleared": "{who} removed the name",
+      "removed": "{who} removed {names}"
     },
     "errors": {
       "failed": "Something went wrong. Try again.",
@@ -159,7 +160,12 @@
       "calendarFailed": "Couldn't create the calendar event. Nothing was posted.",
       "unauthorized": "Your session expired. Reload the page.",
       "driveNotFound": "That Drive item isn't available anymore.",
-      "driveUnavailable": "Drive isn't available right now."
+      "driveUnavailable": "Drive isn't available right now.",
+      "tooManyApps": "You already have the maximum number of apps (25). Delete one first.",
+      "tooManyWebhooks": "This conversation already has 10 webhooks.",
+      "invalidAvatar": "The avatar must be an emoji.",
+      "invalidUrl": "The URL must start with https:// and point to a public server.",
+      "invalidCommand": "Commands use lowercase letters, digits, - or _ (up to 32 characters) and can't repeat."
     },
     "tabChats": "Chats",
     "tabPeople": "People",
@@ -253,6 +259,7 @@
       "sentTo": "Sent to {name}.",
       "openChat": "Open chat",
       "grantFailed": "{count, plural, one {One access grant failed} other {# access grants failed}}; those people may not be able to open it."
-    }
+    },
+    "appsAndWebhooks": "Apps & webhooks"
   }
 }

@@ -100,7 +100,8 @@ export function ChatApp({ initial, initialId }: { initial: ChatOverview; initial
       for (const fn of listeners.current) fn(event);
       if (event.type === "message") {
         const m = event.message;
-        if (m.threadRoot !== null) return;
+        // Ephemeral app notices only show in the open conversation.
+        if (m.threadRoot !== null || m.ephemeral) return;
         const known = dataRef.current.chats.some((c) => c.id === m.conversationId) ||
           dataRef.current.teams.some((tm) => tm.channels.some((c) => c.id === m.conversationId));
         // A conversation I haven't seen yet (e.g. someone just DMed me): reload the list.
@@ -114,7 +115,7 @@ export function ChatApp({ initial, initialId }: { initial: ChatOverview; initial
             lastMessage:
               m.kind === "system"
                 ? c.lastMessage
-                : { preview: m.body || [...(m.meta?.files ?? []), ...(m.meta?.drive ?? [])].map((f) => f.name).join(", ") || m.meta?.meeting?.title || "", author: m.author?.name ?? null, kind: m.kind, created: m.created },
+                : { preview: m.body || [...(m.meta?.files ?? []), ...(m.meta?.drive ?? [])].map((f) => f.name).join(", ") || m.meta?.meeting?.title || m.meta?.cards?.[0]?.title || "", author: m.author?.name ?? null, kind: m.kind, created: m.created },
             unread: mine || isActive || m.kind === "system" || !c.joined ? c.unread : c.unread + 1,
           };
         });
