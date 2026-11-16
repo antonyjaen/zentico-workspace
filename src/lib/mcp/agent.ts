@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
+  cleanSpoken,
   CONFIRM_TIMEOUT_MS,
   type BridgeStatus,
   type CommandStatus,
@@ -82,6 +83,8 @@ const MIGRATIONS = [
     last_seen INTEGER NOT NULL
   );
   `,
+  // Short spoken summary of a result, read aloud in the call.
+  `ALTER TABLE commands ADD COLUMN spoken TEXT;`,
 ];
 
 function open(): Database {
@@ -174,6 +177,7 @@ function toCommand(r: Row): CommandRow {
     status: s(r.status) as CommandStatus,
     progress: r.progress == null ? null : s(r.progress),
     result: r.result == null ? null : s(r.result),
+    spoken: r.spoken == null ? null : s(r.spoken),
     createdAt: Number(r.created),
     updatedAt: Number(r.updated),
     dispatchedAt: n(r.dispatched),
@@ -188,6 +192,7 @@ export const toView = (c: CommandRow): CommandView => ({
   status: c.status,
   progress: c.progress,
   result: c.result,
+  spoken: c.spoken,
   createdAt: c.createdAt,
   updatedAt: c.updatedAt,
 });
@@ -305,7 +310,7 @@ export function statusesOf(email: string, ids: string[]): Map<string, CommandSta
 export type BridgeEvent =
   | { type: "started" }
   | { type: "progress"; text: string }
-  | { type: "done"; result: string }
+  | { type: "done"; result: string; spoken?: string }
   | { type: "failed"; error: string };
 
 /**
@@ -326,9 +331,11 @@ export function applyBridgeEvent(id: string, email: string, ev: BridgeEvent): Co
     d.prepare(`UPDATE commands SET progress = ?, updated = ? WHERE id = ? AND ${active}`).run(ev.text.slice(0, PROGRESS_MAX), now, id);
   } else {
     const done = ev.type === "done";
-    d.prepare(`UPDATE commands SET status = ?, result = ?, progress = NULL, updated = ? WHERE id = ? AND ${active}`).run(
+    const spoken = done && ev.spoken ? cleanSpoken(ev.spoken) : "";
+    d.prepare(`UPDATE commands SET status = ?, result = ?, spoken = ?, progress = NULL, updated = ? WHERE id = ? AND ${active}`).run(
       done ? "done" : "failed",
       (done ? ev.result : ev.error).slice(0, RESULT_MAX),
+      spoken || null,
       now,
       id,
     );

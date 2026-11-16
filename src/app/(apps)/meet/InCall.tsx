@@ -32,15 +32,16 @@ import {
   Volume2,
   X,
 } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { usePopover } from "@/components/usePopover";
-import { ClaudeConfirmations, ClaudePanel } from "./ClaudePanel";
+import { ClaudeConfirmations, ClaudePanel, useToolLabel } from "./ClaudePanel";
 import { AudioView, Avatar, displayName, Tile, type TileSource } from "./media";
 import { SELECT, useDevices } from "./PreJoin";
 import { clock } from "./recording";
 import { CHAT_MAX_LENGTH, CHAT_TOPIC, meetHref, type ChatMessage } from "./shared";
 import { useClaudeCommands, type ClaudeNotice } from "./useClaudeCommands";
+import { useClaudeVoice } from "./useClaudeVoice";
 import {
   recordingSupported,
   useRecording,
@@ -141,20 +142,45 @@ export function InCall({ room, roomName, videoRecording }: { room: Room; roomNam
     void recording.start(mode);
   };
 
+  // Claude's short spoken replies, heard by everyone (each device can mute them).
+  const locale = useLocale();
+  const voice = useClaudeVoice(room, locale);
+  const { announce: announceVoice, stopMine: stopMyVoice, sayLocal } = voice;
+
   // "Claude commands": the local user's own voice/typed requests for their own Claude Code.
   const onClaudeNotice = useCallback(
     (n: ClaudeNotice) => {
-      if (n.kind === "done") flash(t("claudeDone", { text: n.command.text.slice(0, 60) }));
-      else if (n.kind === "failed") flash(t("claudeFailed", { text: n.command.text.slice(0, 60) }));
+      if (n.kind === "done") {
+        flash(t("claudeDone", { text: n.command.text.slice(0, 60) }));
+        announceVoice(n.command);
+      } else if (n.kind === "cancelled") {
+        stopMyVoice();
+        flash(t("claudeAction_cancelled"));
+      } else if (n.kind === "failed") flash(t("claudeFailed", { text: n.command.text.slice(0, 60) }));
       else if (n.kind === "queued") flash(t("claudeQueued", { text: n.command.text.slice(0, 60) }));
       else if (n.kind === "noToken") flash(t("claudeNeedToken"));
       else if (n.kind === "notConfigured") flash(t("claudeNotConfigured"));
       else if (n.kind === "unsupported") flash(t("claudeUnsupported"));
       else if (n.kind !== "error") flash(t(`claudeAction_${n.kind}`));
     },
-    [flash, t],
+    [flash, t, announceVoice, stopMyVoice],
   );
   const claude = useClaudeCommands(room, roomName, { panelOpen: panel === "claude", notify: onClaudeNotice });
+
+  // A write action waiting for the local user's OK is announced on their own device only.
+  const toolLabel = useToolLabel();
+  const confirmSeen = useRef<Set<string> | null>(null);
+  const confirmations = claude.data?.confirmations;
+  useEffect(() => {
+    if (!confirmations) return;
+    const first = confirmSeen.current == null;
+    const seenIds = (confirmSeen.current ??= new Set());
+    for (const c of confirmations) {
+      if (seenIds.has(c.id)) continue;
+      seenIds.add(c.id);
+      if (!first) sayLocal(`cf-${c.id}`, t("claudeConfirmSpoken", { action: toolLabel(c.tool) }), locale);
+    }
+  }, [confirmations, sayLocal, t, toolLabel, locale]);
 
   // Device failures raised by LiveKit while (re)publishing.
   useEffect(() => {
@@ -335,7 +361,7 @@ export function InCall({ room, roomName, videoRecording }: { room: Room; roomNam
       <div className="flex min-h-0 flex-1">
         {/* Stage */}
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col p-2 md:p-3">
-          <ClaudeConfirmations claude={claude} />
+          <ClaudeConfirmations claude={claude} voice={voice} />
           {effectiveLayout === "grid" ? (
             <div
               className="grid min-h-0 flex-1 auto-rows-fr gap-2 [grid-template-columns:repeat(var(--cols-sm),minmax(0,1fr))] md:[grid-template-columns:repeat(var(--cols),minmax(0,1fr))]"
@@ -398,8 +424,8 @@ export function InCall({ room, roomName, videoRecording }: { room: Room; roomNam
             </div>
             {panel === "chat" && <ChatPanel messages={messages} onSend={sendChat} />}
             {panel === "people" && <PeoplePanel participants={participants} local={lp} />}
-            {panel === "settings" && <SettingsPanel room={room} />}
-            {panel === "claude" && <ClaudePanel claude={claude} onShareInCall={sendChat} flash={flash} />}
+            {panel === "settings" && <SettingsPanel room={room} voice={voice} />}
+            {panel === "claude" && <ClaudePanel claude={claude} voice={voice} onShareInCall={sendChat} flash={flash} />}
           </aside>
         )}
       </div>
@@ -752,7 +778,7 @@ function PeoplePanel({ participants, local }: { participants: Participant[]; loc
   );
 }
 
-function SettingsPanel({ room }: { room: Room }) {
+function SettingsPanel({ room, voice }: { room: Room; voice: ReturnType<typeof useClaudeVoice> }) {
   const t = useTranslations("meet");
   const { mics, cams } = useDevices(true);
   const [outputs, setOutputs] = useState<MediaDeviceInfo[]>([]);
@@ -784,6 +810,20 @@ function SettingsPanel({ room }: { room: Room }) {
       {picker("audioinput", t("microphone"), mics, (n) => t("micN", { n }))}
       {picker("videoinput", t("camera"), cams, (n) => t("cameraN", { n }))}
       {outputs.length > 0 && picker("audiooutput", t("speakers"), outputs, (n) => t("speakerN", { n }))}
+      {voice.supported && (
+        <label className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-app-meet)]"
+            checked={voice.muted}
+            onChange={(e) => voice.setMuted(e.target.checked)}
+          />
+          <span className="min-w-0">
+            <span className="block text-[14px] font-medium text-ink">{t("claudeVoiceMute")}</span>
+            <span className="block text-[12.5px] leading-relaxed text-ink-mute">{t("claudeVoiceMuteHint")}</span>
+          </span>
+        </label>
+      )}
     </div>
   );
 }

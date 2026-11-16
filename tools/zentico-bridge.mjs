@@ -19,13 +19,16 @@
 // commands arrive), runs them one at a time with `claude -p --output-format stream-json --verbose`
 // and an MCP config pointing at <url>/api/mcp with your token plus "X-Zentico-Command: <id>" (write
 // tools then wait for your Approve / Reject in the call), and reports progress and the final answer to
-// <url>/api/agent/commands/<id>/events. It reconnects with backoff. Stop it with Ctrl+C.
+// <url>/api/agent/commands/<id>/events. Claude is asked to end with a "SAY: …" line: that short summary
+// is stripped from the shown answer and sent as "spoken" (read aloud in the call). A cancelled command
+// (Cancel in the call, seen on the stream or in any report) kills the claude process tree. It
+// reconnects with backoff. Stop it with Ctrl+C.
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 
 /* ----------------------------------------------------------------- options */
 
@@ -140,8 +143,59 @@ function buildPrompt(c) {
     "- Write actions (sending mail, creating events, posting messages, writing files) are confirmed by the user in the meeting window automatically: just call the tool, don't ask for confirmation in text. If a tool answers \"Not confirmed by the user\", don't retry; say the action was not done.",
     "- If the request is unclear or something essential is missing, do only the safe read-only part and say what is missing.",
     "- Finish with a short answer (at most 5 sentences) for a small panel in the call, in the language of the request.",
+    "- Then end with the SAY line described in your system prompt.",
   );
   return lines.join("\n");
+}
+
+/* ----------------------------------------------------------- spoken reply */
+
+// Single line, no quotes or cmd.exe metacharacters (it goes on the command line; see spawnClaude).
+const SAY_PROMPT =
+  "This request comes from a live video meeting and your answer will also be read aloud to everyone in the call. " +
+  "After your normal answer, end with one last line that starts with SAY: followed by one or two very short sentences, " +
+  "at most about 20 words, to be spoken aloud. Write it for listeners with ADHD: the key answer or outcome first, " +
+  "plain everyday words, no symbols, file paths, links, email addresses, code, emojis, lists or markdown. " +
+  "Use the same language the request was spoken in. Nothing may follow the SAY line.";
+if (!/^[\w .,:;'-]+$/.test(SAY_PROMPT)) throw new Error("SAY_PROMPT must stay cmd.exe-safe");
+
+const SPOKEN_MAX = 300;
+const SAY_LINE = /^\s*[*_]*\s*SAY\s*[*_]*\s*:\s*[*_]*\s*(.*)$/i;
+// Added by a global CLAUDE.md voice rule: "**🔊 Speaker:** …".
+const SPEAKER_LINE = /^\s*[*_]*\s*(?:🔊\s*)?Speaker\s*:?\s*[*_]*\s*:?\s*(.*)$/u;
+
+const plain = (t) =>
+  t
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+    .replace(/[*_`#~|<>[\]{}]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, SPOKEN_MAX);
+
+/** Splits Claude's final text into what the panel shows and the short line read aloud. */
+function splitSpoken(result) {
+  const lines = result.split(/\r?\n/);
+  let say = "";
+  let speaker = "";
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = SAY_LINE.exec(lines[i]);
+    if (m) {
+      say = m[1];
+      lines.splice(i, 1);
+      break;
+    }
+  }
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].trim()) continue;
+    const m = /Speaker/.test(lines[i]) ? SPEAKER_LINE.exec(lines[i]) : null;
+    if (!m) break;
+    speaker ||= m[1];
+    lines.splice(i, 1);
+  }
+  // Trailing blank lines and a dangling horizontal rule.
+  while (lines.length && /^\s*(?:-{3,}|\*{3,})?\s*$/.test(lines[lines.length - 1])) lines.pop();
+  const shown = lines.join("\n").trim();
+  return { result: shown || result.trim(), spoken: plain(say) || plain(speaker) };
 }
 
 /* ------------------------------------------------------------------ runner */
@@ -166,13 +220,39 @@ function spawnClaude(argv) {
     const line = [claudeCmd, ...argv].map(quoteWin).join(" ");
     return spawn(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", `"${line}"`], { ...opts, windowsVerbatimArguments: true });
   }
-  return spawn(claudeCmd, argv, opts);
+  // Own process group, so a cancel can kill claude and everything it started.
+  return spawn(claudeCmd, argv, { ...opts, detached: true });
 }
 
 function killTree(child) {
-  if (!child || child.exitCode !== null) return;
-  if (process.platform === "win32") spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
-  else child.kill("SIGTERM");
+  if (!child || child.exitCode !== null || child.signalCode !== null || !child.pid) return;
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+    return;
+  }
+  try {
+    process.kill(-child.pid, "SIGTERM");
+  } catch {
+    child.kill("SIGTERM");
+  }
+  // Still alive after a grace period: force it.
+  setTimeout(() => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    try {
+      process.kill(-child.pid, "SIGKILL");
+    } catch {
+      child.kill("SIGKILL");
+    }
+  }, 3000).unref();
+}
+
+/** Stops the running command if the server says it was cancelled. */
+function stopIfCancelled(state, ack) {
+  if (ack?.cancelled && !state.cancelled) {
+    state.cancelled = true;
+    log("  ■ cancel requested — stopping Claude");
+    killTree(state.child);
+  }
 }
 
 function describeTool(name, input) {
@@ -204,7 +284,18 @@ async function runCommand(c) {
     { mode: 0o600 },
   );
 
-  const argv = ["-p", "--output-format", "stream-json", "--verbose", "--mcp-config", configPath, "--allowedTools", allowedTools];
+  const argv = [
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--mcp-config",
+    configPath,
+    "--allowedTools",
+    allowedTools,
+    "--append-system-prompt",
+    SAY_PROMPT,
+  ];
   if (!args["keep-mcp"]) argv.push("--strict-mcp-config");
 
   let result = null;
@@ -224,11 +315,7 @@ async function runCommand(c) {
       const t = pendingProgress;
       pendingProgress = null;
       lastProgress = Date.now();
-      const r = await report(c.id, { type: "progress", text: t });
-      if (r.cancelled && !state.cancelled) {
-        state.cancelled = true;
-        killTree(state.child);
-      }
+      stopIfCancelled(state, await report(c.id, { type: "progress", text: t }));
     };
     if (!progressTimer) progressTimer = setTimeout(flush, Math.max(0, 1000 - (Date.now() - lastProgress)));
   };
@@ -242,10 +329,15 @@ async function runCommand(c) {
       return done(-1);
     }
     state.child = child;
+    if (state.cancelled) killTree(child);
     const timer = setTimeout(() => {
       stderr += "\nTimed out.";
       killTree(child);
     }, timeoutMs);
+    // Backup for a cancel missed on the stream (e.g. it reconnected): ask the server every 10 s.
+    const watch = setInterval(() => {
+      void report(c.id, { type: "started" }).then((ack) => stopIfCancelled(state, ack));
+    }, 10_000);
     child.on("error", (e) => {
       stderr += `\n${e.message}`;
     });
@@ -284,6 +376,7 @@ async function runCommand(c) {
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      clearInterval(watch);
       done(code ?? -1);
     });
     child.stdin.on("error", () => undefined);
@@ -299,8 +392,10 @@ async function runCommand(c) {
     return;
   }
   if (result && !isError) {
-    log(`  ✓ ${result.replace(/\s+/g, " ").slice(0, 160)}`);
-    await report(c.id, { type: "done", result });
+    const out = splitSpoken(result);
+    log(`  ✓ ${out.result.replace(/\s+/g, " ").slice(0, 160)}`);
+    if (out.spoken) log(`  🔊 ${out.spoken}`);
+    await report(c.id, { type: "done", result: out.result, ...(out.spoken ? { spoken: out.spoken } : {}) });
   } else {
     const error =
       result ||
@@ -333,6 +428,7 @@ function onCancel(id) {
     log("■ cancelled (queued)");
   } else if (running?.id === id && !running.cancelled) {
     running.cancelled = true;
+    log("■ cancel requested — stopping Claude");
     killTree(running.child);
   }
 }
@@ -372,6 +468,9 @@ async function connect() {
         connectedOnce = true;
         log(`Connected as ${payload.user?.email} — waiting for "Claude, …" in your meetings.`);
         if (payload.scope !== "write") log("! This token is read-only: Claude can look things up but not send, create or post.");
+        // A cancel sent while the stream was down: check the command still running.
+        const r = running;
+        if (r) void report(r.id, { type: "started" }).then((ack) => stopIfCancelled(r, ack));
       } else if (name === "command" && payload?.id) {
         queue.push(payload);
         void drain();

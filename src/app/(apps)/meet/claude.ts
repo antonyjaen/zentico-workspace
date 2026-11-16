@@ -16,6 +16,8 @@ export type CommandView = {
   progress: string | null;
   /** Final answer (done) or error (failed). */
   result: string | null;
+  /** One or two short sentences to read aloud in the call (done only). */
+  spoken: string | null;
   createdAt: number;
   updatedAt: number;
 };
@@ -64,3 +66,25 @@ export const CONFIRM_TIMEOUT_MS = 120_000;
 export const COMMAND_ID = /^[A-Za-z0-9_-]{8,64}$/;
 
 export const CLAUDE_COMMANDS_PREF = "zw-meet-claude-commands";
+
+/** Max length of the spoken summary of a result. */
+export const SPOKEN_MAX = 300;
+
+/** Spoken replies over the LiveKit data channel (reliable). The sender is always the command's owner. */
+export const CLAUDE_VOICE_TOPIC = "zw-claude-voice";
+export type ClaudeVoiceSignal = { kind: "say"; id: string; text: string; lang?: string } | { kind: "stop"; id: string };
+/** "1" = this browser never speaks Claude's replies (local opt-out). */
+export const CLAUDE_VOICE_MUTE_PREF = "zw-meet-claude-voice-mute";
+/** "0" = the owner doesn't want their answers spoken to the call (default: spoken). */
+export const CLAUDE_SPEAK_PREF = "zw-meet-claude-speak";
+
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/g;
+/** Plain single-line text for speech: no control characters, markdown marks or long runs of spaces. */
+export function cleanSpoken(text: string): string {
+  return text
+    .replace(CONTROL, " ")
+    .replace(/[*_`#~|<>\[\]{}]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, SPOKEN_MAX);
+}

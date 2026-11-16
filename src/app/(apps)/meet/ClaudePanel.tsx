@@ -1,13 +1,15 @@
 "use client";
 
-import { Check, Loader2, Send, Share2, ShieldCheck, X } from "lucide-react";
+import { Check, Loader2, Send, Share2, ShieldCheck, Square, Volume2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { COMMAND_MAX_CHARS, isFinalStatus, type CommandView, type ConfirmationView } from "./claude";
 import type { useClaudeCommands } from "./useClaudeCommands";
+import type { useClaudeVoice } from "./useClaudeVoice";
 
 type Claude = ReturnType<typeof useClaudeCommands>;
+type Voice = ReturnType<typeof useClaudeVoice>;
 
 const WRITE_TOOLS = new Set([
   "mail_send",
@@ -20,18 +22,51 @@ const WRITE_TOOLS = new Set([
   "chat_post_message",
 ]);
 
-function useToolLabel() {
+export function useToolLabel() {
   const t = useTranslations("meet");
   return (tool: string) => (WRITE_TOOLS.has(tool) ? t(`claudeTool_${tool}`) : tool);
 }
 
-/** Approve / Reject cards for write actions the local user's Claude wants to run. Never shown to others. */
-export function ClaudeConfirmations({ claude }: { claude: Claude }) {
+/** "Claude is speaking · Stop" for everyone in the call while a spoken reply plays on this device. */
+function ClaudeVoiceBar({ voice }: { voice: Voice }) {
+  const t = useTranslations("meet");
+  const v = voice.current;
+  if (!v) return null;
+  return (
+    <div role="status" className="pop pointer-events-auto flex max-w-full items-center gap-3 px-3 py-2 text-[13px] text-ink">
+      <Volume2 size={15} aria-hidden className="shrink-0 animate-pulse" style={{ color: "var(--color-app-meet)" }} />
+      <span className="min-w-0 truncate">{v.mine ? t("claudeVoiceSpeakingMine") : t("claudeVoiceSpeaking", { name: v.by })}</span>
+      <button
+        type="button"
+        onClick={() => voice.stop(v.id)}
+        title={t("claudeVoiceStopHint")}
+        className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-primary px-2.5 font-medium text-primary-ink hover:bg-primary-hover"
+      >
+        <Square size={11} aria-hidden />
+        {t("claudeVoiceStop")}
+      </button>
+      <button
+        type="button"
+        onClick={() => voice.setMuted(true)}
+        title={t("claudeVoiceMuteHint")}
+        className="shrink-0 text-[12.5px] text-ink-soft underline underline-offset-2"
+      >
+        {t("claudeVoiceMute")}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Top of the stage: the spoken-reply bar (everyone) and Approve / Reject cards for write actions the
+ * local user's Claude wants to run (never shown to others).
+ */
+export function ClaudeConfirmations({ claude, voice }: { claude: Claude; voice: Voice }) {
   const t = useTranslations("meet");
   const label = useToolLabel();
   const [busy, setBusy] = useState<string | null>(null);
   const list = claude.data?.confirmations ?? [];
-  if (!list.length) return null;
+  if (!list.length && !voice.current) return null;
   const act = async (c: ConfirmationView, approve: boolean) => {
     setBusy(c.id);
     try {
@@ -42,6 +77,7 @@ export function ClaudeConfirmations({ claude }: { claude: Claude }) {
   };
   return (
     <div className="pointer-events-none absolute inset-x-0 top-3 z-20 flex flex-col items-center gap-2 px-3">
+      <ClaudeVoiceBar voice={voice} />
       {list.map((c) => (
         <div
           key={c.id}
@@ -104,10 +140,12 @@ function StatusChip({ c }: { c: CommandView }) {
 /** Side panel: the local user's own commands in this call, the opt-in toggle and "Ask my Claude". */
 export function ClaudePanel({
   claude,
+  voice,
   onShareInCall,
   flash,
 }: {
   claude: Claude;
+  voice: Voice;
   onShareInCall: (text: string) => Promise<void>;
   flash: (msg: string) => void;
 }) {
@@ -167,6 +205,20 @@ export function ClaudePanel({
               <span className="block text-[12.5px] leading-relaxed text-ink-mute">{t("claudeCommandsHint")}</span>
             </span>
           </label>
+          {voice.supported && (
+            <label className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-app-meet)]"
+                checked={voice.speakAnswers}
+                onChange={(e) => voice.setSpeakAnswers(e.target.checked)}
+              />
+              <span className="min-w-0">
+                <span className="block text-[14px] font-medium text-ink">{t("claudeSpeakAnswers")}</span>
+                <span className="block text-[12.5px] leading-relaxed text-ink-mute">{t("claudeSpeakAnswersHint")}</span>
+              </span>
+            </label>
+          )}
           {claude.enabled && (
             <div className="space-y-1 text-[12.5px] text-ink-soft" role="status" aria-live="polite">
               <p className="flex items-center gap-2">
@@ -243,6 +295,12 @@ export function ClaudePanel({
                           : t("claudeWaiting"))}
                   </p>
                 )}
+                {c.spoken && c.status === "done" && (
+                  <p className="mt-2 flex items-start gap-1.5 text-[12.5px] text-ink-mute">
+                    <Volume2 size={12} aria-hidden className="mt-0.5 shrink-0" />
+                    <span className="break-words">{c.spoken}</span>
+                  </p>
+                )}
                 {c.result && (
                   <p
                     className={`mt-2 text-[13px] leading-relaxed break-words whitespace-pre-wrap ${c.status === "failed" ? "text-danger" : "text-ink-soft"}`}
@@ -252,8 +310,26 @@ export function ClaudePanel({
                 )}
                 <div className="mt-2 flex justify-end gap-2 empty:hidden">
                   {!isFinalStatus(c.status) && (
-                    <button type="button" onClick={() => void claude.cancel(c.id)} className="text-[12.5px] text-ink-soft underline underline-offset-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        voice.stop(c.id);
+                        void claude.cancel(c.id);
+                      }}
+                      className="inline-flex h-7 items-center gap-1 rounded-md border border-line-strong px-2.5 text-[12.5px] text-ink hover:bg-hover"
+                    >
+                      <X size={12} aria-hidden />
                       {t("claudeCancel")}
+                    </button>
+                  )}
+                  {voice.current?.id === c.id && (
+                    <button
+                      type="button"
+                      onClick={() => voice.stop(c.id)}
+                      className="inline-flex items-center gap-1 text-[12.5px] text-ink-soft underline underline-offset-2"
+                    >
+                      <Square size={11} aria-hidden />
+                      {t("claudeVoiceStop")}
                     </button>
                   )}
                   {c.status === "done" && c.result && (

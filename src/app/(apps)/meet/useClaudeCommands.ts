@@ -4,7 +4,8 @@
 // microphone (never other participants' audio), cut by voice activity detection in the browser,
 // goes to /api/meet/voice, which queues "Claude, …" for their own Claude Code bridge. Also polls
 // their commands / pending confirmations in this room.
-// Nothing here is sent over the LiveKit data channel: results stay private to the speaker.
+// Nothing here is sent over the LiveKit data channel: results stay private to the speaker (only the
+// short spoken summary is shared, by useClaudeVoice).
 import { Room, Track } from "livekit-client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -16,6 +17,7 @@ import {
   type CommandView,
   type VoiceResponse,
 } from "./claude";
+import { ttsPlayedSince } from "./useClaudeVoice";
 
 export type ClaudeNotice =
   | { kind: "done"; command: CommandView }
@@ -458,7 +460,11 @@ export function useClaudeCommands(room: Room, roomName: string, opts: { panelOpe
         if (!lp.isMicrophoneEnabled) return null;
         return lp.getTrackPublication(Track.Source.Microphone)?.track?.mediaStreamTrack ?? null;
       },
-      (blob, mime, ms) => void upload(blob, mime, ms),
+      (blob, mime, ms) => {
+        // Claude's own voice coming back through the microphone is not a command.
+        if (ttsPlayedSince(Date.now() - ms - 500)) return;
+        void upload(blob, mime, ms);
+      },
       setSpeaking,
     );
     return () => {

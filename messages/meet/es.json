@@ -142,7 +142,7 @@
     "myClaude": "Mi Claude",
     "myClaudeListening": "Mi Claude (escuchando «Claude, …»)",
     "claudeCommands": "Órdenes para Claude",
-    "claudeCommandsHint": "Di «Claude, …» y tu propio Claude Code lo hace. Solo se usa tu micrófono: cada vez que hablas, ese fragmento se transcribe y se borra al momento. Solo tú ves los resultados.",
+    "claudeCommandsHint": "Di «Claude, …» y tu propio Claude Code lo hace. Solo se usa tu micrófono: cada vez que hablas, ese fragmento se transcribe y se borra al momento. Solo tú ves los resultados completos.",
     "claudeListening": "Escuchando «Claude, …»",
     "claudeHearing": "Te escucho…",
     "claudeTranscribing": "Transcribiendo…",
@@ -169,7 +169,7 @@
     "claudeSharedInCall": "Enviado al chat de la llamada",
     "claudeShareFailed": "No se pudo compartir el resultado",
     "claudeAskPlaceholder": "Pregunta a mi Claude",
-    "claudePrivate": "Solo tú ves tus peticiones y las respuestas de Claude.",
+    "claudePrivate": "Solo tú ves tus peticiones y las respuestas completas de Claude.",
     "claudeSendFailed": "No se envió la petición. Inténtalo de nuevo.",
     "claudeWantsTo": "Claude quiere: {action}",
     "claudeConfirmHint": "O di «Claude, confirma»",
@@ -194,6 +194,15 @@
     "claudeQueued": "Enviado a tu Claude: {text}",
     "claudeAction_approved": "Aprobado",
     "claudeAction_rejected": "Rechazado",
-    "claudeAction_cancelled": "Cancelada tu última petición"
+    "claudeAction_cancelled": "Cancelada tu última petición",
+    "claudeSpeakAnswers": "Decir las respuestas en la llamada",
+    "claudeSpeakAnswersHint": "Claude dice en voz alta, para todos, un resumen de una línea de cada respuesta. La respuesta completa sigue siendo privada.",
+    "claudeVoiceSpeaking": "Claude (de {name}) está hablando",
+    "claudeVoiceSpeakingMine": "Tu Claude está hablando",
+    "claudeVoiceStop": "Parar",
+    "claudeVoiceStopHint": "Parar la voz de Claude para todos",
+    "claudeVoiceMute": "Silenciar la voz de Claude",
+    "claudeVoiceMuteHint": "No reproducir las respuestas habladas de Claude en este dispositivo",
+    "claudeConfirmSpoken": "Claude quiere {action}. Apruébalo en pantalla o di: Claude, confirma."
   }
 }

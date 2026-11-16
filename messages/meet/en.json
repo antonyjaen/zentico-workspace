@@ -142,7 +142,7 @@
     "myClaude": "My Claude",
     "myClaudeListening": "My Claude (listening for “Claude, …”)",
     "claudeCommands": "Claude commands",
-    "claudeCommandsHint": "Say “Claude, …” and your own Claude Code does it. Only your microphone is used: each time you speak, that clip is transcribed and deleted right away. Results are only visible to you.",
+    "claudeCommandsHint": "Say “Claude, …” and your own Claude Code does it. Only your microphone is used: each time you speak, that clip is transcribed and deleted right away. Full results are only visible to you.",
     "claudeListening": "Listening for “Claude, …”",
     "claudeHearing": "Hearing you…",
     "claudeTranscribing": "Transcribing…",
@@ -169,7 +169,7 @@
     "claudeSharedInCall": "Sent to the call chat",
     "claudeShareFailed": "Couldn't share the result",
     "claudeAskPlaceholder": "Ask my Claude",
-    "claudePrivate": "Only you see your requests and Claude's answers.",
+    "claudePrivate": "Only you see your requests and Claude's full answers.",
     "claudeSendFailed": "Request not sent. Try again.",
     "claudeWantsTo": "Claude wants to: {action}",
     "claudeConfirmHint": "Or say “Claude, confirm”",
@@ -194,6 +194,15 @@
     "claudeQueued": "Sent to your Claude: {text}",
     "claudeAction_approved": "Approved",
     "claudeAction_rejected": "Rejected",
-    "claudeAction_cancelled": "Cancelled your last request"
+    "claudeAction_cancelled": "Cancelled your last request",
+    "claudeSpeakAnswers": "Speak answers to the call",
+    "claudeSpeakAnswersHint": "Claude says a one-line summary of each answer out loud for everyone. The full answer stays private.",
+    "claudeVoiceSpeaking": "Claude (for {name}) is speaking",
+    "claudeVoiceSpeakingMine": "Your Claude is speaking",
+    "claudeVoiceStop": "Stop",
+    "claudeVoiceStopHint": "Stop Claude's voice for everyone",
+    "claudeVoiceMute": "Mute Claude voice",
+    "claudeVoiceMuteHint": "Don't play Claude's spoken replies on this device",
+    "claudeConfirmSpoken": "Claude wants to {action}. Approve it on screen, or say: Claude, confirm."
   }
 }

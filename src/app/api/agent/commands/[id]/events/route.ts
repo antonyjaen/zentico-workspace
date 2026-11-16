@@ -1,10 +1,11 @@
 // Progress and results from tools/zentico-bridge.mjs for one of the token user's own commands.
 // POST (Authorization: Bearer <MCP token>) with JSON:
-//   {"type":"started"} | {"type":"progress","text"} | {"type":"done","result"} | {"type":"failed","error"}
+//   {"type":"started"} | {"type":"progress","text"} | {"type":"done","result","spoken"?} | {"type":"failed","error"}
+// ("spoken": one or two short sentences read aloud in the call, ≤ SPOKEN_MAX chars.)
 // → {"ok":true,"status":<command status>,"cancelled":boolean}  (cancelled = stop the run)
 import { applyBridgeEvent, PROGRESS_MAX, RESULT_MAX, type BridgeEvent } from "@/lib/mcp/agent";
 import { bearerOf, verifyToken } from "@/lib/mcp/tokens";
-import { COMMAND_ID } from "@/app/(apps)/meet/claude";
+import { cleanSpoken, COMMAND_ID, SPOKEN_MAX } from "@/app/(apps)/meet/claude";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,7 +50,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       ev = { type: "progress", text: text(body.text, PROGRESS_MAX) };
       break;
     case "done":
-      ev = { type: "done", result: text(body.result, RESULT_MAX) || "Done." };
+      ev = { type: "done", result: text(body.result, RESULT_MAX) || "Done.", spoken: cleanSpoken(text(body.spoken, SPOKEN_MAX * 2)) || undefined };
       break;
     case "failed":
       ev = { type: "failed", error: text(body.error, RESULT_MAX) || "Failed." };
