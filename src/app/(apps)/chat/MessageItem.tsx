@@ -55,7 +55,13 @@ export const MessageItem = memo(function MessageItem({ m, me, grouped, nameOf, o
 
   const remove = async () => {
     setConfirmDelete(false);
-    const r = await deleteMessage(m.id);
+    let r;
+    try {
+      r = await deleteMessage(m.id);
+    } catch (e) {
+      setError(errorText("failed"));
+      throw e; // surfaces stale-deployment errors to the VersionWatcher
+    }
     if (!r.ok) return setError(errorText(r.error));
     // Don't rely on the live stream alone (it may be reconnecting): show the deletion right away.
     onUpdate({ ...m, deleted: true, body: "", meta: null, reactions: [] });

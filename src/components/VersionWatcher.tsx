@@ -27,14 +27,25 @@ export function VersionWatcher() {
         /* offline or signed out: try again later */
       }
     };
-    const id = setInterval(check, 5 * 60_000);
+    // A server action from the old bundle rejects ("Failed to find Server Action … older or newer
+    // deployment"); the click then seems to do nothing. Show the reload prompt right away.
+    const STALE_ACTION = /Server Action|older or newer deployment/i;
+    const onRejection = (e: PromiseRejectionEvent) => {
+      const reason = e.reason as { message?: unknown } | undefined;
+      const message = typeof reason?.message === "string" ? reason.message : String(e.reason ?? "");
+      if (STALE_ACTION.test(message)) setStale(true);
+      else void check();
+    };
+    const id = setInterval(check, 60_000);
     document.addEventListener("visibilitychange", check);
     window.addEventListener("focus", check);
+    window.addEventListener("unhandledrejection", onRejection);
     return () => {
       stopped = true;
       clearInterval(id);
       document.removeEventListener("visibilitychange", check);
       window.removeEventListener("focus", check);
+      window.removeEventListener("unhandledrejection", onRejection);
     };
   }, []);
 
