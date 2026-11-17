@@ -251,7 +251,12 @@ export function InCall({
   const phone = useMediaQuery("(max-width: 767px)");
   const stageItems = stage.data.items.length;
   const stageFocus = stage.data.focus;
-  // A stage that opens, or something brought to the front, is featured like a screen share.
+  /** Someone shares their screen (set while rendering the tiles below). */
+  const sharing = useRef(false);
+  /** The stage changed while hidden behind a screen share: the stage button shows a dot. */
+  const [stageNews, setStageNews] = useState(false);
+  // A stage that opens, or something brought to the front, is featured like a screen share, but
+  // never over a real one (then only the stage button lights up).
   const stageSeen = useRef<{ items: number; focus: string | null } | null>(null);
   useEffect(() => {
     if (!stage.data.loaded) return;
@@ -259,11 +264,15 @@ export function InCall({
     stageSeen.current = { items: stageItems, focus: stageFocus };
     if (!prev) return;
     if ((prev.items === 0 && stageItems > 0) || (stageFocus && stageFocus !== prev.focus)) {
-      setStageViewState((v) => (v === "hidden" ? stageShown : v));
+      if (sharing.current) setStageNews(true);
+      else setStageViewState((v) => (v === "hidden" ? stageShown : v));
     }
   }, [stage.data.loaded, stageItems, stageFocus, stageShown]);
   const stageOpen = stage.data.open && stageItems > 0;
   const stageVisible = stageOpen && stageView !== "hidden" && !stage.data.disabled;
+  useEffect(() => {
+    if (stageVisible) setStageNews(false);
+  }, [stageVisible]);
   const stageMenu = usePopover<HTMLSpanElement>();
   const openStage = () => {
     stageMenu.setOpen(false);
@@ -374,14 +383,22 @@ export function InCall({
     }
   }
   const screenKeys = tiles.map((x) => x.key).join(",");
+  const screenTile = screenKeys ? tiles[0] : null;
+  sharing.current = !!screenKeys;
   for (const p of participants) {
     tiles.push({ key: `${p.identity}:camera`, participant: p, source: Track.Source.Camera, isLocal: p === lp });
   }
 
-  // A new screen share jumps to speaker layout so the shared content is readable.
+  // A new screen share jumps to speaker layout so the shared content is readable; a visible stage
+  // makes room for it (side by side on wide screens, else hidden) without changing the saved choice.
   useEffect(() => {
-    if (screenKeys) setLayout("speaker");
+    if (!screenKeys) return;
+    setLayout("speaker");
+    setStageViewState((v) => (v === "hidden" ? v : wide ? "side" : "hidden"));
+    // Only when a share starts or changes, not when the window is resized.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screenKeys]);
+  const shareBesideStage = stageView === "side" && wide && !!screenTile;
 
   const speaker = room.activeSpeakers.find((p) => p !== lp) ?? remotes[0] ?? lp;
   const featured =
@@ -499,7 +516,7 @@ export function InCall({
           <ClaudeConfirmations claude={claude} voice={voice} showTalk={panel !== "claude"} />
           {stageVisible ? (
             <div className={`flex min-h-0 flex-1 gap-2 ${stageView === "side" && wide ? "flex-row" : "flex-col md:flex-row"}`}>
-              <div className={`min-h-0 min-w-0 ${stageView === "side" && wide ? "basis-2/3" : "flex-1"}`}>
+              <div className={`min-h-0 min-w-0 ${shareBesideStage ? "basis-1/2" : stageView === "side" && wide ? "basis-2/3" : "flex-1"}`}>
                 <StageView
                   stage={stage}
                   me={lp.identity}
@@ -509,21 +526,39 @@ export function InCall({
                   compact={phone}
                 />
               </div>
-              {!phone && (
-                <div
-                  className={
-                    stageView === "side" && wide
-                      ? "grid min-h-0 basis-1/3 auto-rows-fr gap-2 overflow-y-auto [grid-template-columns:repeat(var(--cols-side),minmax(0,1fr))]"
-                      : "flex shrink-0 gap-2 overflow-x-auto md:w-52 md:flex-col md:overflow-x-hidden md:overflow-y-auto"
-                  }
-                  style={{ "--cols-side": n > 4 ? 2 : 1 } as React.CSSProperties}
-                >
-                  {tiles.map((x) => (
-                    <div key={x.key} className={stageView === "side" && wide ? "min-h-0" : "aspect-video w-40 shrink-0 md:w-full"}>
-                      <Tile participant={x.participant} source={x.source} isLocal={x.isLocal} compact />
-                    </div>
-                  ))}
+              {shareBesideStage && screenTile ? (
+                // A screen share next to the stage: large, with the other tiles in a strip below.
+                <div className="flex min-h-0 min-w-0 basis-1/2 flex-col gap-2">
+                  <div className="min-h-0 flex-1">
+                    <Tile participant={screenTile.participant} source={screenTile.source} isLocal={screenTile.isLocal} />
+                  </div>
+                  <div className="flex h-24 shrink-0 gap-2 overflow-x-auto">
+                    {tiles
+                      .filter((x) => x.key !== screenTile.key)
+                      .map((x) => (
+                        <div key={x.key} className="aspect-video h-full shrink-0">
+                          <Tile participant={x.participant} source={x.source} isLocal={x.isLocal} compact />
+                        </div>
+                      ))}
+                  </div>
                 </div>
+              ) : (
+                !phone && (
+                  <div
+                    className={
+                      stageView === "side" && wide
+                        ? "grid min-h-0 basis-1/3 auto-rows-fr gap-2 overflow-y-auto [grid-template-columns:repeat(var(--cols-side),minmax(0,1fr))]"
+                        : "flex shrink-0 gap-2 overflow-x-auto md:w-52 md:flex-col md:overflow-x-hidden md:overflow-y-auto"
+                    }
+                    style={{ "--cols-side": n > 4 ? 2 : 1 } as React.CSSProperties}
+                  >
+                    {tiles.map((x) => (
+                      <div key={x.key} className={stageView === "side" && wide ? "min-h-0" : "aspect-video w-40 shrink-0 md:w-full"}>
+                        <Tile participant={x.participant} source={x.source} isLocal={x.isLocal} compact />
+                      </div>
+                    ))}
+                  </div>
+                )
               )}
             </div>
           ) : effectiveLayout === "grid" ? (
@@ -709,7 +744,7 @@ export function InCall({
               >
                 <span className="relative">
                   <Presentation size={18} aria-hidden />
-                  {stage.data.assist && !stage.data.assist.pausedBy && (
+                  {((stage.data.assist && !stage.data.assist.pausedBy) || (stageNews && !stageVisible)) && (
                     <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full border-2 border-sheet" style={{ background: "var(--color-app-meet)" }} />
                   )}
                 </span>

@@ -30,7 +30,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppTheme } from "@/app/(apps)/mail/[mailboxId]/t/[threadId]/MessageFrame";
 import { useAgentName } from "@/components/AgentNameProvider";
 import { usePopover } from "@/components/usePopover";
-import { ASSIST_MODES, STAGE_LIMITS, type AssistMode, type ListEntry, type StageElement, type StageItem, type StageKind } from "./stage-types";
+import { ASSIST_MODES, STAGE_LIMITS, type AssistMode, type ListEntry, type StageElement, type StageItem, type StageKind, type StageOp } from "./stage-types";
 import { StageRequestError, type Stage } from "./useStage";
 
 const LiveCanvas = dynamic(() => import("./LiveCanvas"), {
@@ -76,6 +76,13 @@ export function StageView({
   const { data, send, assist, save, agentCursor } = stage;
   const [selected, setSelected] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  /** The item this user just removed for everyone, offered back for a few seconds. */
+  const [removed, setRemoved] = useState<{ id: string; title: string } | null>(null);
+  useEffect(() => {
+    if (!removed) return;
+    const id = setTimeout(() => setRemoved(null), 8000);
+    return () => clearTimeout(id);
+  }, [removed]);
   const addMenu = usePopover<HTMLDivElement>();
 
   // Follow the shared focus (and newly added items) unless the user picked another tab since.
@@ -119,6 +126,25 @@ export function StageView({
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--radius-sheet,12px)] border border-line bg-sheet">
       <AssistBar stage={stage} me={me} bridgeConnected={bridgeConnected} onStartListening={onStartListening} fail={fail} showUndo={agentItems} />
       {agentCursor && Date.now() - agentCursor.at < 4000 && <DrawingNotice name={agentCursor.name} at={agentCursor.at} />}
+      {removed && (
+        <div role="status" className="flex shrink-0 items-center gap-3 border-b border-line bg-sheet-muted px-3 py-1.5 text-[12.5px] text-ink-soft">
+          <span className="min-w-0 flex-1 truncate">{t("stageRemovedFor", { title: removed.title })}</span>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 font-medium text-ink underline-offset-2 hover:underline"
+            onClick={() => {
+              const id = removed.id;
+              setRemoved(null);
+              void send([{ op: "item.restore", id }])
+                .then(() => setSelected(id))
+                .catch(fail);
+            }}
+          >
+            <Undo2 size={12} aria-hidden />
+            {t("stageUndoRemove")}
+          </button>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex shrink-0 items-center gap-1 border-b border-line px-2 py-1.5">
@@ -189,7 +215,16 @@ export function StageView({
             </button>
           </div>
         ) : (
-          <ItemView key={current.id} item={current} stage={stage} run={run} compact={compact} isFocus={focus === current.id} />
+          <ItemView
+            key={current.id}
+            item={current}
+            stage={stage}
+            run={run}
+            compact={compact}
+            isFocus={focus === current.id}
+            fail={fail}
+            onRemoved={() => setRemoved({ id: current.id, title: current.title || t(`stageKind_${current.kind}`) })}
+          />
         )}
       </div>
     </div>
@@ -343,17 +378,38 @@ function ItemView({
   run,
   compact,
   isFocus,
+  fail,
+  onRemoved,
 }: {
   item: StageItem;
   stage: Stage;
   run: (ops: Parameters<Stage["send"]>[0]) => Promise<unknown>;
   compact: boolean;
   isFocus: boolean;
+  fail: (e: unknown) => void;
+  onRemoved: () => void;
 }) {
   const t = useTranslations("meet");
   const locale = useLocale();
   const theme = useAppTheme() ?? "light";
   const [editing, setEditing] = useState(!compact);
+
+  const remove = () => {
+    // Removing is for everyone in the call: ask first unless the item is empty.
+    const d = item.data;
+    const empty =
+      item.kind === "board"
+        ? ![...(stage.data.boards[item.id]?.values() ?? [])].some((e) => !e.isDeleted)
+        : item.kind === "notes"
+          ? !String(d.markdown ?? "").trim()
+          : item.kind === "table"
+            ? !(Array.isArray(d.rows) ? (d.rows as unknown[][]) : []).some((r) => Array.isArray(r) && r.some((c) => String(c ?? "").trim())) &&
+              !(Array.isArray(d.columns) ? (d.columns as unknown[]) : []).some((c) => String(c ?? "").trim())
+            : !(Array.isArray(d.entries) && d.entries.length);
+    if (!empty && !window.confirm(t("stageRemoveConfirm", { title: item.title || t(`stageKind_${item.kind}`) }))) return;
+    // run() reports a failure itself and resolves to nothing.
+    void run([{ op: "item.remove", id: item.id }]).then((out) => out && onRemoved());
+  };
 
   const header = (
     <div className="flex shrink-0 items-center gap-2 px-3 pt-2 text-[12px] text-ink-mute">
@@ -368,7 +424,7 @@ function ItemView({
           {editing ? t("stageDoneEditing") : t("stageEdit")}
         </button>
       )}
-      <button type="button" className="icon-btn !h-7 !w-7" onClick={() => void run([{ op: "item.remove", id: item.id }])} aria-label={t("stageRemove")} title={t("stageRemove")}>
+      <button type="button" className="icon-btn !h-7 !w-7" onClick={remove} aria-label={t("stageRemove")} title={t("stageRemove")}>
         <Trash2 size={14} aria-hidden />
       </button>
     </div>
@@ -399,7 +455,7 @@ function ItemView({
       {header}
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
         {item.kind === "notes" ? (
-          <NotesCard item={item} run={run} />
+          <NotesCard item={item} send={stage.send} fail={fail} />
         ) : item.kind === "table" ? (
           <TableCard item={item} run={run} />
         ) : (
@@ -412,10 +468,27 @@ function ItemView({
 
 const EMPTY_BOARD = new Map<string, StageElement>();
 
-function NotesCard({ item, run }: { item: StageItem; run: (ops: Parameters<Stage["send"]>[0]) => Promise<unknown> }) {
+function NotesCard({ item, send, fail }: { item: StageItem; send: Stage["send"]; fail: (e: unknown) => void }) {
   const t = useTranslations("meet");
   const text = String(item.data.markdown ?? "");
   const [draft, setDraft] = useState<string | null>(null);
+  /** The card's revision the draft started from: saving over a newer one is refused (conflict). */
+  const [base, setBase] = useState(0);
+  const [conflict, setConflict] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const save = (over: number) => {
+    setBusy(true);
+    void send([{ op: "item.update", id: item.id, data: { markdown: draft ?? "" }, base: over }])
+      .then(() => {
+        setDraft(null);
+        setConflict(false);
+      })
+      .catch((e: unknown) => {
+        if (e instanceof StageRequestError && e.code === "conflict") setConflict(true);
+        else fail(e);
+      })
+      .finally(() => setBusy(false));
+  };
   return draft == null ? (
     <div>
       {text.trim() ? (
@@ -423,7 +496,15 @@ function NotesCard({ item, run }: { item: StageItem; run: (ops: Parameters<Stage
       ) : (
         <p className="text-[13.5px] text-ink-mute">{t("stageNotesEmpty")}</p>
       )}
-      <button type="button" className="mt-3 inline-flex items-center gap-1.5 text-[13px] font-medium text-ink-soft hover:text-ink" onClick={() => setDraft(text)}>
+      <button
+        type="button"
+        className="mt-3 inline-flex items-center gap-1.5 text-[13px] font-medium text-ink-soft hover:text-ink"
+        onClick={() => {
+          setDraft(text);
+          setBase(item.rev);
+          setConflict(false);
+        }}
+      >
         <PenLine size={13} aria-hidden />
         {t("stageEdit")}
       </button>
@@ -432,10 +513,17 @@ function NotesCard({ item, run }: { item: StageItem; run: (ops: Parameters<Stage
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        void run([{ op: "item.update", id: item.id, data: { markdown: draft } }]).then(() => setDraft(null));
+        // After a conflict the user has seen the newer text above the editor: saving again replaces it.
+        save(conflict ? item.rev : base);
       }}
       className="flex flex-col gap-2"
     >
+      {conflict && (
+        <div role="alert" className="rounded-lg border border-line bg-sheet-muted p-3 text-[13px] text-ink-soft">
+          <p className="font-medium text-ink">{t("stageNotesConflict")}</p>
+          <div className="mt-2 max-h-40 overflow-y-auto text-[13px] break-words whitespace-pre-wrap text-ink">{text.trim() || t("stageNotesEmpty")}</div>
+        </div>
+      )}
       <textarea
         value={draft}
         autoFocus
@@ -445,13 +533,20 @@ function NotesCard({ item, run }: { item: StageItem; run: (ops: Parameters<Stage
         aria-label={t("stageKind_notes")}
         className="w-full resize-y rounded-lg border border-line bg-sheet-muted p-3 font-mono text-[13px] text-ink outline-none focus:border-ink-mute"
       />
-      <div className="flex gap-2">
-        <button type="submit" className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary-soft px-3 text-[13px] font-medium text-ink">
+      <div className="flex flex-wrap gap-2">
+        <button type="submit" disabled={busy} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary-soft px-3 text-[13px] font-medium text-ink disabled:opacity-50">
           <Check size={14} aria-hidden />
-          {t("stageDoneEditing")}
+          {conflict ? t("stageNotesReplace") : t("stageDoneEditing")}
         </button>
-        <button type="button" className="h-8 rounded-md px-3 text-[13px] text-ink-soft hover:bg-hover" onClick={() => setDraft(null)}>
-          {t("cancel")}
+        <button
+          type="button"
+          className="h-8 rounded-md px-3 text-[13px] text-ink-soft hover:bg-hover"
+          onClick={() => {
+            setDraft(null);
+            setConflict(false);
+          }}
+        >
+          {conflict ? t("stageNotesKeepTheirs") : t("cancel")}
         </button>
       </div>
     </form>
@@ -465,8 +560,9 @@ function ListCard({ item, run }: { item: StageItem; run: (ops: Parameters<Stage[
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const checkable = item.kind !== "decisions";
-  const update = (next: ListEntry[], extra: Record<string, unknown> = {}) =>
-    run([{ op: "item.update", id: item.id, data: { entries: next, ...(item.kind === "agenda" ? { current } : {}), ...extra } }]);
+  // Entry-level changes, applied by the server to the card as it is then: a concurrent change by
+  // someone else (or the assistant appending) is never overwritten by this browser's older copy.
+  const change = (op: Omit<Extract<StageOp, { op: "entries" }>, "op" | "id">) => run([{ op: "entries", id: item.id, ...op }]);
 
   return (
     <div>
@@ -480,7 +576,7 @@ function ListCard({ item, run }: { item: StageItem; run: (ops: Parameters<Stage[
                 className="mt-1 h-4 w-4 shrink-0 accent-[var(--color-app-meet)]"
                 checked={!!e.done}
                 aria-label={e.text}
-                onChange={(ev) => void update(entries.map((x) => (x.id === e.id ? { ...x, done: ev.target.checked } : x)))}
+                onChange={(ev) => void change({ set: [{ id: e.id, done: ev.target.checked }] })}
               />
             ) : (
               <span className="mt-0.5 w-5 shrink-0 text-right text-[12px] text-ink-mute tabular-nums">{i + 1}.</span>
@@ -492,14 +588,18 @@ function ListCard({ item, run }: { item: StageItem; run: (ops: Parameters<Stage[
               )}
             </span>
             {item.kind === "agenda" && current !== e.id && (
-              <button type="button" className="hidden text-[12px] font-medium text-ink-soft group-hover:block hover:text-ink" onClick={() => void update(entries, { current: e.id })}>
+              <button
+                type="button"
+                className="text-[12px] font-medium text-ink-soft hover:text-ink [@media(hover:hover)]:hidden [@media(hover:hover)]:group-focus-within:block [@media(hover:hover)]:group-hover:block"
+                onClick={() => void change({ current: e.id })}
+              >
                 {t("stageAgendaNow")}
               </button>
             )}
             <button
               type="button"
-              className="icon-btn !h-6 !w-6 opacity-0 group-hover:opacity-100 focus:opacity-100"
-              onClick={() => void update(entries.filter((x) => x.id !== e.id))}
+              className="icon-btn !h-6 !w-6 focus-visible:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100"
+              onClick={() => void change({ remove: [e.id] })}
               aria-label={t("stageRemoveEntry")}
             >
               <X size={13} aria-hidden />
@@ -514,7 +614,7 @@ function ListCard({ item, run }: { item: StageItem; run: (ops: Parameters<Stage[
           const text = draft.trim();
           if (!text || entries.length >= STAGE_LIMITS.listEntries) return;
           setDraft("");
-          void update([...entries, { id: newId(), text }]);
+          void change({ add: [{ id: newId(), text }] });
           inputRef.current?.focus();
         }}
       >
@@ -540,7 +640,8 @@ function TableCard({ item, run }: { item: StageItem; run: (ops: Parameters<Stage
   const columns = (Array.isArray(item.data.columns) ? (item.data.columns as string[]) : []).slice(0, STAGE_LIMITS.tableCols);
   const rows = (Array.isArray(item.data.rows) ? (item.data.rows as string[][]) : []).slice(0, STAGE_LIMITS.tableRows);
   const width = Math.max(columns.length, ...rows.map((r) => r.length), 1);
-  const commit = (cols: string[], rs: string[][]) => void run([{ op: "item.update", id: item.id, data: { columns: cols, rows: rs } }]);
+  // Cell-level changes, applied by the server to the table as it is then (see ListCard).
+  const commit = (op: Omit<Extract<StageOp, { op: "table" }>, "op" | "id">) => void run([{ op: "table", id: item.id, ...op }]);
   const cell = (value: string, onCommit: (v: string) => void, label: string, head = false) => (
     <input
       defaultValue={value}
@@ -560,7 +661,7 @@ function TableCard({ item, run }: { item: StageItem; run: (ops: Parameters<Stage
           <tr className="border-b border-line">
             {pad(columns).map((c, i) => (
               <th key={i} className="p-0">
-                {cell(c, (v) => commit(pad(columns).map((x, j) => (j === i ? v : x)), rows), t("stageColumn", { n: i + 1 }), true)}
+                {cell(c, (v) => commit({ header: [{ col: i, value: v }] }), t("stageColumn", { n: i + 1 }), true)}
               </th>
             ))}
           </tr>
@@ -570,7 +671,7 @@ function TableCard({ item, run }: { item: StageItem; run: (ops: Parameters<Stage
             <tr key={ri} className="border-b border-line/60">
               {pad(r).map((c, ci) => (
                 <td key={ci} className="p-0">
-                  {cell(c, (v) => commit(columns, rows.map((row, k) => (k === ri ? pad(row).map((x, j) => (j === ci ? v : x)) : row))), t("stageCell", { row: ri + 1, col: ci + 1 }))}
+                  {cell(c, (v) => commit({ cells: [{ row: ri, col: ci, value: v }] }), t("stageCell", { row: ri + 1, col: ci + 1 }))}
                 </td>
               ))}
             </tr>
@@ -578,11 +679,11 @@ function TableCard({ item, run }: { item: StageItem; run: (ops: Parameters<Stage
         </tbody>
       </table>
       <div className="mt-2 flex gap-3 text-[13px]">
-        <button type="button" className="inline-flex items-center gap-1 font-medium text-ink-soft hover:text-ink disabled:opacity-50" disabled={rows.length >= STAGE_LIMITS.tableRows} onClick={() => commit(columns, [...rows, pad([])])}>
+        <button type="button" className="inline-flex items-center gap-1 font-medium text-ink-soft hover:text-ink disabled:opacity-50" disabled={rows.length >= STAGE_LIMITS.tableRows} onClick={() => commit({ addRow: true })}>
           <Plus size={13} aria-hidden />
           {t("stageAddRow")}
         </button>
-        <button type="button" className="inline-flex items-center gap-1 font-medium text-ink-soft hover:text-ink disabled:opacity-50" disabled={width >= STAGE_LIMITS.tableCols} onClick={() => commit([...pad(columns), ""], rows.map((r) => [...pad(r), ""]))}>
+        <button type="button" className="inline-flex items-center gap-1 font-medium text-ink-soft hover:text-ink disabled:opacity-50" disabled={width >= STAGE_LIMITS.tableCols} onClick={() => commit({ addColumn: true })}>
           <Plus size={13} aria-hidden />
           {t("stageAddColumn")}
         </button>

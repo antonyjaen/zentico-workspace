@@ -463,6 +463,41 @@ function writeTemp(ctx, name, content) {
   return path;
 }
 
+/** Gemini CLI's built-in tools, all off: it runs with --approval-mode yolo. */
+const GEMINI_EXCLUDED_TOOLS = [
+  "run_shell_command",
+  "write_file",
+  "replace",
+  "web_fetch",
+  "google_web_search",
+  "read_file",
+  "read_many_files",
+  "glob",
+  "search_file_content",
+  "list_directory",
+  "save_memory",
+];
+
+/** What a proactive stage update ("assist") may use in Claude Code: the stage tools, nothing local. */
+const ASSIST_CLAUDE_TOOLS = [
+  "meeting_current",
+  "meeting_list_participants",
+  "meeting_get_live_context",
+  "meeting_stage_open",
+  "meeting_whiteboard_create",
+  "meeting_whiteboard_read",
+  "meeting_whiteboard_add",
+  "meeting_whiteboard_update",
+  "meeting_whiteboard_remove",
+  "meeting_pin_card",
+  "meeting_update_card",
+  "meeting_unpin",
+  "meeting_stage_focus",
+]
+  .map((t) => `mcp__zentico__${t}`)
+  .join(",");
+const ASSIST_CLAUDE_DENY = "Read,Glob,Grep,LS,WebFetch,WebSearch,Bash,Edit,MultiEdit,Write,NotebookEdit,Task";
+
 /**
  * The workspace MCP server in one agent's config format. Every format but Claude Code's reads the
  * token from the ZW_AUTH environment variable instead of holding it; Claude Code's file has it (as
@@ -499,8 +534,10 @@ export function writeMcpConfig(ctx, format) {
               headers: { Authorization: "{env:ZW_AUTH}", "X-Zentico-Command": "{env:ZW_CMD}" },
             },
           },
-          // Requests can come from what other people said in a meeting: no shell, no file edits.
-          permission: { edit: "deny", bash: "deny" },
+          // Requests can come from what other people said in a meeting: no shell, no file edits, no
+          // web requests (they could carry workspace data out) and no reading local files.
+          permission: { edit: "deny", bash: "deny", webfetch: "deny" },
+          tools: { bash: false, edit: false, write: false, patch: false, read: false, glob: false, grep: false, list: false, webfetch: false },
         }),
       );
     case "gemini":
@@ -511,8 +548,9 @@ export function writeMcpConfig(ctx, format) {
           mcpServers: {
             zentico: { httpUrl: mcpUrl, headers: { Authorization: "$ZW_AUTH", "X-Zentico-Command": "$ZW_CMD" }, timeout: sec * 1000, trust: true },
           },
-          // --approval-mode yolo runs tools without asking: keep it to the workspace tools.
-          tools: { exclude: ["run_shell_command", "write_file", "replace"] },
+          // --approval-mode yolo runs tools without asking: keep it to the workspace tools (no shell,
+          // no file writes or reads, no web requests that could carry workspace data out).
+          tools: { exclude: GEMINI_EXCLUDED_TOOLS },
         }),
       );
     default:
@@ -545,7 +583,12 @@ export const RUNNERS = {
   claude: {
     prepare(ctx) {
       const config = writeMcpConfig(ctx, "claude");
-      const argv = ["-p", "--output-format", "stream-json", "--verbose", "--mcp-config", config, "--allowedTools", ctx.cfg.allowedTools, "--append-system-prompt", ctx.system];
+      // A proactive stage update is steered by meeting speech: only the stage tools (the server
+      // enforces the same), and no local file or web tools.
+      const assist = ctx.source === "assist";
+      const argv = ["-p", "--output-format", "stream-json", "--verbose", "--mcp-config", config, "--allowedTools", assist ? ASSIST_CLAUDE_TOOLS : ctx.cfg.allowedTools];
+      if (assist) argv.push("--disallowedTools", ASSIST_CLAUDE_DENY);
+      argv.push("--append-system-prompt", ctx.system);
       if (!ctx.cfg.keepMcp) argv.push("--strict-mcp-config");
       if (ctx.cfg.model) argv.push("--model", ctx.cfg.model);
       return { argv, env: { ...agentEnv(ctx, config), MCP_TOOL_TIMEOUT: String(ctx.cfg.toolTimeoutSec * 1000) }, stdin: ctx.prompt };

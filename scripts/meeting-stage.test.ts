@@ -217,6 +217,71 @@ await test("card data is validated and cleaned per kind", () => {
   assert.equal((stage.cleanCardData("agenda", { entries: [{ id: "a1", text: "x" }], current: "zz" }) as { current: unknown }).current, null);
 });
 
+await test("concurrent card edits: stale full replace is refused, entry / cell ops merge", async () => {
+  join_("room-e", "ana@x.dev", "bob@x.dev");
+  stage.applyOps("room-e", ana, [{ op: "item.add", item: { id: "n", kind: "notes", data: { markdown: "v1" } } }]);
+  const seen = stage.getItem("room-e", "n")!.rev;
+  // The assistant appends while Ana edits her copy.
+  stage.applyOps("room-e", anaAgent, [{ op: "item.update", id: "n", data: { markdown: "v1\n- agent" }, base: seen }]);
+  await rejects(() => stage.applyOps("room-e", ana, [{ op: "item.update", id: "n", data: { markdown: "ana's" }, base: seen }]), "conflict");
+  assert.equal(stage.getItem("room-e", "n")!.data.markdown, "v1\n- agent", "agent's addition kept");
+  // Saving again over the version she has now seen goes through.
+  stage.applyOps("room-e", ana, [{ op: "item.update", id: "n", data: { markdown: "ana's" }, base: stage.getItem("room-e", "n")!.rev }]);
+  assert.equal(stage.getItem("room-e", "n")!.data.markdown, "ana's");
+
+  stage.applyOps("room-e", ana, [{ op: "item.add", item: { id: "l", kind: "agenda", data: { entries: [{ id: "e1", text: "One" }, { id: "e2", text: "Two" }] } } }]);
+  // Bob ticks e1 and the agent appends from their own (stale) views: both survive.
+  stage.applyOps("room-e", bob, [{ op: "entries", id: "l", set: [{ id: "e1", done: true }] }]);
+  stage.applyOps("room-e", anaAgent, [{ op: "entries", id: "l", add: [{ id: "e3", text: "Three" }] }]);
+  stage.applyOps("room-e", bob, [{ op: "entries", id: "l", remove: ["e2"], current: "e3" }]);
+  const l = stage.getItem("room-e", "l")!;
+  assert.deepEqual(
+    (l.data.entries as { id: string; done?: boolean }[]).map((e) => [e.id, !!e.done]),
+    [
+      ["e1", true],
+      ["e3", false],
+    ],
+  );
+  assert.equal(l.data.current, "e3");
+  await rejects(() => stage.applyOps("room-e", ana, [{ op: "entries", id: "n", add: [{ id: "x", text: "x" }] }]), "invalid");
+
+  stage.applyOps("room-e", ana, [{ op: "item.add", item: { id: "t", kind: "table", data: { columns: ["A", "B"], rows: [["1", "2"]] } } }]);
+  stage.applyOps("room-e", bob, [{ op: "table", id: "t", cells: [{ row: 0, col: 1, value: "bob" }] }]);
+  stage.applyOps("room-e", ana, [{ op: "table", id: "t", cells: [{ row: 0, col: 0, value: "ana" }], header: [{ col: 1, value: "Owner" }] }]);
+  stage.applyOps("room-e", ana, [{ op: "table", id: "t", addRow: true, addColumn: true }]);
+  assert.deepEqual(stage.getItem("room-e", "t")!.data, {
+    columns: ["A", "Owner", ""],
+    rows: [
+      ["ana", "bob", ""],
+      ["", "", ""],
+    ],
+  });
+});
+
+await test("a removed item can be restored with its drawing", async () => {
+  join_("room-r", "ana@x.dev");
+  stage.applyOps("room-r", ana, [{ op: "item.add", item: { id: "wb", kind: "board" } }]);
+  stage.applyOps("room-r", ana, [{ op: "el.upsert", board: "wb", elements: [el("e1", 1, 1)] }]);
+  const r1 = stage.applyOps("room-r", ana, [{ op: "item.remove", id: "wb" }]);
+  assert.equal(stage.getItem("room-r", "wb"), null);
+  stage.applyOps("room-r", ana, [{ op: "item.restore", id: "wb" }]);
+  assert.ok(stage.getItem("room-r", "wb"));
+  const d = stage.stageState("room-r", r1.rev);
+  assert.equal(d.elements.wb?.length, 1, "the drawing travels again with the restore");
+});
+
+await test("elements born deleted aren't stored; a board's stored size is capped", async () => {
+  join_("room-s", "ana@x.dev");
+  stage.applyOps("room-s", ana, [{ op: "item.add", item: { id: "wb", kind: "board" } }]);
+  const out = stage.applyOps("room-s", ana, [{ op: "el.upsert", board: "wb", elements: Array.from({ length: 500 }, (_, i) => el(`d${i}`, 1, 1, { isDeleted: true })) }]);
+  assert.equal(out.changed, false);
+  assert.equal(stage.stageState("room-s").elements.wb, undefined);
+  const fat = (i: number) => el(`f${i}`, 1, 1, { points: Array(1500).fill([1000, 1000]) });
+  await rejects(async () => {
+    for (let i = 0; i < 40; i++) stage.applyOps("room-s", ana, [{ op: "el.upsert", board: "wb", elements: Array.from({ length: 30 }, (_, j) => fat(i * 30 + j)) }]);
+  }, "limit");
+});
+
 /* -------------------------------------------------------------------- undo */
 
 await test("undo agent changes restores what the agent did, but not what people changed after", () => {
@@ -268,14 +333,18 @@ await test("assist: needs a connected bridge, anyone pauses, only the owner resu
 await test("assist scheduling: char / time thresholds, one run at a time, 45 s gap, pause cancels", async () => {
   const room = "room-p";
   const t0 = Date.now();
+  // Speech captured by someone else's browser is never handed to Ana's agent.
+  agent.addUtterance("bob@x.dev", room, "b".repeat(900), "meeting");
+  await flush();
+  assert.equal(stage.onMeetingSpeech(room, t0), null, "only the owner's own capture counts");
   // Not enough speech yet.
-  agent.addUtterance("bob@x.dev", room, "short bit", "meeting");
+  agent.addUtterance("ana@x.dev", room, "short bit", "meeting");
   await flush();
   assert.equal(stage.onMeetingSpeech(room, t0), null);
   assert.equal(stage.assistOf(room)?.inFlight, null);
   // Enough characters → a quiet 'assist' command for the owner.
   // Storing meeting speech schedules by itself (addUtterance → onMeetingSpeech); either way one run.
-  agent.addUtterance("bob@x.dev", room, "y".repeat(600), "meeting");
+  agent.addUtterance("ana@x.dev", room, "y".repeat(600), "meeting");
   await flush();
   const id = stage.assistOf(room)?.inFlight ?? stage.onMeetingSpeech(room, t0 + 1000);
   assert.ok(id);
@@ -286,8 +355,9 @@ await test("assist scheduling: char / time thresholds, one run at a time, 45 s g
   const prompt = stage.assistPrompt(room, "Weekly");
   assert.match(prompt, /y{100}/);
   assert.match(prompt, /meeting_update_card/);
+  assert.doesNotMatch(prompt, /b{100}/, "other people's capture left out");
   // While it runs nothing else is queued, even with lots of new speech.
-  agent.addUtterance("bob@x.dev", room, "z".repeat(800), "meeting");
+  agent.addUtterance("ana@x.dev", room, "z".repeat(800), "meeting");
   assert.equal(stage.onMeetingSpeech(room, t0 + 60_000), null);
   // It finishes: the next run waits for the 45 s gap, then merges what came in meanwhile.
   agent.applyBridgeEvent(id!, "ana@x.dev", { type: "done", result: "Added 2 notes" });
@@ -301,7 +371,7 @@ await test("assist scheduling: char / time thresholds, one run at a time, 45 s g
   // Pausing cancels the run in flight.
   await stage.controlAssist(room, bob, "pause");
   assert.equal(agent.getCommand(id2!, "ana@x.dev")?.status, "cancelled");
-  agent.addUtterance("bob@x.dev", room, "w".repeat(900), "meeting");
+  agent.addUtterance("ana@x.dev", room, "w".repeat(900), "meeting");
   assert.equal(stage.onMeetingSpeech(room, t0 + 200_000), null, "paused: no runs");
 });
 
@@ -332,7 +402,7 @@ await test("agent tools: room from the call the owner is in, progressive drawing
   join_(room, "ana@x.dev", "bob@x.dev");
   // Ana is in exactly one call with a command history there: found without a room argument.
   agent.addUtterance("ana@x.dev", room, "hello", "command");
-  for (const r of ["room-b", "room-u", "room-p", "room-d", "room-a", "room-c"]) join_(r, "bob@x.dev");
+  for (const r of ["room-b", "room-u", "room-p", "room-d", "room-a", "room-c", "room-e", "room-r", "room-s"]) join_(r, "bob@x.dev");
   join_(room, "ana@x.dev", "bob@x.dev");
   const opened = (await tool("meeting_stage_open").run({}, ctx)) as { room: string; boardId: string };
   assert.equal(opened.room, room);
@@ -374,6 +444,20 @@ await test("agent tools: room from the call the owner is in, progressive drawing
   // Out of the call: the agent can't touch the stage.
   join_(room, "bob@x.dev");
   await assert.rejects(() => tool("meeting_pin_card").run({ room, kind: "notes", title: "x" }, ctx), /in the call|not in/);
+});
+
+await test("an assist run (steered by meeting speech) may only use the stage tools", async () => {
+  const { runTool } = await import("../src/lib/mcp/tools");
+  const room = "room-v";
+  join_(room, "ana@x.dev");
+  const { command } = agent.enqueueCommand({ email: "ana@x.dev", name: "Ana", room, title: "", text: "x", source: "typed", timeZone: null, kind: "assist" });
+  const ctx = { session: { email: "ana@x.dev", name: "Ana" } as never, scope: "write" as const, tokenName: "t", tokenExpires: null, tokenId: "tok1", commandId: command.id };
+  for (const name of ["mail_search", "drive_read_text", "calendar_list_events", "ui_write_file", "meeting_stage_save"]) {
+    const out = await runTool(name, {}, ctx);
+    assert.ok(!out.ok && /only use the meeting_\* stage tools/.test(out.error), name);
+  }
+  assert.ok((await runTool("meeting_stage_open", { room }, ctx)).ok);
+  agent.cancelCommand(command.id, "ana@x.dev");
 });
 
 /* ------------------------------------------------------- close and export */

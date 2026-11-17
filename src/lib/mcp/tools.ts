@@ -4,7 +4,7 @@
 // Tools live in one module per app (mail-tools, calendar-tools, …); this file is the registry,
 // the read-only filter and the in-call confirmation of write tools.
 import { ToolError, type Args } from "./args";
-import { awaitConfirmation } from "./agent";
+import { awaitConfirmation, getCommand } from "./agent";
 import { BOOKING_TOOLS } from "./booking-tools";
 import { CALENDAR_TOOLS } from "./calendar-tools";
 import { CHAT_TOOLS, MEETING_TOOLS } from "./collab-tools";
@@ -238,8 +238,19 @@ export function describeWrite(name: string, args: Args): string {
 
 export type ToolOutcome = { ok: true; value: unknown } | { ok: false; error: string };
 
+/** Tools an "assist" run may call: the live stage tools, except saving to Drive. */
+export const assistAllows = (name: string) => name.startsWith("meeting_") && name !== "meeting_stage_save" && BY_NAME.has(name);
+
 /** Runs a tool by name. Throws only for unexpected failures; user-facing problems come back as errors. */
 export async function runTool(name: string, args: Args, ctx: ToolContext): Promise<ToolOutcome> {
+  // A proactive stage update ("assist") is driven by meeting speech anyone in the call can steer: it
+  // may only use the stage tools, never read mail / Drive / calendar or write elsewhere.
+  if (ctx.commandId != null && !assistAllows(name) && getCommand(ctx.commandId, ctx.session.email)?.kind === "assist") {
+    return {
+      ok: false,
+      error: "Automatic meeting stage updates can only use the meeting_* stage tools.",
+    };
+  }
   // The user's connected MCP servers (ext_<server>__<tool>): own listing, gating and confirmation.
   if (!BY_NAME.has(name) && isExtToolName(name)) return runExtTool(name, args ?? {}, ctx);
   const tool = BY_NAME.get(name);

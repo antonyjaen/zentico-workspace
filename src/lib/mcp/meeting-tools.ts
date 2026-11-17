@@ -66,9 +66,17 @@ async function writable(args: Args, ctx: ToolContext): Promise<{ room: string; a
   return { room, actor: actorOf(ctx) };
 }
 
+/** Room + read access: the stage's content (also for people of the recorded meeting, after the call). */
 async function readable(args: Args, ctx: ToolContext): Promise<string> {
   const room = await resolveRoom(args, ctx);
   await guard(() => checkAccess(room, ctx.session.email, "read"));
+  return room;
+}
+
+/** Room + in the call now: who is in it and what is being said are only for the people in it. */
+async function inTheCall(args: Args, ctx: ToolContext): Promise<string> {
+  const room = await resolveRoom(args, ctx);
+  await guard(() => checkAccess(room, ctx.session.email, "write"));
   return room;
 }
 
@@ -143,7 +151,7 @@ export const MEETING_STAGE_TOOLS: Tool[] = [
       "The video call you are in right now: room, participants, the live stage (whiteboards with their text, pinned cards with their content) and whether a proactive assistant is keeping it.",
     inputSchema: { type: "object", properties: { room: ROOM_PROP } },
     async run(args, ctx) {
-      const room = await readable(args, ctx);
+      const room = await inTheCall(args, ctx);
       const people = await listParticipants(room);
       return { room, participants: people.map((p) => ({ name: p.name, email: p.identity })), stage: stageSummary(room) };
     },
@@ -153,7 +161,7 @@ export const MEETING_STAGE_TOOLS: Tool[] = [
     description: "Who is in the video call right now (name and email).",
     inputSchema: { type: "object", properties: { room: ROOM_PROP } },
     async run(args, ctx) {
-      const room = await readable(args, ctx);
+      const room = await inTheCall(args, ctx);
       return { room, participants: (await listParticipants(room)).map((p) => ({ name: p.name, email: p.identity })) };
     },
   },
@@ -170,7 +178,7 @@ export const MEETING_STAGE_TOOLS: Tool[] = [
       },
     },
     async run(args, ctx) {
-      const room = await readable(args, ctx);
+      const room = await inTheCall(args, ctx);
       const cursor = typeof args.cursor === "number" && Number.isFinite(args.cursor) ? args.cursor : Date.now() - int(args, "sinceSec", { min: 10, max: 3600, def: 300 }) * 1000;
       const out = liveContext(room, ctx.session.email, cursor);
       return { room, chunks: out.chunks.map((c) => ({ at: new Date(c.at).toISOString(), text: c.text })), cursor: out.cursor };
@@ -435,7 +443,9 @@ export const MEETING_STAGE_TOOLS: Tool[] = [
         data.current = findEntry((data.entries as ListEntry[] | undefined) ?? [], args.setCurrent).id;
       }
       const title = str(args, "title", { max: 120 });
-      await guard(() => applyOps(room, actor, [{ op: "item.update", id: card.id, data, ...(title !== undefined ? { title } : {}) }]));
+      // Read and write happen in the same tick (no await in between), so `base` always matches here;
+      // it only guards against that changing.
+      await guard(() => applyOps(room, actor, [{ op: "item.update", id: card.id, data, base: card.rev, ...(title !== undefined ? { title } : {}) }]));
       return { room, card: getItem(room, card.id) };
     },
   },

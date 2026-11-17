@@ -615,11 +615,12 @@ export function addUtterance(email: string, room: string, text: string, source: 
   if (source === "meeting") stageHook((m) => m.onMeetingSpeech(room));
 }
 
-/** Meeting speech captured in a room after `since` by anyone listening (oldest first). */
-export function meetingUtterances(room: string, since: number): { email: string; at: number; text: string }[] {
+/** Meeting speech captured in a room after `since` by anyone listening, or only by `email` (oldest first). */
+export function meetingUtterances(room: string, since: number, email?: string): { email: string; at: number; text: string }[] {
+  const mine = email ? " AND user_email = ?" : "";
   return db()
-    .prepare("SELECT user_email, text, at FROM utterances WHERE room = ? AND source = 'meeting' AND at > ? ORDER BY at LIMIT 500")
-    .all(room, since)
+    .prepare(`SELECT user_email, text, at FROM utterances WHERE room = ? AND source = 'meeting' AND at > ?${mine} ORDER BY at LIMIT 500`)
+    .all(room, since, ...(email ? [norm(email)] : []))
     .map((r) => ({ email: s(r.user_email), at: Number(r.at), text: s(r.text) }));
 }
 

@@ -14,6 +14,7 @@ const STATUS: Record<StageError["code"], number> = {
   not_configured: 503,
   rate_limited: 429,
   no_bridge: 412,
+  conflict: 409,
 };
 
 export function stageErrorResponse(e: unknown, where: string) {

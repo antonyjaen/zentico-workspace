@@ -34,7 +34,7 @@ import { all, get, num, run, str, tx, type Row } from "./db";
 
 export class StageError extends Error {
   constructor(
-    readonly code: "not_found" | "forbidden" | "limit" | "invalid" | "not_configured" | "rate_limited" | "no_bridge",
+    readonly code: "not_found" | "forbidden" | "limit" | "invalid" | "not_configured" | "rate_limited" | "no_bridge" | "conflict",
     message: string,
   ) {
     super(message);
@@ -69,14 +69,19 @@ export async function inCall(room: string, email: string): Promise<boolean> {
   return (await participantsOf(room)).has(norm(email)) || (await participantsOf(room, true)).has(norm(email));
 }
 
-/** Took part in a recorded meeting in this room since the stage opened (late readers of a saved stage). */
-function wasInMeeting(room: string, email: string, since: number): boolean {
+/**
+ * Recorded meetings in the room that overlapped the stage (ended after it opened, or still running and
+ * started at most 12 h before it), so attendees of an earlier meeting in a reused room don't count.
+ */
+const OVERLAP = `m.room = ? AND (m.ended_at >= ? OR (m.ended_at IS NULL AND m.started_at >= ?))`;
+const overlapArgs = (room: string, openedAt: number) => [room, openedAt, openedAt - 12 * 60 * 60_000] as const;
+
+/** Took part in a recorded meeting in this room while the stage was open (late readers of a saved stage). */
+function wasInMeeting(room: string, email: string, openedAt: number): boolean {
   return !!get(
-    `SELECT 1 AS ok FROM meeting_people mp JOIN meetings m ON m.id = mp.meeting_id
-     WHERE m.room = ? AND lower(mp.email) = ? AND m.started_at >= ? LIMIT 1`,
-    room,
+    `SELECT 1 AS ok FROM meeting_people mp JOIN meetings m ON m.id = mp.meeting_id WHERE ${OVERLAP} AND lower(mp.email) = ? LIMIT 1`,
+    ...overlapArgs(room, openedAt),
     norm(email),
-    since - 60 * 60_000,
   );
 }
 
@@ -114,8 +119,8 @@ export function takeRate(key: string, max: number, windowMs: number, now = Date.
   return true;
 }
 
-/** Browser edits: a canvas sends a batch every 150 ms while drawing; this leaves room for bursts. */
-export const OPS_RATE = { max: 60, windowMs: 10_000 };
+/** Browser edits: a canvas sends a batch every 250 ms while drawing (40 per 10 s); this leaves room for card edits and retries. */
+export const OPS_RATE = { max: 120, windowMs: 10_000 };
 /** Agent tool calls changing the stage. */
 export const AGENT_RATE = { max: 60, windowMs: 60_000 };
 
@@ -155,6 +160,7 @@ const toItem = (r: ItemRow): StageItem => ({
   createdBy: r.created_by,
   actorKind: r.actor_kind,
   updated: r.updated,
+  rev: r.rev,
 });
 
 const itemRow = (room: string, id: string) => {
@@ -236,6 +242,21 @@ function cleanElement(v: unknown): StageElement | null {
   if (typeof e.version !== "number" || !Number.isFinite(e.version) || typeof e.versionNonce !== "number" || !Number.isFinite(e.versionNonce)) return null;
   if (bytes(e) > L.elementBytes) throw new StageError("limit", `A drawing element is larger than ${L.elementBytes / 1024} KB`);
   return e as StageElement;
+}
+
+/**
+ * Caps what a board stores, deleted elements included (they are kept so a stale copy can't come
+ * back). Past the cap, tombstones older than the last 500 revisions are pruned (every client has
+ * long since applied them); still over → "limit". Runs inside applyOps' transaction.
+ */
+function checkBoardSize(room: string, board: string, rev: number) {
+  const size = () =>
+    get("SELECT COUNT(*) AS n, COALESCE(SUM(length(CAST(data AS BLOB))), 0) AS b FROM stage_elements WHERE room = ? AND board_id = ?", room, board);
+  let s = size();
+  if (num(s?.n) <= L.rowsPerBoard && num(s?.b) <= L.boardBytes) return;
+  run("DELETE FROM stage_elements WHERE room = ? AND board_id = ? AND deleted = 1 AND rev < ?", room, board, rev - 500);
+  s = size();
+  if (num(s?.n) > L.rowsPerBoard || num(s?.b) > L.boardBytes) throw new StageError("limit", "This whiteboard is full; start another one");
 }
 
 /* -------------------------------------------------------------- applyOps */
@@ -353,6 +374,8 @@ export function applyOps(
         }
         case "item.update": {
           const r = liveItem(op.id);
+          // The editor started from an older version: refuse rather than drop someone else's change.
+          if (typeof op.base === "number" && op.base !== r.rev) throw new StageError("conflict", "Someone changed this card meanwhile");
           remember({ t: "item", id: r.id, row: r });
           writeItem({
             ...r,
@@ -371,6 +394,96 @@ export function applyOps(
           ids.push(r.id);
           break;
         }
+        case "item.restore": {
+          const r = typeof op.id === "string" && ID.test(op.id) ? itemRow(room, op.id) : null;
+          if (!r) throw new StageError("not_found", `No stage item "${String(op.id).slice(0, 64)}"`);
+          if (!r.deleted) break;
+          const isBoard = r.kind === "board";
+          const n = count(`SELECT COUNT(*) AS n FROM stage_items WHERE room = ? AND kind ${isBoard ? "=" : "!="} 'board' AND deleted = 0`, room);
+          if (n >= (isBoard ? L.boards : L.cards))
+            throw new StageError("limit", isBoard ? `A stage has at most ${L.boards} whiteboards` : `A stage has at most ${L.cards} cards`);
+          remember({ t: "item", id: r.id, row: r });
+          writeItem({ ...r, deleted: 0, actor_kind: actor.kind });
+          // Clients dropped the board's drawing with the item: send it again with this revision.
+          if (isBoard) run("UPDATE stage_elements SET rev = ? WHERE room = ? AND board_id = ? AND deleted = 0", rev, room, r.id);
+          ids.push(r.id);
+          break;
+        }
+        case "entries": {
+          const r = liveItem(op.id);
+          if (!(LIST_KINDS as readonly string[]).includes(r.kind)) throw new StageError("invalid", `"${r.title || r.id}" is not a list card`);
+          const d = parse<Record<string, unknown>>(r.data, {});
+          let entries = cleanEntries(d.entries);
+          let current = typeof d.current === "string" ? d.current : null;
+          if (Array.isArray(op.remove)) {
+            const gone = new Set(op.remove.filter((x): x is string => typeof x === "string"));
+            entries = entries.filter((e) => !gone.has(e.id));
+          }
+          for (const s of Array.isArray(op.set) ? op.set.slice(0, L.listEntries) : []) {
+            const e = s && typeof s === "object" ? entries.find((x) => x.id === s.id) : undefined;
+            if (!e) continue; // removed by someone else meanwhile
+            if (s.done === true) e.done = true;
+            else if (s.done === false) delete e.done;
+            const text = typeof s.text === "string" ? cleanText(s.text, 500).trim() : "";
+            if (text) e.text = text;
+          }
+          if (Array.isArray(op.add) && op.add.length) {
+            const add = cleanEntries(op.add).filter((e) => !entries.some((x) => x.id === e.id));
+            if (entries.length + add.length > L.listEntries) throw new StageError("limit", `A list holds at most ${L.listEntries} entries`);
+            entries = [...entries, ...add];
+          }
+          if (op.current !== undefined && r.kind === "agenda") current = typeof op.current === "string" ? op.current : null;
+          remember({ t: "item", id: r.id, row: r });
+          writeItem({
+            ...r,
+            data: JSON.stringify(cleanCardData(r.kind, { entries, current })),
+            actor_kind: actor.kind,
+          });
+          ids.push(r.id);
+          break;
+        }
+        case "table": {
+          const r = liveItem(op.id);
+          if (r.kind !== "table") throw new StageError("invalid", `"${r.title || r.id}" is not a table`);
+          const d = parse<Record<string, unknown>>(r.data, {});
+          const columns = (Array.isArray(d.columns) ? d.columns : []).map((c) => String(c ?? ""));
+          const rows = (Array.isArray(d.rows) ? d.rows : []).map((x) => (Array.isArray(x) ? x.map((c) => String(c ?? "")) : []));
+          const pad = (list: string[], w: number) => {
+            while (list.length < w) list.push("");
+            return list;
+          };
+          const cell = (v: unknown) => cleanText(typeof v === "number" ? String(v) : v, 500);
+          const at = (v: unknown, max: number) => (typeof v === "number" && Number.isInteger(v) && v >= 0 && v < max ? v : -1);
+          for (const h of Array.isArray(op.header) ? op.header.slice(0, L.tableCols) : []) {
+            const col = at(h?.col, L.tableCols);
+            if (col < 0) continue;
+            pad(columns, col + 1)[col] = cleanText(h.value, 80);
+          }
+          if (op.addColumn) {
+            if (columns.length >= L.tableCols) throw new StageError("limit", `A table has at most ${L.tableCols} columns`);
+            pad(columns, Math.max(columns.length, 1)).push("");
+            for (const row of rows) pad(row, columns.length);
+          }
+          const width = Math.max(columns.length, 1);
+          for (const c of Array.isArray(op.cells) ? op.cells.slice(0, L.tableRows * L.tableCols) : []) {
+            const row = at(c?.row, rows.length);
+            const col = at(c?.col, width);
+            if (row < 0 || col < 0) continue; // a row someone else removed meanwhile
+            pad(rows[row], col + 1)[col] = cell(c.value);
+          }
+          if (op.addRow) {
+            if (rows.length >= L.tableRows) throw new StageError("limit", `A table has at most ${L.tableRows} rows`);
+            rows.push(pad([], width));
+          }
+          remember({ t: "item", id: r.id, row: r });
+          writeItem({
+            ...r,
+            data: JSON.stringify(cleanCardData("table", { columns, rows })),
+            actor_kind: actor.kind,
+          });
+          ids.push(r.id);
+          break;
+        }
         case "item.move": {
           const r = liveItem(op.id);
           remember({ t: "item", id: r.id, row: r });
@@ -382,19 +495,24 @@ export function applyOps(
           const list = Array.isArray(op.elements) ? op.elements : [];
           if (list.length > L.elementsPerRequest) throw new StageError("limit", `At most ${L.elementsPerRequest} elements at once`);
           let added = 0;
+          let wrote = false;
           for (const raw of list) {
             const e = cleanElement(raw);
             if (!e) continue;
             const cur = elRow(room, b.id, e.id);
+            // Born deleted (e.g. a cancelled shape): nothing to store.
+            if (!cur && e.isDeleted) continue;
             if (!elementWins(e, cur ? { version: cur.version, versionNonce: cur.version_nonce } : null)) continue;
             if (!e.isDeleted && (!cur || cur.deleted)) added++;
             remember({ t: "el", board: b.id, id: e.id, row: cur });
             writeEl(b.id, e);
+            wrote = true;
           }
           if (added) {
             const n = count("SELECT COUNT(*) AS n FROM stage_elements WHERE room = ? AND board_id = ? AND deleted = 0", room, b.id);
             if (n > L.elementsPerBoard) throw new StageError("limit", `A whiteboard holds at most ${L.elementsPerBoard} elements`);
           }
+          if (wrote) checkBoardSize(room, b.id, rev);
           break;
         }
         case "el.delete": {
@@ -733,22 +851,15 @@ export function onAssistFinished(room: string, commandId: string) {
 type Speech = { at: number; text: string };
 
 /**
- * Meeting speech in the room after `since`. Several listeners each capture the same mixed audio, so
- * one source is used: the owner's capture, else whoever captured the most.
+ * Meeting speech in the room after `since`, as captured by `owner`'s own browser ("listen to the
+ * meeting", which starting the assistant turns on). Other people's captures are never used: they
+ * agreed to transcription for their own assistant, not to hand it to someone else's agent.
  */
 function meetingSpeech(room: string, owner: string, since: number): Speech[] {
-  const rows = meetingUtterances(room, since);
-  const by = new Map<string, Speech[]>();
-  for (const r of rows) {
-    const list = by.get(r.email) ?? [];
-    list.push({ at: r.at, text: r.text });
-    by.set(r.email, list);
-  }
-  const own = by.get(norm(owner));
-  if (own?.length) return own;
-  let best: Speech[] = [];
-  for (const list of by.values()) if (list.reduce((n, u) => n + u.text.length, 0) > best.reduce((n, u) => n + u.text.length, 0)) best = list;
-  return best;
+  return meetingUtterances(room, since, norm(owner)).map((r) => ({
+    at: r.at,
+    text: r.text,
+  }));
 }
 
 /** Live transcript for meeting_get_live_context: chunks after `since` (ms) and the next cursor. */
@@ -985,9 +1096,8 @@ export async function audienceOf(room: string): Promise<string[]> {
   const set = new Set<string>();
   if (st) {
     for (const r of all(
-      `SELECT DISTINCT lower(mp.email) AS email FROM meeting_people mp JOIN meetings m ON m.id = mp.meeting_id WHERE m.room = ? AND m.started_at >= ?`,
-      room,
-      st.openedAt - 60 * 60_000,
+      `SELECT DISTINCT lower(mp.email) AS email FROM meeting_people mp JOIN meetings m ON m.id = mp.meeting_id WHERE ${OVERLAP}`,
+      ...overlapArgs(room, st.openedAt),
     ))
       set.add(str(r.email));
     for (const r of all("SELECT DISTINCT actor FROM stage_log WHERE room = ?", room)) set.add(str(r.actor));

@@ -182,6 +182,26 @@ await test("configs: both headers, token only in Claude's file, never on argv", 
   }
 });
 
+await test("no web or local file tools for agents steered by meeting speech; assist runs get only stage tools", () => {
+  const dir = mkdtempSync(join(tmpdir(), "zb-test-"));
+  try {
+    const gem = JSON.parse(readFileSync(RUNNERS.gemini.prepare(makeContext(sample, dir, cfgFor("gemini"))).env.ZW_MCP_CONFIG, "utf8"));
+    for (const t of ["web_fetch", "google_web_search", "read_file", "read_many_files", "run_shell_command"]) assert.ok(gem.tools.exclude.includes(t), `gemini: ${t}`);
+    const oc = JSON.parse(readFileSync(RUNNERS.opencode.prepare(makeContext(sample, dir, cfgFor("opencode"))).env.ZW_MCP_CONFIG, "utf8"));
+    assert.equal(oc.permission.webfetch, "deny");
+    assert.equal(oc.tools.read, false);
+    const plain = RUNNERS.claude.prepare(makeContext(sample, dir, cfgFor("claude"))).argv;
+    assert.ok(!plain.includes("--disallowedTools"));
+    const assist = RUNNERS.claude.prepare(makeContext({ ...sample, source: "assist", prompt: "Keep the stage" }, dir, cfgFor("claude"))).argv;
+    const allowed = assist[assist.indexOf("--allowedTools") + 1];
+    assert.match(allowed, /mcp__zentico__meeting_pin_card/);
+    assert.doesNotMatch(allowed, /Read|meeting_stage_save|mcp__zentico,/);
+    assert.match(assist[assist.indexOf("--disallowedTools") + 1], /Read/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 await test("codex: env_http_headers and timeout passed with -c", () => {
   const dir = mkdtempSync(join(tmpdir(), "zb-test-"));
   try {

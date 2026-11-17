@@ -16,6 +16,10 @@ export const STAGE_LIMITS = {
   boards: 3,
   cards: 20,
   elementsPerBoard: 3000,
+  /** Stored rows of a board, deleted ones included (old tombstones are pruned past this). */
+  rowsPerBoard: 6000,
+  /** Stored element JSON of a board, deleted ones included. */
+  boardBytes: 8 * 1024 * 1024,
   /** Card data, JSON. */
   cardBytes: 64 * 1024,
   /** One Excalidraw element, JSON (free drawings carry their points). */
@@ -48,6 +52,8 @@ export type StageItem = {
   createdBy: string;
   actorKind: "user" | "agent";
   updated: number;
+  /** The stage revision of the item's last change (the `base` of an item.update). */
+  rev: number;
 };
 
 /** An Excalidraw element as stored (only the fields the merge needs are typed). */
@@ -95,8 +101,16 @@ export type StageMessage =
 
 export type StageOp =
   | { op: "item.add"; item: { id?: string; kind: StageKind; title?: string; data?: Record<string, unknown> } }
-  | { op: "item.update"; id: string; title?: string; data?: Record<string, unknown> }
+  /** Replaces the title / whole content. With `base` (the item's rev the editor started from) it is
+   *  refused with "conflict" when someone changed the item since, instead of overwriting their change. */
+  | { op: "item.update"; id: string; title?: string; data?: Record<string, unknown>; base?: number }
   | { op: "item.remove"; id: string }
+  /** Brings back a removed item (with its drawing). */
+  | { op: "item.restore"; id: string }
+  /** List cards: changes single entries of the current content, so concurrent edits don't overwrite each other. */
+  | { op: "entries"; id: string; add?: ListEntry[]; set?: { id: string; done?: boolean; text?: string }[]; remove?: string[]; current?: string | null }
+  /** Table cards: single cells / header cells of the current content, a new row or column. */
+  | { op: "table"; id: string; header?: { col: number; value: string }[]; cells?: { row: number; col: number; value: string }[]; addRow?: boolean; addColumn?: boolean }
   | { op: "item.move"; id: string; pos: number }
   | { op: "el.upsert"; board: string; elements: StageElement[] }
   | { op: "el.delete"; board: string; ids: string[] }

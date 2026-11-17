@@ -89,8 +89,26 @@ export function useStage(room: Room, roomName: string) {
   ref.current = data;
   const syncing = useRef<Promise<void> | null>(null);
   const again = useRef(false);
+  /** Unmounted (left the call): no more fetches or retries. */
+  const gone = useRef(false);
+  const retry = useRef<{
+    timer: ReturnType<typeof setTimeout> | null;
+    since: number | null;
+  }>({ timer: null, since: null });
+
+  useEffect(() => {
+    gone.current = false;
+    const r = retry.current;
+    return () => {
+      gone.current = true;
+      if (r.timer) clearTimeout(r.timer);
+      r.timer = null;
+      r.since = null;
+    };
+  }, [roomName]);
 
   const sync = useCallback(async (): Promise<void> => {
+    if (gone.current) return;
     if (syncing.current) {
       again.current = true;
       return syncing.current;
@@ -98,19 +116,29 @@ export function useStage(room: Room, roomName: string) {
     const run = (async () => {
       do {
         again.current = false;
+        if (gone.current) return;
         const since = ref.current.loaded ? ref.current.rev : 0;
         try {
           const res = await fetch(`/api/meet/stage?room=${encodeURIComponent(roomName)}&since=${since}`, { cache: "no-store" });
+          if (gone.current) return;
           if (res.status === 503) {
             setData((d) => ({ ...d, loaded: true, disabled: true }));
             return;
           }
-          // Not seen in the room yet (just joined): try again shortly.
+          // Not seen in the room yet (just joined): try again shortly, one retry at a time, for ~30 s.
           if (res.status === 403) {
-            setTimeout(() => void sync(), 3000);
-            return;
+            const r = retry.current;
+            r.since ??= Date.now();
+            if (!r.timer && Date.now() - r.since < 30_000) {
+              r.timer = setTimeout(() => {
+                r.timer = null;
+                void sync();
+              }, 3000);
+            }
+            continue;
           }
-          if (!res.ok) return;
+          retry.current.since = null;
+          if (!res.ok) continue;
           const s = (await res.json()) as StageState;
           // A message applied meanwhile moved past this answer's base: ask again from there.
           if (!s.full && ref.current.rev !== s.from) {
