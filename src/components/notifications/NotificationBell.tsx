@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, BellOff, CheckCheck, Settings } from "lucide-react";
+import { Bell, BellOff, CheckCheck, Settings, Trash2, X } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import Link from "next/link";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
@@ -23,7 +23,8 @@ function dayLabel(ms: number, locale: string, t: (k: string) => string): string 
 export function NotificationBell() {
   const t = useTranslations("notifications");
   const locale = useLocale();
-  const { items, unread, prefs, loaded, permission, markAllRead, enableDesktop, openNotification } = useNotifications();
+  const { items, unread, prefs, loaded, permission, markAllRead, dismiss, clearAll, enableDesktop, openNotification } = useNotifications();
+  const [confirmClear, setConfirmClear] = useState(false);
   const { open, setOpen, toggle, ref } = usePopover();
   const button = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -129,6 +130,16 @@ export function NotificationBell() {
             >
               <CheckCheck size={16} aria-hidden />
             </button>
+            <button
+              type="button"
+              onClick={() => setConfirmClear(true)}
+              disabled={items.length === 0}
+              className="icon-btn h-8 w-8"
+              aria-label={t("clearAll")}
+              title={t("clearAll")}
+            >
+              <Trash2 size={16} aria-hidden />
+            </button>
             <Link
               href="/settings/notifications"
               onClick={() => setOpen(false)}
@@ -139,6 +150,29 @@ export function NotificationBell() {
               <Settings size={16} aria-hidden />
             </Link>
           </div>
+
+          {confirmClear && items.length > 0 && (
+            <div role="alertdialog" aria-label={t("clearConfirm")} className="flex items-center gap-2 border-b border-line px-4 py-2 text-[13px]">
+              <span className="flex-1 text-ink-soft">{t("clearConfirm")}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  clearAll();
+                  setConfirmClear(false);
+                }}
+                className="inline-flex h-7 items-center rounded-md px-2.5 text-[12.5px] font-medium text-danger hover:bg-hover"
+              >
+                {t("clearYes")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmClear(false)}
+                className="inline-flex h-7 items-center rounded-md px-2.5 text-[12.5px] text-ink-soft hover:bg-hover hover:text-ink"
+              >
+                {t("cancel")}
+              </button>
+            </div>
+          )}
 
           {dnd && (
             <p className="flex items-center gap-2 border-b border-line px-4 py-2 text-[12.5px] text-ink-mute">
@@ -186,7 +220,7 @@ export function NotificationBell() {
                   <h3 className="px-4 pt-2.5 pb-1 text-[11.5px] font-medium tracking-wide text-ink-mute uppercase">{group.label}</h3>
                   <ul>
                     {group.items.map((n) => (
-                      <li key={n.id}>
+                      <li key={n.id} className="group/n relative">
                         <Item
                           n={n}
                           onOpen={() => {
@@ -194,6 +228,15 @@ export function NotificationBell() {
                             openNotification(n);
                           }}
                         />
+                        <button
+                          type="button"
+                          onClick={() => dismiss([n.id])}
+                          aria-label={t("remove")}
+                          title={t("remove")}
+                          className="absolute top-2 right-2 grid h-7 w-7 place-items-center rounded-md bg-sheet text-ink-mute shadow-[0_0_0_1px_var(--color-line)] transition-opacity hover:text-ink focus-visible:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/n:opacity-100"
+                        >
+                          <X size={14} aria-hidden />
+                        </button>
                       </li>
                     ))}
                   </ul>
@@ -217,7 +260,7 @@ function Item({ n, onOpen }: { n: AppNotification; onOpen: () => void }) {
       type="button"
       data-nitem
       onClick={onOpen}
-      className="flex w-full items-start gap-3 px-4 py-2.5 text-left transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-none"
+      className="flex w-full items-start gap-3 px-4 py-2.5 text-left transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-none [@media(hover:none)]:pr-11"
     >
       <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-sheet-muted" style={{ color }} aria-hidden>
         <Icon size={15} />

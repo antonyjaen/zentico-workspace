@@ -1,6 +1,7 @@
 // Notification center for the signed-in user.
 //   GET   → { items (newest 50), unread, prefs }
-//   POST  { action: "read", ids } | { action: "readAll" } | { action: "prefs", prefs }
+//   POST  { action: "read", ids } | { action: "readAll" } | { action: "dismiss", ids } | { action: "clear" }
+//         | { action: "prefs", prefs }
 //         | { action: "reminder", eventId, title, start, minutes, date, meet? }
 // Reminders are scheduled in the browser from /api/notifications/upcoming and recorded here once
 // (deduplicated per event, start and offset), so every tab and device shows the same one.
@@ -8,7 +9,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { ROOM_PATTERN } from "@/app/(apps)/meet/shared";
 import { getSession } from "@/lib/auth";
 import { jsonError, sameOrigin } from "@/lib/chat/http";
-import { getPrefs, listNotifications, markAllRead, markRead, notify, savePrefs } from "@/lib/notifications/store";
+import { dismiss, dismissAll, getPrefs, listNotifications, markAllRead, markRead, notify, savePrefs } from "@/lib/notifications/store";
 import type { NotificationsResponse } from "@/lib/notifications/types";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +49,14 @@ export async function POST(req: NextRequest) {
     }
     case "readAll":
       markAllRead(session.email);
+      return NextResponse.json({ ok: true }, { headers: NO_STORE });
+    case "dismiss": {
+      if (!Array.isArray(input.ids)) return jsonError("invalid", 400);
+      dismiss(session.email, input.ids.filter((x): x is string => typeof x === "string"));
+      return NextResponse.json({ ok: true }, { headers: NO_STORE });
+    }
+    case "clear":
+      dismissAll(session.email);
       return NextResponse.json({ ok: true }, { headers: NO_STORE });
     case "prefs":
       return NextResponse.json({ ok: true, prefs: savePrefs(session.email, input.prefs) }, { headers: NO_STORE });

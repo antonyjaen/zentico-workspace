@@ -113,6 +113,8 @@ export type NotifyEvent =
   | { type: "notification"; notification: AppNotification }
   | { type: "read"; ids: string[] }
   | { type: "readAll" }
+  | { type: "removed"; ids: string[] }
+  | { type: "cleared" }
   | { type: "prefs"; prefs: NotificationPrefs }
   /** A call is ringing me (sent to the people being called). */
   | { type: "call.ring"; call: CallView }

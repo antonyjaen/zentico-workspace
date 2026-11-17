@@ -61,6 +61,9 @@ const MIGRATIONS = [
     updated INTEGER NOT NULL
   );
   `,
+  // Removed from the list by the user. Kept (read) rather than deleted so one-shot notifications
+  // such as reminders are not recorded again.
+  `ALTER TABLE notifications ADD COLUMN dismissed INTEGER NOT NULL DEFAULT 0;`,
 ];
 
 function open(): Database {
@@ -273,11 +276,13 @@ export function listNotifications(email: string): { items: AppNotification[]; un
   const user = normEmail(email);
   prune();
   const items = db()
-    .prepare("SELECT * FROM notifications WHERE user_email = ? ORDER BY created DESC LIMIT ?")
+    .prepare("SELECT * FROM notifications WHERE user_email = ? AND dismissed = 0 ORDER BY created DESC LIMIT ?")
     .all(user, LIST_LIMIT)
     .map(toNotification);
   const unread = Number(
-    db().prepare("SELECT count(*) AS n FROM notifications WHERE user_email = ? AND read = 0 AND created >= ?").get(user, Date.now() - KEEP_MS)
+    db()
+      .prepare("SELECT count(*) AS n FROM notifications WHERE user_email = ? AND read = 0 AND dismissed = 0 AND created >= ?")
+      .get(user, Date.now() - KEEP_MS)
       ?.n ?? 0,
   );
   return { items, unread };
@@ -297,6 +302,24 @@ export function markAllRead(email: string): void {
   const user = normEmail(email);
   const r = db().prepare("UPDATE notifications SET read = 1 WHERE user_email = ? AND read = 0").run(user);
   if (Number(r.changes)) emit(user, { type: "readAll" });
+}
+
+/** Removes notifications from the user's list (they stay recorded as read for de-duplication). */
+export function dismiss(email: string, ids: string[]): void {
+  const user = normEmail(email);
+  const list = [...new Set(ids)].filter((id) => /^[0-9a-f-]{36}$/.test(id)).slice(0, 200);
+  if (!list.length) return;
+  const r = db()
+    .prepare(`UPDATE notifications SET dismissed = 1, read = 1 WHERE user_email = ? AND dismissed = 0 AND id IN (${list.map(() => "?").join(",")})`)
+    .run(user, ...list);
+  if (Number(r.changes)) emit(user, { type: "removed", ids: list });
+}
+
+/** Empties the user's list. */
+export function dismissAll(email: string): void {
+  const user = normEmail(email);
+  const r = db().prepare("UPDATE notifications SET dismissed = 1, read = 1 WHERE user_email = ? AND dismissed = 0").run(user);
+  if (Number(r.changes)) emit(user, { type: "cleared" });
 }
 
 /** Marks a user's unread notifications about one thing (e.g. a conversation they just read) as read. */

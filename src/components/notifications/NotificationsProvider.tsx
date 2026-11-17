@@ -66,6 +66,8 @@ type Ctx = {
   permission: Permission;
   markRead: (ids: string[]) => void;
   markAllRead: () => void;
+  dismiss: (ids: string[]) => void;
+  clearAll: () => void;
   savePrefs: (patch: Partial<NotificationPrefs>) => Promise<boolean>;
   /** Asks the browser for permission (call from a click) and turns desktop notifications on. */
   enableDesktop: () => Promise<boolean>;
@@ -150,6 +152,15 @@ function reducer(state: State, action: Action): State {
     }
     case "readAll":
       return { ...state, items: state.items.map((x) => (x.read ? x : { ...x, read: true })), unread: 0 };
+    case "removed": {
+      const ids = new Set(ev.ids);
+      const gone = state.items.filter((x) => ids.has(x.id));
+      if (!gone.length) return state;
+      const unreadGone = gone.filter((x) => !x.read).length;
+      return { ...state, items: state.items.filter((x) => !ids.has(x.id)), unread: Math.max(0, state.unread - unreadGone) };
+    }
+    case "cleared":
+      return { ...state, items: [], unread: 0 };
     case "prefs":
       return { ...state, prefs: ev.prefs };
     case "call.ring":
@@ -494,6 +505,20 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     void post({ action: "readAll" });
   }, [applyEvent]);
 
+  const dismiss = useCallback(
+    (ids: string[]) => {
+      if (!ids.length) return;
+      applyEvent({ type: "removed", ids });
+      void post({ action: "dismiss", ids });
+    },
+    [applyEvent],
+  );
+
+  const clearAll = useCallback(() => {
+    applyEvent({ type: "cleared" });
+    void post({ action: "clear" });
+  }, [applyEvent]);
+
   const savePrefs = useCallback(async (patch: Partial<NotificationPrefs>) => {
     const previous = live.current.prefs;
     const next = { ...previous, ...patch };
@@ -525,8 +550,8 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   }, [savePrefs]);
 
   const value = useMemo<Ctx>(
-    () => ({ items, unread, prefs, loaded, permission, markRead, markAllRead, savePrefs, enableDesktop, openNotification }),
-    [items, unread, prefs, loaded, permission, markRead, markAllRead, savePrefs, enableDesktop, openNotification],
+    () => ({ items, unread, prefs, loaded, permission, markRead, markAllRead, dismiss, clearAll, savePrefs, enableDesktop, openNotification }),
+    [items, unread, prefs, loaded, permission, markRead, markAllRead, dismiss, clearAll, savePrefs, enableDesktop, openNotification],
   );
 
   return (
