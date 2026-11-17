@@ -17,6 +17,7 @@ import {
   resolveCalendarAccount,
   type CalEvent,
 } from "../calendar";
+import { subscriptionEvents } from "../calendar-subs/service";
 import { bool, emailList, int, oneOf, str, ToolError, truncate, type Args } from "./args";
 import { A, appUrl, B, I, S, type JsonSchema, type Tool } from "./kit";
 
@@ -122,11 +123,22 @@ function compactEvent(e: CalEvent, tz: string, primary?: string) {
     description: e.description ? truncate(e.description, 500) : undefined,
     recurring: e.recurrence !== "none" || undefined,
     organizer: e.isOrganizer || undefined,
+    readOnly: e.external ? true : undefined,
+    calendar: e.external ? `${e.external.name} (subscription)` : undefined,
     myStatus: e.myStatus ?? undefined,
     attendees: e.participants.length
       ? e.participants.map((p) => `${p.name ? `${p.name} <${p.email}>` : p.email}${p.status !== "needs-action" ? ` (${p.status})` : ""}`)
       : undefined,
   };
+}
+
+/** Cached events of the user's external calendar subscriptions (best effort, never fetches). */
+function externalEvents(owner: string, start: number, end: number, tz: string): CalEvent[] {
+  try {
+    return subscriptionEvents(owner, start, end, tz, (s) => s.visible);
+  } catch {
+    return [];
+  }
 }
 
 /** Loads one stored event (the series for recurring events) as the signed-in user sees it. */
@@ -162,7 +174,7 @@ export const CALENDAR_TOOLS: Tool[] = [
   {
     name: "calendar_list_events",
     description:
-      "Lists calendar events (own and shared calendars, recurrences expanded) overlapping a time range. Times are local times with UTC offset in `timeZone` (default: your time zone).",
+      "Lists calendar events (own and shared calendars, plus read-only events from subscribed external calendars marked readOnly; recurrences expanded) overlapping a time range. Times are local times with UTC offset in `timeZone` (default: your time zone).",
     inputSchema: {
       type: "object",
       properties: {
@@ -185,7 +197,8 @@ export const CALENDAR_TOOLS: Tool[] = [
       const q = str(args, "query", { max: 200 })?.toLowerCase();
       const limit = int(args, "limit", { min: 1, max: 500, def: 100 });
       const position = int(args, "position", { min: 0, max: 10_000, def: 0 });
-      const [{ events }, primary] = await Promise.all([getEvents(start, end, tz, ctx.session.email), calendarAccount()]);
+      const [{ events: own }, primary] = await Promise.all([getEvents(start, end, tz, ctx.session.email), calendarAccount()]);
+      const events = [...own, ...externalEvents(ctx.session.sub, start, end, tz)].sort((a, b) => a.utcStart - b.utcStart);
       const inRange = events.filter(
         (e) => e.utcEnd > start && e.utcStart < end && (!q || `${e.title}\n${e.description}\n${e.location}`.toLowerCase().includes(q)),
       );

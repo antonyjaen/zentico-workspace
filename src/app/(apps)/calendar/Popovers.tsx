@@ -1,6 +1,6 @@
 "use client";
 
-import { AlignLeft, Bell, CalendarDays, Clock, MapPin, Pencil, Repeat, Trash2, Users, Video, X } from "lucide-react";
+import { AlignLeft, Bell, CalendarDays, Clock, Lock, MapPin, Pencil, Repeat, Trash2, Users, Video, X } from "lucide-react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -141,6 +141,7 @@ export function EventDetails({
   ev,
   anchor,
   calendar,
+  source,
   tz,
   locale,
   canEdit,
@@ -153,6 +154,8 @@ export function EventDetails({
   ev: CalEvent;
   anchor: Anchor;
   calendar: Calendar | undefined;
+  /** Read-only event from an external calendar subscription. */
+  source?: { name: string; color: string };
   tz: string;
   locale: string;
   canEdit: boolean;
@@ -163,8 +166,9 @@ export function EventDetails({
   onRespond: (status: "accepted" | "tentative" | "declined") => void;
 }) {
   const t = useTranslations("calendar");
+  const tSync = useTranslations("calendarSync");
   const guests = ev.participants;
-  const color = calendar?.color ?? "var(--color-app-calendar)";
+  const color = calendar?.color ?? source?.color ?? "var(--color-app-calendar)";
   const meetCode = meetCodeOf(ev.location, ev.description);
 
   return (
@@ -237,6 +241,11 @@ export function EventDetails({
         {ev.description && (
           <Row icon={<AlignLeft size={15} aria-hidden />}>
             <p className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words">{ev.description}</p>
+          </Row>
+        )}
+        {source && (
+          <Row icon={<Lock size={15} aria-hidden />}>
+            <span className="break-words">{tSync("readOnly", { name: source.name })}</span>
           </Row>
         )}
         {calendar && (

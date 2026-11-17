@@ -6,6 +6,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import type { CalEvent, Calendar } from "@/lib/calendar";
+import type { Subscription } from "@/lib/calendar-subs/service";
 import { deleteEvent, loadEvent, moveEvent, respond, saveEvent, setCalendarVisible, shiftEventDays, type EventInput } from "./actions";
 import { Agenda } from "./Agenda";
 import { CalendarDialog } from "./CalendarDialog";
@@ -15,6 +16,8 @@ import { EventDetails, QuickCreate } from "./Popovers";
 import { useAvailability } from "./people";
 import { BTN, defaultSlot, eventToInput, fmt, fmtDay, PEOPLE_COLORS, PEOPLE_MAX, savePeople, slotToInput, type Anchor, type Person, type Slot } from "./shared";
 import { CalendarList, MiniMonth, PeoplePanel } from "./Sidebar";
+import { CalDavDialog, ImportDialog, SubscriptionDialog, SubscriptionList, syncError, SyncMenu } from "./Subscriptions";
+import { refreshSubscriptionNow, updateSubscriptionSettings } from "./sync-actions";
 import { TimeGrid, type BusyOverlay } from "./TimeGrid";
 import { addDays, DAY_MS, daysBetween, keyToUtc, shiftDate, TZ_COOKIE, VIEWS, viewRange, zonedParts, zonedToUtc, type View } from "./time";
 
@@ -22,6 +25,11 @@ type Props = {
   calendars: Calendar[];
   events: CalEvent[];
   expanded: boolean;
+  subscriptions: Subscription[];
+  subscriptionsEnabled: boolean;
+  /** Some feeds were stale and are refreshing in the background: reload once shortly. */
+  subscriptionsRefreshing: boolean;
+  davServer: string;
   view: View;
   date: string;
   tz: string;
@@ -33,14 +41,32 @@ type Props = {
 
 type Override = Pick<CalEvent, "utcStart" | "utcEnd" | "startDay" | "endDay">;
 
-export function CalendarApp({ calendars, events, expanded, view, date, tz, tzFromCookie, weekStart, people: initialPeople, myEmail }: Props) {
+export function CalendarApp({
+  calendars,
+  events,
+  expanded,
+  subscriptions,
+  subscriptionsEnabled,
+  subscriptionsRefreshing,
+  davServer,
+  view,
+  date,
+  tz,
+  tzFromCookie,
+  weekStart,
+  people: initialPeople,
+  myEmail,
+}: Props) {
   const t = useTranslations("calendar");
+  const tSync = useTranslations("calendarSync");
   const tBooking = useTranslations("booking.settings");
   const locale = useLocale();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   // Hidden (not visible) calendar keys: calendars created later show up by default.
-  const [hidden, setHidden] = useState(() => new Set(calendars.filter((c) => !c.isVisible).map((c) => c.key)));
+  const [hidden, setHidden] = useState(
+    () => new Set([...calendars.filter((c) => !c.isVisible).map((c) => c.key), ...subscriptions.filter((s) => !s.visible).map((s) => s.key)]),
+  );
   const [manage, setManage] = useState<{ calendar: Calendar | null } | null>(null);
   const [people, setPeople] = useState<Person[]>(initialPeople);
   const [overrides, setOverrides] = useState<Record<string, Override>>({});
@@ -48,10 +74,21 @@ export function CalendarApp({ calendars, events, expanded, view, date, tz, tzFro
   const [details, setDetails] = useState<{ ev: CalEvent; anchor: Anchor } | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [subDialog, setSubDialog] = useState<{ sub: Subscription | null } | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [davOpen, setDavOpen] = useState(false);
+  const [refreshingSub, setRefreshingSub] = useState<string | null>(null);
   const [now, setNow] = useState<number | null>(null);
 
   // Fresh server data replaces optimistic moves.
   useEffect(() => setOverrides({}), [events]);
+
+  // Stale subscriptions were refreshed in the background by this render: pick up the result once.
+  useEffect(() => {
+    if (!subscriptionsRefreshing) return;
+    const id = setTimeout(() => router.refresh(), 8000);
+    return () => clearTimeout(id);
+  }, [subscriptionsRefreshing, router]);
 
   useEffect(() => {
     setNow(Date.now());
@@ -82,6 +119,7 @@ export function CalendarApp({ calendars, events, expanded, view, date, tz, tzFro
   const range = viewRange(view, date, weekStart);
   const days = useMemo(() => daysBetween(range.start, range.end), [range.start, range.end]);
   const byKey = useMemo(() => new Map(calendars.map((c) => [c.key, c])), [calendars]);
+  const subByKey = useMemo(() => new Map(subscriptions.map((s) => [s.key, s])), [subscriptions]);
   const mine = calendars.filter((c) => c.owner === null);
   const defaultCalendar = mine.find((c) => c.mayWrite && c.isDefault) ?? mine.find((c) => c.mayWrite) ?? calendars.find((c) => c.mayWrite);
 
@@ -93,7 +131,10 @@ export function CalendarApp({ calendars, events, expanded, view, date, tz, tzFro
     [events, hidden, overrides],
   );
 
-  const colorOf = useCallback((ev: CalEvent) => byKey.get(ev.calKey)?.color ?? "var(--color-app-calendar)", [byKey]);
+  const colorOf = useCallback(
+    (ev: CalEvent) => byKey.get(ev.calKey)?.color ?? subByKey.get(ev.calKey)?.color ?? "var(--color-app-calendar)",
+    [byKey, subByKey],
+  );
   const canEdit = useCallback((ev: CalEvent) => ev.isOrganizer && byKey.get(ev.calKey)?.mayWrite === true, [byKey]);
 
   // Colleagues' busy blocks over the week/day view.
@@ -190,6 +231,26 @@ export function CalendarApp({ calendars, events, expanded, view, date, tz, tzFro
     });
     // Persisting is best-effort; the local toggle already applies.
     await setCalendarVisible(c.id, on, c.accountId);
+  }
+
+  async function onToggleSubscription(s: Subscription) {
+    const on = hidden.has(s.key);
+    setHidden((h) => {
+      const n = new Set(h);
+      if (on) n.delete(s.key);
+      else n.add(s.key);
+      return n;
+    });
+    await updateSubscriptionSettings(s.id, { visible: on });
+  }
+
+  async function onRefreshSubscription(s: Subscription) {
+    setRefreshingSub(s.id);
+    const r = await refreshSubscriptionNow(s.id);
+    setRefreshingSub(null);
+    if (!r.ok) setToast(syncError(tSync, r.error));
+    else if (r.data.error) setToast(tSync("row.failing", { error: syncError(tSync, r.data.error) }));
+    router.refresh();
   }
 
   async function openEditor(ev: CalEvent) {
@@ -304,6 +365,17 @@ export function CalendarApp({ calendars, events, expanded, view, date, tz, tzFro
             onCreate={() => setManage({ calendar: null })}
             onEdit={(c) => setManage({ calendar: c })}
           />
+          {subscriptionsEnabled && (
+            <SubscriptionList
+              subscriptions={subscriptions}
+              hidden={hidden}
+              refreshing={refreshingSub}
+              onToggle={onToggleSubscription}
+              onAdd={() => setSubDialog({ sub: null })}
+              onEdit={(s) => setSubDialog({ sub: s })}
+              onRefresh={onRefreshSubscription}
+            />
+          )}
           <PeoplePanel
             people={people}
             myEmail={myEmail}
@@ -357,6 +429,12 @@ export function CalendarApp({ calendars, events, expanded, view, date, tz, tzFro
               </button>
             ))}
           </div>
+          <SyncMenu
+            canSubscribe={subscriptionsEnabled}
+            onSubscribe={() => setSubDialog({ sub: null })}
+            onImport={() => setImportOpen(true)}
+            onDav={() => setDavOpen(true)}
+          />
         </header>
 
         {view === "month" ? (
@@ -424,6 +502,7 @@ export function CalendarApp({ calendars, events, expanded, view, date, tz, tzFro
           ev={details.ev}
           anchor={details.anchor}
           calendar={byKey.get(details.ev.calKey)}
+          source={details.ev.external ? { name: details.ev.external.name, color: colorOf(details.ev) } : undefined}
           tz={tz}
           locale={locale}
           canEdit={canEdit(details.ev)}
@@ -456,6 +535,9 @@ export function CalendarApp({ calendars, events, expanded, view, date, tz, tzFro
       )}
 
       {manage && <CalendarDialog calendar={manage.calendar} myEmail={myEmail} onClose={() => setManage(null)} />}
+      {subDialog && <SubscriptionDialog sub={subDialog.sub} onClose={() => setSubDialog(null)} onDone={() => router.refresh()} />}
+      {importOpen && <ImportDialog calendars={calendars} onClose={() => setImportOpen(false)} onDone={() => router.refresh()} />}
+      {davOpen && <CalDavDialog server={davServer} username={myEmail} onClose={() => setDavOpen(false)} />}
     </>
   );
 }

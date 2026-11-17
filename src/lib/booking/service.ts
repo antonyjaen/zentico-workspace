@@ -9,6 +9,7 @@ import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { DAY_MS, formatDuration, utcToLocal, zonedParts } from "@/app/(apps)/calendar/time";
 import { generateRoomCode } from "@/app/(apps)/meet/shared";
 import { CAL_USING, getCalendars, getEvents } from "../calendar";
+import { subscriptionBusy } from "../calendar-subs/service";
 import { env } from "../env";
 import { jmap } from "../jmap";
 import { notify } from "../notifications/store";
@@ -61,7 +62,8 @@ export function activePage(handle: string, slug: string): { host: Host; type: Bo
 
 /**
  * Busy intervals for `type` in [from, to): the owner's events in the calendars that count as busy
- * (declined and all-day events don't block) plus their confirmed bookings. Also notices bookings
+ * (declined and all-day events don't block), their external calendar subscriptions marked "counts
+ * as busy" (opaque, timed events only) and their confirmed bookings. Also notices bookings
  * whose calendar event the owner deleted and releases them.
  */
 async function busyFor(host: Host, type: BookingType, from: number, to: number, exclude?: Booking): Promise<Interval[]> {
@@ -71,6 +73,7 @@ async function busyFor(host: Host, type: BookingType, from: number, to: number, 
   const busy: Interval[] = events
     .filter((e) => keys.has(e.calKey) && !e.allDay && e.myStatus !== "declined" && (!exclude || e.baseId !== exclude.eventId))
     .map((e) => ({ start: e.utcStart, end: e.utcEnd }));
+  busy.push(...subscriptionBusy(host.sub, span.from, span.to, type.timeZone));
 
   const ids = new Set(events.map((e) => e.baseId));
   const settled = Date.now() - 5 * 60_000;

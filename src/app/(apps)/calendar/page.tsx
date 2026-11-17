@@ -3,8 +3,11 @@ import { getLocale, getTranslations } from "next-intl/server";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { unstable_rethrow } from "next/navigation";
+import { actingAccountId, requireSession } from "@/lib/auth";
 import { selfIdentity } from "@/lib/jmap";
-import { getCalendars, getEvents } from "@/lib/calendar";
+import { getCalendars, getEvents, type CalEvent } from "@/lib/calendar";
+import { listSubscriptions, refreshStale, subscriptionEvents, type Subscription } from "@/lib/calendar-subs/service";
+import { env } from "@/lib/env";
 import { CalendarApp } from "./CalendarApp";
 import { parsePeople, PEOPLE_COOKIE } from "./shared";
 import { isDayKey, isTimeZone, TZ_COOKIE, VIEWS, viewRange, weekStartFor, zonedParts, zonedToUtc, type View } from "./time";
@@ -35,19 +38,21 @@ export default async function CalendarPage({
     const date = isDayKey(sp.date) ? sp.date : zonedParts(Date.now(), tz).key;
     const weekStart = weekStartFor(locale);
     const range = viewRange(view, date, weekStart);
-    const { events, expanded } = await getEvents(
-      zonedToUtc(`${range.start}T00:00:00`, tz),
-      zonedToUtc(`${range.end}T00:00:00`, tz),
-      tz,
-      session.email,
-    );
+    const from = zonedToUtc(`${range.start}T00:00:00`, tz);
+    const to = zonedToUtc(`${range.end}T00:00:00`, tz);
+    const { events, expanded } = await getEvents(from, to, tz, session.email);
+    const subs = await loadSubscriptions(from, to, tz);
 
     return (
       <CalendarApp
         key={`${view}:${date}`}
         calendars={calendars}
-        events={events}
+        events={subs.events.length ? [...events, ...subs.events].sort((a, b) => a.utcStart - b.utcStart || b.utcEnd - a.utcEnd) : events}
         expanded={expanded}
+        subscriptions={subs.list}
+        subscriptionsEnabled={subs.enabled}
+        subscriptionsRefreshing={subs.refreshing}
+        davServer={davServer()}
         view={view}
         date={date}
         tz={tz}
@@ -61,6 +66,34 @@ export default async function CalendarPage({
     unstable_rethrow(e);
     console.error("calendar unavailable", e instanceof Error ? e.message : e);
     return <Unavailable />;
+  }
+}
+
+/**
+ * The signed-in user's external calendar subscriptions and their cached events in the range
+ * (never fetched here: stale feeds refresh in the background and the client reloads once).
+ * Not shown while acting for a delegated account (they belong to the person signed in).
+ */
+async function loadSubscriptions(from: number, to: number, tz: string) {
+  const none = { enabled: false, list: [] as Subscription[], events: [] as CalEvent[], refreshing: false };
+  try {
+    const [{ sub }, acting] = await Promise.all([requireSession(), actingAccountId()]);
+    if (acting) return none;
+    const refreshing = refreshStale(sub);
+    return { enabled: true, list: listSubscriptions(sub), events: subscriptionEvents(sub, from, to, tz), refreshing };
+  } catch (e) {
+    unstable_rethrow(e);
+    console.error("[calendar] subscriptions unavailable", e instanceof Error ? e.message : e);
+    return none;
+  }
+}
+
+/** CalDAV server for other apps: the mail server's origin (the OIDC issuer). */
+function davServer(): string {
+  try {
+    return new URL(env.issuer).origin;
+  } catch {
+    return "";
   }
 }
 

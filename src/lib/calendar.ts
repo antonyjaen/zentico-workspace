@@ -82,6 +82,8 @@ export type CalEvent = {
   /** True when the signed-in user organizes the event (or it has no guests). */
   isOrganizer: boolean;
   myStatus: ParticipationStatus | null;
+  /** Set on read-only events from an external calendar subscription (lib/calendar-subs). */
+  external?: { id: string; name: string; transparent: boolean };
 };
 
 const FALLBACK_COLORS = ["#0f9f8f", "#3b6cf6", "#d97706", "#e5484d", "#8b5cf6", "#16a34a", "#db2777", "#64748b"];
