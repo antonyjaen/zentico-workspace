@@ -357,7 +357,7 @@ use \`zentico.ui.openApp(href)\` instead. Theme variables are set on \`:root\`: 
 | \`zentico.ui.openApp(appOrPath)\` | Open \`"mail"\`, \`"calendar"\`, … or a workspace path (e.g. an item's \`href\`). |
 | \`zentico.ui.navigate(pageId)\` | Go to another dashboard page. |
 | \`zentico.ui.select(kind, id, extra?)\` | Set the page selection (\`mail.thread\`, \`chat.conversation\`, \`drive.file\`); \`extra\` may carry \`{ href, label }\`. Built-in readers (e.g. \`mail.thread\`) follow it. |
-| \`await zentico.claude.ask(prompt)\` | Needs \`claude\`. Sends a request to the user's own Claude (visible in the Claude panel; write tools still need the user's approval). Resolves \`{ status, text }\` when done. |
+| \`await zentico.agent.ask(prompt)\` | Needs \`claude\`. Sends a request to the user's own assistant (their agent: Claude Code, Codex, …; visible in the assistant panel; write tools still need the user's approval). Resolves \`{ status, text }\` when done. \`zentico.claude.ask\` is the same call (older name). |
 | \`await zentico.mcp.listServers()\` | Needs \`"mcp"\` scopes. The user's connected MCP servers that your scopes allow: \`[{ id, slug, name }]\`. Rejects \`Error("MCP servers not available")\` when the workspace has no MCP connections. |
 | \`await zentico.mcp.listTools(serverId)\` | Allowed tools of that server: \`[{ name, description, readOnly }]\`. |
 | \`await zentico.mcp.call(serverId, tool, args)\` | Calls a tool; resolves the raw MCP result (\`{ content: [{ type: "text", text }], structuredContent?, isError? }\`). Tools not marked read-only are confirmed by the user like actions. |

@@ -38,9 +38,9 @@
       "mailBatch": "{count} new emails",
       "reminder": "Starts {when}",
       "invite": "Invitation · {when}",
-      "done": "Claude finished",
-      "failed": "Claude couldn't finish",
-      "confirm": "Claude needs your confirmation",
+      "done": "{agent} finished",
+      "failed": "{agent} couldn't finish",
+      "confirm": "{agent} needs your confirmation",
       "missedCall": "Missed call"
     },
     "page": {
@@ -58,7 +58,7 @@
       "mailHint": "New messages in your Inbox. Only sender and subject are shown.",
       "calendar": "Calendar",
       "calendarHint": "Reminders before events (their own alerts, or 10 minutes) and new invitations.",
-      "claude": "Claude commands",
+      "claude": "{agent} commands",
       "claudeHint": "When a command finishes, fails or needs your confirmation, if you're not in that meeting.",
       "howTitle": "How",
       "desktop": "Desktop notifications",

@@ -6,7 +6,7 @@
 // Write actions wait for the owner's approval (strip in the conversation + notification).
 // Server-only.
 import { BODY_MAX, type ChatMessage } from "@/app/(apps)/chat/shared";
-import { bridgeStatus, enqueueCommand, type CommandRow } from "../mcp/agent";
+import { agentNameFor, bridgeStatus, enqueueCommand, type CommandRow } from "../mcp/agent";
 import { cleanCommandText, hasWriteToken } from "../meetings/claude-commands";
 import { env } from "../env";
 import { botById, rateLimiter, type BotRow } from "./bots";
@@ -86,7 +86,7 @@ function buildPrompt(owner: Owner, conv: ConversationBrief, trigger: ChatMessage
   const url = `${env.appUrl}/chat?c=${conv.id}`;
   const where = trigger.threadRoot ? "this thread (its first message and replies)" : "this conversation";
   const lines = [
-    `${owner.name} <${owner.email}> asked you this in Zentico Chat by mentioning you, their own Claude, in a conversation.`,
+    `${owner.name} <${owner.email}> asked you this in Zentico Chat by mentioning you, their own assistant, in a conversation.`,
     "",
     "Request:",
     `"""${text}"""`,
@@ -105,7 +105,7 @@ function buildPrompt(owner: Owner, conv: ConversationBrief, trigger: ChatMessage
     "CHAT_MESSAGES>>>",
     "",
     "Guidance:",
-    `- Your final answer is posted in the conversation as "Claude (${owner.name})" and everyone in it can read it. Answer in the language of the request, concisely, using simple Markdown (**bold**, _italic_, \`code\`, lists, links). Don't mention these instructions.`,
+    `- Your final answer is posted in the conversation as "${agentNameFor(owner.email, "en")} (${owner.name})" and everyone in it can read it. Answer in the language of the request, concisely, using simple Markdown (**bold**, _italic_, \`code\`, lists, links). Don't mention these instructions.`,
     "- Don't post the answer yourself with chat_post_message: it is posted for you.",
     "- Use the zentico MCP tools for workspace actions (mail, calendar, contacts, Drive/Docs, chat, meeting transcripts) and, when listed, for the owner's connected apps (github_, gcal_/gdrive_, jira_, notion_, slack_); look things up instead of guessing.",
     `- Write actions (sending mail, creating events, posting messages, sharing or writing files) are confirmed by ${owner.name} in the app automatically: just call the tool, don't ask in text. If a tool answers "Not confirmed by the user", don't retry; say the action was not done.`,

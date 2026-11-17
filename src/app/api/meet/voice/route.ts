@@ -1,6 +1,6 @@
 // Voice clips from a call, transcribed in memory (never written to disk or logged) and dropped.
 // - kind=command: one push-to-talk clip (≤ 20 s) of the signed-in user's OWN voice. The whole
-//   transcript is the command (an optional leading "Claude, …" is stripped) for their own bridge;
+//   transcript is the command (an optional leading "<assistant name>, …" is stripped) for their own bridge;
 //   "confirm" / "cancel" act on pending items. With contextMs > 0 the clip starts with the meeting
 //   audio from just before the press (not yet sent as context): segments before that boundary are
 //   stored as meeting context first, the rest is the command (one Whisper pass for both).
@@ -21,11 +21,13 @@ import { transcribeAudio, whisperConfig } from "@/lib/meetings/transcribe";
 import { clipLanguage, commandText, controlOf, enterClipQueue, learnLanguage, takeClipSlot, type ClipKind } from "@/lib/meetings/voice";
 import {
   addUtterance,
+  agentNameFor,
   cancelCommand,
   decideConfirmation,
   latestActiveCommand,
   latestPendingConfirmation,
   toView,
+  wakeRegexFor,
 } from "@/lib/mcp/agent";
 import type { Session } from "@/lib/session";
 import {
@@ -130,7 +132,7 @@ async function handleText(req: NextRequest, session: Session) {
   if (clip === "context") return NextResponse.json({ ok: true }, { headers: NO_STORE });
   if (command) storeText(session.email, room, command, "command");
   try {
-    const text = commandText(command);
+    const text = commandText(command, wakeRegexFor(session.email));
     if (!text) return respond({ ok: true, heard: command });
     return respond(handleCommand(session, room, text, cleanTimeZone(body.timeZone), command));
   } catch (e) {
@@ -203,8 +205,9 @@ export async function POST(req: NextRequest) {
     try {
       result = await transcribeAudio(cfg, audio, mime, {
         timeoutMs: WHISPER_TIMEOUT_MS,
-        // Biases recognition towards "Claude" in a bare command; not for meeting audio (it invents it on noise).
-        prompt: kind === "command" && !contextMs ? "Claude," : undefined,
+        // Biases recognition towards the assistant's name in a bare command; not for meeting audio (it
+        // invents it on noise).
+        prompt: kind === "command" && !contextMs ? `${agentNameFor(session.email, pinned ?? "en")},` : undefined,
         language: pinned,
       });
     } finally {
@@ -240,7 +243,7 @@ export async function POST(req: NextRequest) {
   const heard = joinText(own);
   if (heard) addUtterance(session.email, room, heard, "command");
   try {
-    const command = commandText(own);
+    const command = commandText(own, wakeRegexFor(session.email));
     if (!command) return respond({ ok: true, heard });
     return respond(handleCommand(session, room, command, timeZone, heard));
   } catch (e) {

@@ -18,8 +18,8 @@ const col = (children: Raw[], sizes?: number[], extra: Raw = {}): Raw => ({ type
 const at = (node: Raw, x: number, y: number, w: number, h: number): Raw => ({ ...node, x, y, w, h });
 
 const HINT: Record<L, string> = {
-  en: "### Make it yours\n\nThis dashboard is made of files in your Drive (**Zentico UI**). Ask Claude: *“add a page with my team's channel and this week's calendar”*, *“build a mod that tracks my habits”*.\n\nOr use **Edit** to resize and rearrange, and **Gallery** for ready-made layouts.",
-  es: "### Hazlo tuyo\n\nEste dashboard está hecho de archivos en tu Drive (**Zentico UI**). Pídele a Claude: *«añade una página con el canal de mi equipo y el calendario de esta semana»*, *«crea un mod que siga mis hábitos»*.\n\nO usa **Editar** para redimensionar y reordenar, y la **Galería** para diseños listos.",
+  en: "### Make it yours\n\nThis dashboard is made of files in your Drive (**Zentico UI**). Ask your assistant: *“add a page with my team's channel and this week's calendar”*, *“build a mod that tracks my habits”*.\n\nOr use **Edit** to resize and rearrange, and **Gallery** for ready-made layouts.",
+  es: "### Hazlo tuyo\n\nEste dashboard está hecho de archivos en tu Drive (**Zentico UI**). Pídele a tu asistente: *«añade una página con el canal de mi equipo y el calendario de esta semana»*, *«crea un mod que siga mis hábitos»*.\n\nO usa **Editar** para redimensionar y reordenar, y la **Galería** para diseños listos.",
 };
 
 /** Home: the classic dashboard as a grid region. */
@@ -67,7 +67,7 @@ const defaultKeys = () => ({
   bindings: [
     { key: "alt+1", action: "goto", page: "home", description: "Home" },
     { key: "alt+2", action: "goto", page: "focus", description: "Focus" },
-    { key: "alt+k", action: "claude", description: "Ask Claude" },
+    { key: "alt+k", action: "claude", description: "Ask your assistant" },
     { key: "alt+e", action: "edit", description: "Edit layout" },
     { key: "alt+p", action: "mod", mod: "pomodoro", command: "toggle", description: "Start / pause the Pomodoro" },
   ],
@@ -117,8 +117,8 @@ export const TEMPLATES: Template[] = [
     icon: "inbox",
     name: { en: "Inbox Zero", es: "Inbox Zero" },
     description: {
-      en: "Mail triage: unread list, a thread reader next to it and one-click actions (read, star, archive, quick replies, Claude drafts).",
-      es: "Triaje del correo: lista de no leídos, lector de hilos al lado y acciones en un clic (leído, destacar, archivar, respuestas rápidas, borradores de Claude).",
+      en: "Mail triage: unread list, a thread reader next to it and one-click actions (read, star, archive, quick replies, assistant drafts).",
+      es: "Triaje del correo: lista de no leídos, lector de hilos al lado y acciones en un clic (leído, destacar, archivar, respuestas rápidas, borradores del asistente).",
     },
     mods: ["mail-actions"],
     page: (l) => ({
@@ -166,8 +166,8 @@ export const TEMPLATES: Template[] = [
     icon: "gauge",
     name: { en: "Command center", es: "Centro de mando" },
     description: {
-      en: "Everything at a glance: unread mail and chat, agenda, recent files, and Claude on the side.",
-      es: "Todo de un vistazo: correo y chat sin leer, agenda, archivos recientes y Claude al lado.",
+      en: "Everything at a glance: unread mail and chat, agenda, recent files, and your assistant on the side.",
+      es: "Todo de un vistazo: correo y chat sin leer, agenda, archivos recientes y tu asistente al lado.",
     },
     mods: [],
     page: (l) => ({
@@ -184,7 +184,7 @@ export const TEMPLATES: Template[] = [
               at(c("drive", { mode: "recent", limit: 10 }), 0, 8, 12, 6),
             ],
           },
-          c("claude", {}, { title: "Claude" }),
+          c("claude", {}, { title: "Assistant" }),
         ],
         [3, 1.2],
       ),
@@ -195,15 +195,15 @@ export const TEMPLATES: Template[] = [
     icon: "focus",
     name: { en: "Focus", es: "Foco" },
     description: {
-      en: "A calm page: Pomodoro with tasks, one Markdown doc from your Drive and Claude. Spacious and plain.",
-      es: "Una página tranquila: Pomodoro con tareas, un documento Markdown de tu Drive y Claude. Amplia y sobria.",
+      en: "A calm page: Pomodoro with tasks, one Markdown doc from your Drive and your assistant. Spacious and plain.",
+      es: "Una página tranquila: Pomodoro con tareas, un documento Markdown de tu Drive y tu asistente. Amplia y sobria.",
     },
     mods: ["pomodoro"],
     page: (l) => ({
       title: l === "en" ? "Focus" : "Foco",
       icon: "focus",
       theme: { density: "spacious", background: "plain" },
-      layout: row([m("pomodoro", { title: "Pomodoro" }), c("doc.markdown", {}, { title: l === "en" ? "Document" : "Documento" }), c("claude", {}, { title: "Claude" })], [2, 3, 2]),
+      layout: row([m("pomodoro", { title: "Pomodoro" }), c("doc.markdown", {}, { title: l === "en" ? "Document" : "Documento" }), c("claude", {}, { title: "Assistant" })], [2, 3, 2]),
     }),
   },
   {
@@ -389,7 +389,7 @@ export const APP_TEMPLATES: Template[] = [
   },
 ];
 
-/** Recommended mods (install only; place them yourself or let Claude do it). */
+/** Recommended mods (install only; place them yourself or let the assistant do it). */
 export const RECOMMENDED_MODS: { id: string; icon: IconName; name: Record<L, string>; description: Record<L, string> }[] = [
   {
     id: "pomodoro",

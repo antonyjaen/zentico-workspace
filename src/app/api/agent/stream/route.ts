@@ -1,13 +1,15 @@
 // Server-Sent Events stream for tools/zentico-bridge.mjs, authenticated with the user's MCP access
 // token (Authorization: Bearer). It only ever carries that user's own commands:
-//   event: hello    data: {"user":{"email","name"},"scope":"read"|"write","mcpUrl","serverTime"}
+//   event: hello    data: {"user":{"email","name"},"scope":"read"|"write","mcpUrl","serverTime","agentName"}
 //   event: command  data: BridgeCommand (src/lib/meetings/claude-commands.ts)
 //   event: cancel   data: {"id"}
 //   : ping          (comment, every 15 s)
 // Commands are claimed atomically when sent, so with several bridges each command runs once.
+// The bridge says which agent it runs in X-Zentico-Bridge ("zentico-bridge/1.3.0 codex (host)"); it is
+// stored as bridges.client, which names the assistant until the user picks a name.
 import { env } from "@/lib/env";
 import { bridgePayload } from "@/lib/meetings/claude-commands";
-import { bridgeConnected, bridgeSeen, claimQueued, onWake, statusesOf } from "@/lib/mcp/agent";
+import { agentNameFor, bridgeConnected, bridgeSeen, claimQueued, onWake, statusesOf } from "@/lib/mcp/agent";
 import { bearerOf, verifyToken } from "@/lib/mcp/tokens";
 
 export const runtime = "nodejs";
@@ -99,6 +101,8 @@ export async function GET(req: Request) {
         scope: row.scope,
         mcpUrl: `${appUrl}/api/mcp`,
         serverTime: new Date().toISOString(),
+        // The wake word the bridge logs ("waiting for \"Codex, …\""); bridgeConnected() stored its agent first.
+        agentName: agentNameFor(email, "en"),
       });
       pump();
     },

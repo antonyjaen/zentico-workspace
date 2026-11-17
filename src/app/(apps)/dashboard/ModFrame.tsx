@@ -63,6 +63,7 @@ on:function(ev,fn){if(typeof fn!=="function")return function(){};(handlers[ev]=h
 ui:{toast:function(t){return call("ui",{op:"toast",text:String(t)});},openApp:function(x){return call("ui",{op:"open",target:String(x)});},
 navigate:function(p){return call("ui",{op:"navigate",page:String(p)});},select:function(k,id,extra){return call("ui",{op:"select",kind:String(k),id:id==null?null:String(id),extra:clone(extra||{})});}},
 claude:{ask:function(p){return call("claude",{prompt:String(p)},900000);}},
+agent:{ask:function(p){return call("claude",{prompt:String(p)},900000);}},
 mcp:{listServers:function(){return call("mcp",{op:"servers"});},listTools:function(id){return call("mcp",{op:"tools",serverId:String(id)});},
 call:function(id,tool,args){return call("mcp",{op:"call",serverId:String(id),tool:String(tool),args:clone(args||{})},300000);}}};
 window.addEventListener("message",function(e){if(e.source!==parent)return;var d=e.data;if(!d||typeof d!=="object")return;

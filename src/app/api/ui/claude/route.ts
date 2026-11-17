@@ -1,4 +1,4 @@
-// zentico.claude.ask from a mod: POST { modId, prompt, timeZone? } → { turn }. Needs the mod's
+// zentico.agent.ask (or its older name zentico.claude.ask) from a mod: POST { modId, prompt, timeZone? } → { turn }. Needs the mod's
 // "claude" permission (declared and granted) and a confirmation in the dashboard. The request goes
 // to the user's own Claude like a message typed in the Dashboard's Claude panel (where it shows
 // up, labelled with the mod's name); write tools Claude calls still wait for the user's approval.

@@ -1,3 +1,4 @@
+import { AgentNameProvider } from "@/components/AgentNameProvider";
 import { AppRail } from "@/components/AppRail";
 import { CallsProvider } from "@/components/calls/CallsProvider";
 import { MeetingProvider } from "./meet/MeetingProvider";
@@ -10,6 +11,9 @@ import { SecurityNudge } from "@/components/security/SecurityNudge";
 import { requireSession } from "@/lib/auth";
 import { getPolicy, statusOf } from "@/lib/security/store";
 import { cookies } from "next/headers";
+import { getLocale } from "next-intl/server";
+import { agentNameFor } from "@/lib/mcp/agent";
+import { genericAgentName } from "@/lib/meetings/wake";
 import { shellFromUi, type UiShell } from "@/lib/ui/schema";
 import { shellOf } from "@/lib/ui/service";
 import { SAFE_COOKIE } from "@/lib/ui/workspace";
@@ -25,6 +29,14 @@ export default async function AppsLayout({ children }: { children: React.ReactNo
   } catch (e) {
     console.error("[ui] shell:", e instanceof Error ? e.message : e);
   }
+  // The user's assistant name (same source as the {agent} in messages, see src/i18n/request.ts).
+  const locale = await getLocale();
+  let agentName = genericAgentName(locale);
+  try {
+    agentName = agentNameFor(session.email, locale);
+  } catch (e) {
+    console.error("[agent] name:", e instanceof Error ? e.message : e);
+  }
   // Two-step verification nudge: recommended when off/unknown, a deadline during the grace period.
   const policy = getPolicy();
   const nudge = {
@@ -33,6 +45,7 @@ export default async function AppsLayout({ children }: { children: React.ReactNo
   };
 
   return (
+    <AgentNameProvider name={agentName}>
     <UiShellProvider initial={shell}>
       <WorkspaceUiProvider>
       <NotificationsProvider>
@@ -59,5 +72,6 @@ export default async function AppsLayout({ children }: { children: React.ReactNo
       </NotificationsProvider>
       </WorkspaceUiProvider>
     </UiShellProvider>
+    </AgentNameProvider>
   );
 }

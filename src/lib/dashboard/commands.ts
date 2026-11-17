@@ -3,7 +3,7 @@
 // DASHBOARD_ROOM. Server-only.
 import { CHAT_TEXT_MAX } from "@/app/(apps)/dashboard/model";
 import { DASHBOARD_ROOM } from "@/app/(apps)/meet/shared";
-import { enqueueCommand, type CommandRow } from "../mcp/agent";
+import { agentNameFor, enqueueCommand, type CommandRow } from "../mcp/agent";
 import type { Session } from "../session";
 import { formatErrors, summarizeUi, UI_FOLDER } from "../ui/schema";
 import { chatWhereOf, getUiState, modAskOf, recordChatWhere } from "../ui/store";
@@ -77,7 +77,7 @@ export function dashboardPayload(c: CommandRow, appUrl: string): DashboardBridge
   return {
     id: c.id,
     // The context travels in the text too, so bridges that don't know `where` still get it.
-    text: where ? `[Sent from the ${where.app} app (${where.path}) via "Customize with Claude"; this is about customizing the workspace UI there]\n${c.text}` : c.text,
+    text: where ? `[Sent from the ${where.app} app (${where.path}) via "Customize with ${agentNameFor(c.userEmail, "en")}"; this is about customizing the workspace UI there]\n${c.text}` : c.text,
     source: "dashboard",
     room: c.room,
     title: "Dashboard",

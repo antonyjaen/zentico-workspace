@@ -9,6 +9,7 @@ import type { Row } from "node:sqlite";
 import { BOT_EMAIL_DOMAIN, type BotCommand, type BotInfo, type BotKind, type BuiltinApp } from "@/app/(apps)/chat/shared";
 import { isConfigured } from "../connect/providers";
 import { base64url, seal } from "../crypto";
+import { agentNameFor } from "../mcp/agent";
 import { all, get, run, tx } from "./db";
 
 const num = (v: unknown) => Number(v ?? 0);
@@ -205,9 +206,12 @@ function insertIdentity(input: IdentityInput, extra: Record<string, string | num
   return id;
 }
 
-/** The person's own Claude bot (created on first use; its name follows the owner's). */
+/**
+ * The person's own assistant bot (created on first use; kind 'claude' whatever agent runs it). Its
+ * name follows the owner's and their assistant's: "Codex (Ana)".
+ */
 export function ensureClaudeBot(owner: { id: number; name: string; email: string }): BotRow {
-  const name = `Claude (${owner.name || owner.email})`;
+  const name = `${agentNameFor(owner.email, "en")} (${owner.name || owner.email})`;
   const existing = all("SELECT id, name FROM bots WHERE owner_id = ? AND kind = 'claude' AND deleted = 0 LIMIT 1", owner.id)[0];
   if (existing) {
     if (strv(existing.name) !== name) {

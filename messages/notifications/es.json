@@ -38,9 +38,9 @@
       "mailBatch": "{count} correos nuevos",
       "reminder": "Empieza {when}",
       "invite": "Invitación · {when}",
-      "done": "Claude ha terminado",
-      "failed": "Claude no ha podido terminar",
-      "confirm": "Claude necesita tu confirmación",
+      "done": "{agent} ha terminado",
+      "failed": "{agent} no ha podido terminar",
+      "confirm": "{agent} necesita tu confirmación",
       "missedCall": "Llamada perdida"
     },
     "page": {
@@ -58,7 +58,7 @@
       "mailHint": "Mensajes nuevos en tu bandeja de entrada. Solo se muestran el remitente y el asunto.",
       "calendar": "Calendario",
       "calendarHint": "Recordatorios antes de los eventos (sus propios avisos, o 10 minutos antes) e invitaciones nuevas.",
-      "claude": "Comandos de Claude",
+      "claude": "Comandos de {agent}",
       "claudeHint": "Cuando un comando termina, falla o necesita tu confirmación, si no estás en esa reunión.",
       "howTitle": "Cómo",
       "desktop": "Notificaciones de escritorio",

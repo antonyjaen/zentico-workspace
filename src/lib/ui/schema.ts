@@ -98,7 +98,7 @@ export const PERMISSION_DOCS: Record<Permission, string> = {
   "drive.write": "Create or overwrite Drive text files (.md, .txt, .json) (drive.writeText).",
   "contacts.read": "Search contacts and the directory.",
   "meetings.read": "List meeting recordings and upcoming meetings.",
-  claude: "Send requests to the user's own Claude (zentico.claude.ask); shown in the Claude panel.",
+  claude: "Send requests to the user's own assistant (zentico.agent.ask, alias zentico.claude.ask); shown in the assistant panel.",
   mcp: 'Call tools of the user\'s connected MCP servers, limited to the manifest\'s "mcp" scopes (zentico.mcp). Added automatically when "mcp" scopes are declared.',
 };
 
@@ -319,7 +319,7 @@ export const COMPONENTS: Record<string, ComponentSpec> = {
     example: {},
   },
   claude: {
-    description: "The Claude chat panel (the user's own Claude, via their bridge). Use it inside a layout; the Dashboard also has a side panel.",
+    description: "The assistant chat panel (the user's own agent: Claude Code, Codex, … via their bridge). Use it inside a layout; the Dashboard also has a side panel.",
     props: obj({}),
     size: { w: 4, h: 12, minW: 3, minH: 6 },
     example: {},

@@ -3,11 +3,12 @@
 // Server-only: pure functions plus small in-memory state (rate limits, language memory and the
 // transcription queue). Single instance.
 import type { TranscriptSegment } from "@/app/(apps)/meet/recording";
+import { genericAgentName, stripWake, wakeRegex } from "./wake";
 
 export type ClipKind = "command" | "context";
 
-/** Optional wake phrase at the start of a command (English/Spanish, common Whisper misspellings). */
-const WAKE = /^(?:(?:hey|oye|ok|okay)[\s,]+)?(?:claude|cloud|clod|claud|cloth|klaud|klod|clow|clau|cloude)\b[,:.!]?\s*(.+)/i;
+/** Wake prefix when the user's own isn't passed: the generic words and the old Claude variants. */
+const DEFAULT_WAKE = wakeRegex({ name: genericAgentName("en") });
 const LEADING_JUNK = /^[\s"'“”‘’¿¡.,;:!?\-–—…]+/;
 
 const fold = (t: string) =>
@@ -17,17 +18,17 @@ const fold = (t: string) =>
     .toLowerCase();
 
 /**
- * A push-to-talk clip is the command as a whole: no wake word needed, but a leading "Claude, …"
- * (people say it out of habit) is stripped. Null when there is nothing to run.
+ * A push-to-talk clip is the command as a whole: no wake word needed, but a leading "Codex, …" or
+ * "oye asistente, …" (people say it out of habit; `wake` comes from src/lib/meetings/wake.ts) is
+ * stripped. Null when there is nothing to run.
  */
-export function commandText(segments: TranscriptSegment[] | string): string | null {
+export function commandText(segments: TranscriptSegment[] | string, wake: RegExp = DEFAULT_WAKE): string | null {
   const text = (typeof segments === "string" ? [segments] : segments.map((s) => s.text))
     .map((s) => s.trim())
     .filter(Boolean)
     .join(" ")
     .replace(LEADING_JUNK, "");
-  const m = WAKE.exec(text);
-  const rest = (m ? m[1] : text).replace(LEADING_JUNK, "").trim();
+  const rest = stripWake(text, wake).replace(LEADING_JUNK, "").trim();
   return rest.replace(/[^\p{L}\p{N}]/gu, "").length >= 2 ? rest.slice(0, 2000) : null;
 }
 

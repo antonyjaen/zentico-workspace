@@ -1,4 +1,4 @@
-// Meeting commands for the user's own Claude Code ("Claude, do X" in a call). Server-only.
+// Meeting commands for the user's own agent (Claude Code, Codex, …: "Codex, do X" in a call). Server-only.
 // ${DATA_DIR:-./data}/agent.sqlite holds the command queue, pending write confirmations, the
 // user's own recent speech (context for the prompt) and bridge heartbeats. Every function takes
 // the acting user's email and scopes its queries by it: a command only ever reaches the bridge of
@@ -17,6 +17,7 @@ import {
 } from "@/app/(apps)/meet/claude";
 import { meetHref } from "@/app/(apps)/meet/shared";
 import { notify } from "../notifications/store";
+import { familyOf, resolveAgentName, wakeRegex, type AgentFamily } from "../meetings/wake";
 
 type SQLValue = null | number | bigint | string | Uint8Array;
 type Row = Record<string, SQLValue>;
@@ -93,6 +94,15 @@ const MIGRATIONS = [
   // Commands asked in Chat (@-mentioning the user's Claude bot): where to post the result, and the
   // prompt with the conversation context captured when it was asked. Stored with source 'typed'.
   `ALTER TABLE commands ADD COLUMN chat TEXT;`,
+  // The user's assistant: its name (also the main wake word), extra wake words (JSON array) and the
+  // language its voice replies are usually in. Null name = the connected bridge's agent ("Codex"…).
+  `CREATE TABLE agent_profile (
+    user_email TEXT PRIMARY KEY,
+    name TEXT,
+    wake_words TEXT NOT NULL DEFAULT '[]',
+    voice_lang TEXT,
+    updated INTEGER NOT NULL
+  );`,
 ];
 
 function open(): Database {
@@ -261,10 +271,10 @@ function sweep(now = Date.now()) {
     .all(now - QUEUE_TTL_MS, now - RUN_TTL_MS)
     .map((r) => s(r.id));
   d.prepare(
-    "UPDATE commands SET status = 'failed', result = 'Your Claude bridge was not connected.', updated = ? WHERE status = 'queued' AND created < ?",
+    "UPDATE commands SET status = 'failed', result = 'Your agent bridge was not connected.', updated = ? WHERE status = 'queued' AND created < ?",
   ).run(now, now - QUEUE_TTL_MS);
   d.prepare(
-    "UPDATE commands SET status = 'failed', result = COALESCE(result, 'No answer from your Claude bridge.'), updated = ? WHERE status IN ('dispatched', 'needs_confirmation') AND updated < ?",
+    "UPDATE commands SET status = 'failed', result = COALESCE(result, 'No answer from your agent bridge.'), updated = ? WHERE status IN ('dispatched', 'needs_confirmation') AND updated < ?",
   ).run(now, now - RUN_TTL_MS);
   d.prepare("UPDATE confirmations SET status = 'expired', decided = ? WHERE status = 'pending' AND expires < ?").run(now, now - 5000);
   d.prepare("DELETE FROM utterances WHERE at < ?").run(now - UTTERANCE_KEEP_MS);
@@ -431,7 +441,7 @@ export function cancelCommand(id: string, email: string): boolean {
   return true;
 }
 
-/** The user's most recent unfinished command in a room (for "Claude cancel"). */
+/** The user's most recent unfinished command in a room (for "<assistant> cancel"). */
 export function latestActiveCommand(email: string, room: string): CommandRow | null {
   const r = db()
     .prepare(
@@ -487,7 +497,7 @@ export function activeCommands(email: string, room: string): CommandRow[] {
     .map(toCommand);
 }
 
-/** The user's newest pending confirmation (for "Claude confirm" / "Claude cancel"). */
+/** The user's newest pending confirmation (for "<assistant> confirm" / "<assistant> cancel"). */
 export function latestPendingConfirmation(email: string): ConfirmationView | null {
   const list = pendingConfirmations(email);
   return list.length ? list[list.length - 1] : null;
@@ -606,4 +616,56 @@ export function bridgeStatus(email: string): BridgeStatus & { client: string | n
   const key = norm(email);
   const r = db().prepare("SELECT last_seen, client FROM bridges WHERE user_email = ?").get(key);
   return { connected: (openStreams.get(key) ?? 0) > 0, lastSeen: n(r?.last_seen), client: r ? s(r.client) : null };
+}
+
+/* ----------------------------------------------------------- agent profile */
+
+export type AgentProfile = {
+  /** Chosen by the user; null = named after the bridge's agent. */
+  name: string | null;
+  wakeWords: string[];
+  voiceLang: string | null;
+  /** The agent the user's bridge last reported (null when no bridge ever connected). */
+  family: AgentFamily | null;
+};
+
+function profileRow(key: string) {
+  return {
+    p: db().prepare("SELECT name, wake_words, voice_lang FROM agent_profile WHERE user_email = ?").get(key),
+    client: s(db().prepare("SELECT client FROM bridges WHERE user_email = ?").get(key)?.client) || null,
+  };
+}
+
+export function getAgentProfile(email: string): AgentProfile {
+  const { p, client } = profileRow(norm(email));
+  let wakeWords: string[] = [];
+  try {
+    const parsed: unknown = JSON.parse(s(p?.wake_words) || "[]");
+    if (Array.isArray(parsed)) wakeWords = parsed.filter((w): w is string => typeof w === "string");
+  } catch {
+    wakeWords = [];
+  }
+  return { name: s(p?.name) || null, wakeWords, voiceLang: s(p?.voice_lang) || null, family: familyOf(client) };
+}
+
+/** Saves the user's assistant settings (validated by the caller). */
+export function setAgentProfile(email: string, p: { name: string | null; wakeWords: string[]; voiceLang: string | null }): void {
+  db()
+    .prepare(
+      `INSERT INTO agent_profile (user_email, name, wake_words, voice_lang, updated) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(user_email) DO UPDATE SET name = excluded.name, wake_words = excluded.wake_words,
+         voice_lang = excluded.voice_lang, updated = excluded.updated`,
+    )
+    .run(norm(email), p.name, JSON.stringify(p.wakeWords), p.voiceLang, Date.now());
+}
+
+/** The assistant's name as the user sees it: their choice, else the bridge's agent ("Codex"), else "Assistant". */
+export function agentNameFor(email: string, locale: string): string {
+  const { p, client } = profileRow(norm(email));
+  return resolveAgentName({ name: s(p?.name) || null, client, locale });
+}
+
+/** The wake prefix that addresses the user's assistant (name, extra words, generic and legacy words). */
+export function wakeRegexFor(email: string, locale = "en"): RegExp {
+  return wakeRegex({ name: agentNameFor(email, locale), wakeWords: getAgentProfile(email).wakeWords });
 }

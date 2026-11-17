@@ -1,19 +1,18 @@
-// The signed-in user's own Claude commands in a call.
+// The signed-in user's own assistant commands in a call.
 // GET ?room=<code> → CommandsResponse (their commands, pending confirmations, bridge status).
-// POST { room, text, timeZone? } → typed command ("Ask my Claude").
+// POST { room, text, timeZone? } → typed command ("Ask my <assistant>").
 import { NextResponse, type NextRequest } from "next/server";
 import { getSession } from "@/lib/auth";
 import { chatMeetingTitle } from "@/lib/meetings/chat-link";
 import { cleanCommandText, cleanTimeZone, createCommand, hasWriteToken } from "@/lib/meetings/claude-commands";
 import { jsonError, NO_STORE, sameOrigin } from "@/lib/meetings/http";
-import { bridgeStatus, listCommands, pendingConfirmations, toView } from "@/lib/mcp/agent";
+import { bridgeStatus, listCommands, pendingConfirmations, toView, wakeRegexFor } from "@/lib/mcp/agent";
+import { stripWake } from "@/lib/meetings/wake";
 import { COMMAND_MAX_CHARS, type CommandsResponse } from "@/app/(apps)/meet/claude";
 import { ROOM_PATTERN } from "@/app/(apps)/meet/shared";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const WAKE_PREFIX = /^\s*(?:(?:hey|oye|ok|okay)[\s,]+)?(?:claude|cloud|clod|claud|cloth)\b[,:.!]?\s*/i;
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
@@ -45,7 +44,7 @@ export async function POST(req: NextRequest) {
   const room = typeof body.room === "string" ? body.room : "";
   const raw = typeof body.text === "string" ? body.text : "";
   if (!ROOM_PATTERN.test(room) || raw.length > COMMAND_MAX_CHARS + 100) return jsonError("invalid", 400);
-  const text = cleanCommandText(raw.replace(WAKE_PREFIX, ""));
+  const text = cleanCommandText(stripWake(raw.trimStart(), wakeRegexFor(session.email)));
   if (!text) return jsonError("invalid", 400);
   if (!hasWriteToken(session.sub)) return jsonError("no_token", 412);
   try {

@@ -11,6 +11,7 @@ import { openAppDm } from "@/app/(apps)/chat/app-actions";
 import { CopyField } from "@/app/(apps)/chat/AppsPanel";
 import { NAME_MAX, type BotCommand } from "@/app/(apps)/chat/shared";
 import { Avatar, BTN, BTN_PRIMARY, FIELD, Label, useErrorText } from "@/app/(apps)/chat/ui";
+import { useAgentName } from "@/components/AgentNameProvider";
 import type { Delivery } from "@/lib/chat/bots";
 import { createApp, deleteApp, getDeliveries, rotateAppSecret, rotateAppToken, updateApp, type AppForm } from "./actions";
 import { ApiGuide } from "./ApiGuide";
@@ -46,6 +47,7 @@ export function AppsSettings({
   /** Settings → Connected apps (rendered by the page). */
   connectedApps?: React.ReactNode;
 }) {
+  const agentName = useAgentName();
   const t = useTranslations("apps.settings");
   const router = useRouter();
   const [editing, setEditing] = useState<string | "new" | null>(null);
@@ -55,10 +57,10 @@ export function AppsSettings({
     <div className="mx-auto max-w-3xl space-y-8 px-4 py-6 md:px-6">
       <p className="text-[13.5px] leading-relaxed text-ink-soft">{t("intro")}</p>
 
-      {/* My Claude */}
+      {/* My assistant */}
       <section className="rounded-xl border border-line p-4">
         <div className="flex items-start gap-3">
-          <Avatar name="Claude" email="" bot={{ id: "", kind: "claude", description: "", color: 25, avatar: null, ownerId: me.id, ownerName: me.name }} size={40} />
+          <Avatar name={agentName} email="" bot={{ id: "", kind: "claude", description: "", color: 25, avatar: null, ownerId: me.id, ownerName: me.name }} size={40} />
           <div className="min-w-0 flex-1">
             <h2 className="text-[14.5px] font-semibold text-ink">{t("claudeTitle")}</h2>
             <p className="mt-1 text-[13px] leading-relaxed text-ink-soft">{t("claudeBody")}</p>

@@ -276,9 +276,9 @@ button:disabled { opacity: .55; cursor: default; }
 <script>
 (function () {
   var T = {
-    en: { hint: "Select a conversation in a mail list (open in reader) to act on it here.", read: "Mark read", star: "Star", archive: "Archive", quick: "Quick replies", claude: "Claude", ask: "Ask Claude to draft a reply", asking: "Claude is writing a draft…", drafted: "Draft saved in Mail", messages: function (n) { return n + (n === 1 ? " message" : " messages"); },
+    en: { hint: "Select a conversation in a mail list (open in reader) to act on it here.", read: "Mark read", star: "Star", archive: "Archive", quick: "Quick replies", claude: "Assistant", ask: "Ask your assistant to draft a reply", asking: "Your assistant is writing a draft…", drafted: "Draft saved in Mail", messages: function (n) { return n + (n === 1 ? " message" : " messages"); },
       replies: ["Thanks! I'll take a look and get back to you.", "Received, thank you.", "Can we discuss this in a quick call this week?"] },
-    es: { hint: "Selecciona una conversación en una lista de correo (abrir en lector) para actuar aquí.", read: "Marcar leído", star: "Destacar", archive: "Archivar", quick: "Respuestas rápidas", claude: "Claude", ask: "Pedir a Claude un borrador", asking: "Claude está escribiendo…", drafted: "Borrador guardado en Correo", messages: function (n) { return n + (n === 1 ? " mensaje" : " mensajes"); },
+    es: { hint: "Selecciona una conversación en una lista de correo (abrir en lector) para actuar aquí.", read: "Marcar leído", star: "Destacar", archive: "Archivar", quick: "Respuestas rápidas", claude: "Asistente", ask: "Pedir un borrador a tu asistente", asking: "Tu asistente está escribiendo…", drafted: "Borrador guardado en Correo", messages: function (n) { return n + (n === 1 ? " mensaje" : " mensajes"); },
       replies: ["¡Gracias! Lo reviso y te digo algo.", "Recibido, gracias.", "¿Lo vemos en una llamada corta esta semana?"] }
   }[zentico.locale === "es" ? "es" : "en"];
   var $ = function (id) { return document.getElementById(id); };

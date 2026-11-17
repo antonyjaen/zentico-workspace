@@ -675,8 +675,8 @@ export function sanitizeDoc(raw: unknown): DashboardDoc | null {
 export function defaultDoc(locale: string, makeId: () => string): DashboardDoc {
   const hint =
     locale === "en"
-      ? "### Make it yours\n\nAsk Claude to customize your dashboard: *“add a widget with my unread mail from Ana”*, *“show the time in New York and Tokyo”*, *“make a chart of this week's sales”*.\n\nOr use **Edit layout** to move, resize and add widgets yourself."
-      : "### Hazlo tuyo\n\nPídele a Claude que personalice tu dashboard: *«añade un widget con mis correos sin leer de Ana»*, *«muestra la hora en Nueva York y Tokio»*, *«haz un gráfico con las ventas de esta semana»*.\n\nO usa **Editar diseño** para mover, redimensionar y añadir widgets tú mismo.";
+      ? "### Make it yours\n\nAsk your assistant to customize your dashboard: *“add a widget with my unread mail from Ana”*, *“show the time in New York and Tokyo”*, *“make a chart of this week's sales”*.\n\nOr use **Edit layout** to move, resize and add widgets yourself."
+      : "### Hazlo tuyo\n\nPídele a tu asistente que personalice tu dashboard: *«añade un widget con mis correos sin leer de Ana»*, *«muestra la hora en Nueva York y Tokio»*, *«haz un gráfico con las ventas de esta semana»*.\n\nO usa **Editar diseño** para mover, redimensionar y añadir widgets tú mismo.";
   const mk = (type: WidgetType, x: number, y: number, w: number, h: number, config: Config = {}): Widget => ({
     id: makeId(),
     type,
