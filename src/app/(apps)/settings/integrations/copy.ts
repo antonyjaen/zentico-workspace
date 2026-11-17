@@ -65,17 +65,24 @@ export function mcpSnippet(agent: CliAgent | "cursor" | "vscode", endpoint: stri
 const LIST_CMD: Record<CliAgent, string> = { claude: "claude mcp list", codex: "codex mcp list", opencode: "opencode mcp list", gemini: "gemini mcp list" };
 const LABEL: Record<CliAgent, string> = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode", gemini: "Gemini CLI" };
 
-/** What the bridge can run: a CLI, the API mode (OpenRouter as the example) or a custom command line. */
-export type BridgeAgent = CliAgent | "api" | "custom";
+/**
+ * What the bridge can run: a CLI, an API family the bridge last reported (openai / anthropic), the
+ * API tab's example (OpenRouter) or a custom command line.
+ */
+export type BridgeAgent = CliAgent | "openai" | "anthropic" | "api" | "custom";
 
 /** The bridge's command line, always with an explicit --agent so it matches the user's agent. */
 export function bridgeCommands(agent: BridgeAgent, appUrl: string, token: string): { unix: string; windows: string } {
   const extra =
     agent === "api"
       ? ["--agent", "openai", "--base-url", "https://openrouter.ai/api/v1", "--model", "openai/gpt-4.1-mini", "--api-key-env", "OPENROUTER_API_KEY"]
-      : agent === "custom"
-        ? ["--agent", "custom", "--custom", "<your command line>"]
-        : ["--agent", agent];
+      : agent === "anthropic"
+        ? ["--agent", "anthropic", "--model", "<model>", "--api-key-env", "ANTHROPIC_API_KEY"]
+        : agent === "openai"
+          ? ["--agent", "openai", "--model", "<model>"]
+          : agent === "custom"
+            ? ["--agent", "custom", "--custom", "<your command line>"]
+            : ["--agent", agent];
   const unix = `mkdir -p ~/.zentico && curl -fsSL ${appUrl}/bridge.mjs -o ~/.zentico/zentico-bridge.mjs\nZENTICO_TOKEN=${token} nohup node ~/.zentico/zentico-bridge.mjs --url ${appUrl}${extra.map((a) => ` ${a}`).join("")} > ~/.zentico/bridge.log 2>&1 &`;
   const args = ["$HOME\\.zentico\\zentico-bridge.mjs", "--url", appUrl, ...extra].map((a) => `"${a}"`).join(",");
   const windows = `New-Item -ItemType Directory -Force "$HOME\\.zentico" | Out-Null; Invoke-WebRequest ${appUrl}/bridge.mjs -OutFile "$HOME\\.zentico\\zentico-bridge.mjs"\n$env:ZENTICO_TOKEN="${token}"; Start-Process node -ArgumentList ${args} -WindowStyle Hidden`;

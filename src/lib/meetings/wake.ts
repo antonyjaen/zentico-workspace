@@ -92,7 +92,8 @@ export function wakeRegex(profile: WakeProfile): RegExp {
   };
   add(profile.name);
   for (const w of profile.wakeWords ?? []) add(w);
-  if (profile.family) add(profile.family);
+  // Only families people call by name; "custom" / "openai" / "anthropic" are ordinary words.
+  if (profile.family && VARIANTS[profile.family]) add(profile.family);
   for (const w of GENERIC) alts.add(w);
   // Longest first, so "open code" wins over "open".
   const list = [...alts].sort((a, b) => b.length - a.length);

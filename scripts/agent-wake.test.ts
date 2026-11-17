@@ -30,6 +30,13 @@ test("the bridge's agent name works as a wake word, but no other brand does", ()
   assert.equal(strip("Codex", "Claude, send it"), "Claude, send it");
 });
 
+test("families without a spoken name (custom / openai / anthropic) are not wake words", () => {
+  assert.equal(stripWake("custom fields need a label", wakeRegex({ name: "Asistente", family: "custom" })), "custom fields need a label");
+  assert.equal(stripWake("OpenAI, what's new", wakeRegex({ name: "Asistente", family: "openai" })), "OpenAI, what's new");
+  assert.equal(stripWake("Anthropic: hi", wakeRegex({ name: "Asistente", family: "anthropic" })), "Anthropic: hi");
+  assert.equal(stripWake("Asistente, send it", wakeRegex({ name: "Asistente", family: "custom" })), "send it");
+});
+
 test("Codex and how recognition writes it", () => {
   for (const w of ["Codex", "kodex", "codecs", "code x", "Code X"]) assert.equal(strip("Codex", `${w}, summarize`), "summarize", w);
 });

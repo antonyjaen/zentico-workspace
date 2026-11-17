@@ -142,7 +142,6 @@ function initialAgent(family: Family): SetupAgent | null {
 
 /** What the "start the bridge" command runs: the bridge's last agent, else the one picked on this page. */
 function bridgeAgentOf(family: Family, picked: SetupAgent | null): BridgeAgent | null {
-  if (family === "openai" || family === "anthropic") return "api";
   if (family) return family;
   return picked && picked !== "mcp" ? picked : null;
 }
