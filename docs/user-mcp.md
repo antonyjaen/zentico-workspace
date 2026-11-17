@@ -137,3 +137,22 @@ or Anthropic API with the user's key (no CLI). Every run sends `X-Zentico-Comman
 on the in-call write confirmation. The bridge reports its agent in `X-Zentico-Bridge`
 (`zentico-bridge/1.3.0 codex (host)`); that names the assistant ("Codex") until the user picks a
 name and wake words (`GET/PUT /api/agent/profile`).
+
+## Live meeting stage (bridge 1.4.0)
+
+During a call, agents can show things to everyone in it through the `meeting_*` tools: `meeting_stage_open`,
+`meeting_whiteboard_add` / `_update` / `_remove` / `_read` (drawn progressively, 4 elements every 120 ms),
+`meeting_pin_card` / `meeting_update_card` / `meeting_unpin` (notes, decisions, actions, agenda, checklist,
+table), `meeting_stage_focus`, `meeting_current`, `meeting_list_participants`, `meeting_get_live_context`
+and `meeting_stage_save`. They act on the call the token's owner is in (or `room`), only while the owner is
+in it. Stage edits need no Approve (everyone sees them; any participant can "Undo agent changes");
+`meeting_stage_save` (Drive + sharing) is confirmed like other writes.
+
+The state lives in `meetings.sqlite` (`stages`, `stage_items`, `stage_elements`, `stage_log`) and reaches the
+room via LiveKit `RoomService/SendData` on topic `zw-stage` (clients poll `GET /api/meet/stage?since=` when
+that fails). A stage is saved to Drive and closed after its room has been empty for 30 min
+(`STAGE_EMPTY_CLOSE_MS` overrides).
+
+Proactive mode ("let my agent keep the stage up to date"): the owner's bridge receives quiet commands with
+`source: "assist"` (prompt built by the server) at most every 45 s, after 500+ characters or 120 s of new
+meeting speech; anyone can pause it, it stops when the owner leaves, after 3 h or 150 runs.

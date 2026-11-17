@@ -15,6 +15,7 @@ import type { Scope } from "./db";
 import { DRIVE_TOOLS } from "./drive-tools";
 import { appUrl, iso, type Tool } from "./kit";
 import { MAIL_TOOLS } from "./mail-tools";
+import { MEETING_STAGE_TOOLS } from "./meeting-tools";
 import { PEOPLE_TOOLS } from "./people-tools";
 import { TASK_TOOLS } from "./task-tools";
 import { UI_TOOLS } from "./ui-tools";
@@ -46,6 +47,7 @@ const TOOLS: Tool[] = [
   ...CHAT_TOOLS,
   ...TASK_TOOLS,
   ...MEETING_TOOLS,
+  ...MEETING_STAGE_TOOLS,
   ...DASHBOARD_TOOLS,
   ...CONNECT_TOOLS,
   ...UI_TOOLS,
@@ -170,6 +172,9 @@ export function describeWrite(name: string, args: Args): string {
     case "drive_create_folder":
     case "drive_rename":
       add("", `${name.replace("drive_", "").replace("_", " ")} "${clip(args.name, 120)}"`);
+      break;
+    case "meeting_stage_save":
+      add("", "save the meeting stage to Drive and share it read-only with the meeting's people");
       break;
     case "docs_create":
       add("", `create ${clip(args.kind, 20)} "${clip(args.title, 120)}"`);

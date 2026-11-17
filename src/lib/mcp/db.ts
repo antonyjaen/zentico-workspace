@@ -146,6 +146,13 @@ export function tokenByHash(hash: string): TokenRow | null {
   return r ? toToken(r) : null;
 }
 
+/** An active (not revoked, not expired) token by id: the meeting stage's automatic Drive save. */
+export function activeTokenById(id: string): TokenRow | null {
+  const r = db().prepare("SELECT * FROM tokens WHERE id = ? AND revoked IS NULL").get(id);
+  const t = r ? toToken(r) : null;
+  return t && (t.expires == null || t.expires > Date.now()) ? t : null;
+}
+
 /** Active (not revoked) tokens of a user, newest first. */
 export function userTokens(userSub: string): TokenRow[] {
   return db()

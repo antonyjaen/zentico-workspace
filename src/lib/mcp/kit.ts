@@ -10,6 +10,8 @@ export type ToolContext = {
   scope: Scope;
   tokenName: string;
   tokenExpires: number | null;
+  /** The access token's id (the meeting stage keeps it for its automatic Drive save). */
+  tokenId?: string;
   /**
    * Set when the request carries X-Zentico-Command (sent by tools/zentico-bridge.mjs for a meeting
    * command): write tools then wait for the user's Approve / Reject in the call. null = normal MCP use.

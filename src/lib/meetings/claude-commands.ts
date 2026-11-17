@@ -8,6 +8,7 @@ import { dashboardPayload, type DashboardBridgeCommand } from "../dashboard/comm
 import { DASHBOARD_ROOM } from "@/app/(apps)/meet/shared";
 import type { Session } from "../session";
 import { chatMeetingTitle } from "./chat-link";
+import { assistPrompt } from "./stage";
 
 const BAD_TEXT = /[\u0000-\u0008\u000b-\u001f\u007f]/g;
 
@@ -44,7 +45,8 @@ export function createCommand(
 export type BridgeCommand = {
   id: string;
   text: string;
-  source: "voice" | "typed" | "chat";
+  /** "assist" = a proactive update of the meeting stage: quiet, no spoken reply (bridges ≥ 1.4.0). */
+  source: "voice" | "typed" | "chat" | "assist";
   prompt?: string;
   chat?: { conversationId: string; name: string; url: string; threadRoot: number | null };
   room: string;
@@ -82,6 +84,26 @@ function mergeRuns(list: { at: number; text: string }[], gapMs: number) {
 export function bridgePayload(c: CommandRow, appUrl: string): BridgeCommand | DashboardBridgeCommand {
   // Typed in the Dashboard's Claude chat, not in a call.
   if (c.room === DASHBOARD_ROOM) return dashboardPayload(c, appUrl);
+  // A proactive meeting-stage update: the server writes the prompt (stage + new speech + rules).
+  // `text` carries it too, for older bridges that only wrap `text`.
+  if (c.kind === "assist") {
+    const title = c.title || chatMeetingTitle(c.room) || c.room;
+    const prompt = assistPrompt(c.room, title);
+    return {
+      id: c.id,
+      text: prompt,
+      source: "assist",
+      prompt,
+      room: c.room,
+      title,
+      meetingUrl: `${appUrl}/meet/${c.room}`,
+      speaker: { name: c.userName || c.userEmail, email: c.userEmail },
+      createdAt: new Date(c.createdAt).toISOString(),
+      timeZone: c.timeZone,
+      transcript: [],
+      meeting: null,
+    };
+  }
   // Asked in Chat by @-mentioning the user's Claude bot.
   if (c.chat) {
     const url = `${appUrl}/chat?c=${c.chat.conversationId}`;

@@ -91,6 +91,69 @@ const MIGRATIONS: string[] = [
   ALTER TABLE meetings ADD COLUMN video_next_at INTEGER NOT NULL DEFAULT 0;
   CREATE INDEX meetings_video ON meetings(video_status);
   `,
+  // The live meeting stage (lib/meetings/stage.ts): whiteboards and pinned cards shared with
+  // everyone in a call, edited by people and by their agents. One stage per room while it is in use.
+  `
+  CREATE TABLE stages (
+    room TEXT PRIMARY KEY,
+    opened_by TEXT NOT NULL,
+    opened_at INTEGER NOT NULL,
+    rev INTEGER NOT NULL DEFAULT 0,
+    focus TEXT,
+    -- JSON: the proactive assistant ({owner, ownerName, agent, modes, since, pausedBy, …}) or NULL.
+    assist TEXT,
+    -- Who saves to Drive when the stage closes: the opener's MCP token (agent) or sealed session.
+    save_token_id TEXT,
+    save_session TEXT,
+    saved_at INTEGER,
+    saved_files TEXT,
+    save_error TEXT,
+    empty_since INTEGER,
+    updated INTEGER NOT NULL
+  );
+
+  CREATE TABLE stage_items (
+    room TEXT NOT NULL,
+    id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('board', 'notes', 'decisions', 'actions', 'agenda', 'checklist', 'table')),
+    title TEXT NOT NULL DEFAULT '',
+    pos INTEGER NOT NULL DEFAULT 0,
+    data TEXT NOT NULL DEFAULT '{}',
+    created_by TEXT NOT NULL,
+    actor_kind TEXT NOT NULL CHECK (actor_kind IN ('user', 'agent')),
+    rev INTEGER NOT NULL,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    updated INTEGER NOT NULL,
+    PRIMARY KEY (room, id)
+  );
+  CREATE INDEX stage_items_rev ON stage_items(room, rev);
+
+  CREATE TABLE stage_elements (
+    room TEXT NOT NULL,
+    board_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    version_nonce INTEGER NOT NULL,
+    data TEXT NOT NULL,
+    rev INTEGER NOT NULL,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (room, board_id, id)
+  );
+  CREATE INDEX stage_elements_rev ON stage_elements(room, rev);
+
+  -- One row per change batch: who, and the rows' previous state (for "Undo agent changes").
+  CREATE TABLE stage_log (
+    room TEXT NOT NULL,
+    rev INTEGER NOT NULL,
+    actor TEXT NOT NULL,
+    actor_kind TEXT NOT NULL,
+    op TEXT NOT NULL,
+    before TEXT NOT NULL DEFAULT '[]',
+    undone INTEGER NOT NULL DEFAULT 0,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (room, rev)
+  );
+  `,
 ];
 
 function open(): Database {

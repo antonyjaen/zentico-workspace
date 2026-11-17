@@ -30,6 +30,8 @@ import {
   type JobMeeting,
   type PendingVideo,
 } from "./store";
+import { sweepStages } from "./stage";
+import { saveStageOnClose } from "./stage-save";
 import { formatWhen, mergeSegments, toMarkdown, transcribeFile, whisperConfig } from "./transcribe";
 import type { TranscriptSegment } from "@/app/(apps)/meet/recording";
 
@@ -39,7 +41,7 @@ const VIDEO_POLL_MS = 15_000;
 /** Drive upload retries back off from 30 s up to 30 min, then give up (retry from the page). */
 const VIDEO_MAX_ATTEMPTS = 10;
 
-type Queue = { pending: string[]; running: string | null; booted: boolean; videoBusy: boolean };
+type Queue = { pending: string[]; running: string | null; booted: boolean; videoBusy: boolean; stagesBusy?: boolean };
 const g = globalThis as typeof globalThis & { __zwMeetQueue?: Queue };
 const queue = (g.__zwMeetQueue ??= { pending: [], running: null, booted: false, videoBusy: false });
 
@@ -92,10 +94,24 @@ export function boot(): void {
   }
   sweep();
   setInterval(sweep, 60_000).unref?.();
+  // Meeting stages: stop the assistant when its owner left; save to Drive and close empty rooms.
+  setInterval(() => void sweepStageRooms(), 60_000).unref?.();
   setTimeout(pump, 0);
   if (egressConfig() || hasPendingVideos()) {
     setInterval(() => void pollVideos(), VIDEO_POLL_MS).unref?.();
     setTimeout(() => void pollVideos(), 1000);
+  }
+}
+
+async function sweepStageRooms(): Promise<void> {
+  if (queue.stagesBusy) return;
+  queue.stagesBusy = true;
+  try {
+    for (const o of await sweepStages(saveStageOnClose)) if (o.action === "closed") console.info(`[stage] closed ${o.room}`);
+  } catch (e) {
+    log("stage sweep failed", e);
+  } finally {
+    queue.stagesBusy = false;
   }
 }
 

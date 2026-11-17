@@ -103,6 +103,9 @@ const MIGRATIONS = [
     voice_lang TEXT,
     updated INTEGER NOT NULL
   );`,
+  // 'assist' = a proactive meeting-stage update (lib/meetings/stage.ts): run like a command but kept
+  // out of the user's command history, notifications and spoken replies.
+  `ALTER TABLE commands ADD COLUMN kind TEXT NOT NULL DEFAULT 'command';`,
 ];
 
 function open(): Database {
@@ -185,7 +188,10 @@ export type ChatCommandRef = {
   prompt: string;
 };
 
+export type CommandKind = "command" | "assist";
+
 export type CommandRow = CommandView & {
+  kind: CommandKind;
   userEmail: string;
   userName: string;
   title: string;
@@ -217,6 +223,7 @@ function chatHook(c: CommandRow | null, what: "finished" | "changed") {
 function toCommand(r: Row): CommandRow {
   return {
     id: s(r.id),
+    kind: r.kind === "assist" ? "assist" : "command",
     userEmail: s(r.user_email),
     userName: s(r.user_name),
     room: s(r.room),
@@ -298,6 +305,7 @@ export function enqueueCommand(input: {
   source: "voice" | "typed";
   timeZone: string | null;
   chat?: ChatCommandRef;
+  kind?: CommandKind;
 }): { command: CommandRow; duplicate: boolean } {
   const email = norm(input.email);
   const now = Date.now();
@@ -322,10 +330,23 @@ export function enqueueCommand(input: {
   const id = randomUUID();
   db()
     .prepare(
-      `INSERT INTO commands (id, user_email, user_name, room, title, text, source, time_zone, status, created, updated, chat)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)`,
+      `INSERT INTO commands (id, user_email, user_name, room, title, text, source, time_zone, status, created, updated, chat, kind)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)`,
     )
-    .run(id, email, input.name, input.room, input.title, input.text, input.source, input.timeZone, now, now, input.chat ? JSON.stringify(input.chat) : null);
+    .run(
+      id,
+      email,
+      input.name,
+      input.room,
+      input.title,
+      input.text,
+      input.source,
+      input.timeZone,
+      now,
+      now,
+      input.chat ? JSON.stringify(input.chat) : null,
+      input.kind ?? "command",
+    );
   wake(email);
   return { command: getCommand(id, email)!, duplicate: false };
 }
@@ -339,7 +360,7 @@ export function getCommand(id: string, email: string): CommandRow | null {
 export function listCommands(email: string, room: string, limit = 30): CommandRow[] {
   sweep();
   return db()
-    .prepare("SELECT * FROM commands WHERE user_email = ? AND room = ? ORDER BY created DESC LIMIT ?")
+    .prepare("SELECT * FROM commands WHERE user_email = ? AND room = ? AND kind = 'command' ORDER BY created DESC LIMIT ?")
     .all(norm(email), room, limit)
     .map(toCommand);
 }
@@ -408,6 +429,11 @@ export function applyBridgeEvent(id: string, email: string, ev: BridgeEvent): Co
     );
     d.prepare("UPDATE confirmations SET status = 'expired', decided = ? WHERE command_id = ? AND status = 'pending'").run(now, id);
     const after = getCommand(id, email);
+    // Proactive stage updates are quiet: no notification, history or chat post.
+    if (after?.kind === "assist") {
+      stageHook((m) => m.onAssistFinished(after.room, after.id));
+      return after.status;
+    }
     if (after && (after.status === "done" || after.status === "failed")) {
       notify(email, {
         category: "claude",
@@ -426,6 +452,13 @@ export function applyBridgeEvent(id: string, email: string, ev: BridgeEvent): Co
   return getCommand(id, email)?.status ?? null;
 }
 
+/** The meeting stage (loaded lazily: it imports this module). */
+function stageHook(fn: (m: typeof import("../meetings/stage")) => unknown) {
+  void import("../meetings/stage")
+    .then((m) => fn(m))
+    .catch((e) => console.error("[agent] stage hook:", e instanceof Error ? e.message : e));
+}
+
 /** Cancels one of the user's unfinished commands (and rejects its pending confirmations). */
 export function cancelCommand(id: string, email: string): boolean {
   const now = Date.now();
@@ -437,7 +470,9 @@ export function cancelCommand(id: string, email: string): boolean {
   if (Number(r.changes) === 0) return false;
   db().prepare("UPDATE confirmations SET status = 'rejected', decided = ? WHERE command_id = ? AND status = 'pending'").run(now, id);
   wake(email);
-  chatHook(getCommand(id, email), "changed");
+  const c = getCommand(id, email);
+  if (c?.kind === "assist") stageHook((m) => m.onAssistFinished(c.room, c.id));
+  else chatHook(c, "changed");
   return true;
 }
 
@@ -445,7 +480,7 @@ export function cancelCommand(id: string, email: string): boolean {
 export function latestActiveCommand(email: string, room: string): CommandRow | null {
   const r = db()
     .prepare(
-      "SELECT * FROM commands WHERE user_email = ? AND room = ? AND status IN ('queued', 'dispatched', 'needs_confirmation') ORDER BY created DESC LIMIT 1",
+      "SELECT * FROM commands WHERE user_email = ? AND room = ? AND kind = 'command' AND status IN ('queued', 'dispatched', 'needs_confirmation') ORDER BY created DESC LIMIT 1",
     )
     .get(norm(email), room);
   return r ? toCommand(r) : null;
@@ -492,7 +527,7 @@ export function decideConfirmation(id: string, email: string, approve: boolean):
 export function activeCommands(email: string, room: string): CommandRow[] {
   sweep();
   return db()
-    .prepare("SELECT * FROM commands WHERE user_email = ? AND room = ? AND status IN ('queued', 'dispatched', 'needs_confirmation') ORDER BY created")
+    .prepare("SELECT * FROM commands WHERE user_email = ? AND room = ? AND kind = 'command' AND status IN ('queued', 'dispatched', 'needs_confirmation') ORDER BY created")
     .all(norm(email), room)
     .map(toCommand);
 }
@@ -576,6 +611,30 @@ export function addUtterance(email: string, room: string, text: string, source: 
   db()
     .prepare("INSERT INTO utterances (user_email, room, text, at, source) VALUES (?, ?, ?, ?, ?)")
     .run(norm(email), room, text.slice(0, 2000), Date.now(), source);
+  // Meeting speech may be due for a proactive stage update.
+  if (source === "meeting") stageHook((m) => m.onMeetingSpeech(room));
+}
+
+/** Meeting speech captured in a room after `since` by anyone listening (oldest first). */
+export function meetingUtterances(room: string, since: number): { email: string; at: number; text: string }[] {
+  return db()
+    .prepare("SELECT user_email, text, at FROM utterances WHERE room = ? AND source = 'meeting' AND at > ? ORDER BY at LIMIT 500")
+    .all(room, since)
+    .map((r) => ({ email: s(r.user_email), at: Number(r.at), text: s(r.text) }));
+}
+
+/** Rooms the user sent commands or speech from recently (newest first): candidates for "this meeting". */
+export function recentRoomsOf(email: string, sinceMs = 6 * 60 * 60_000): string[] {
+  const since = Date.now() - sinceMs;
+  const rows = db()
+    .prepare(
+      `SELECT room, MAX(t) AS t FROM (
+         SELECT room, created AS t FROM commands WHERE user_email = ? AND created >= ?
+         UNION ALL SELECT room, at AS t FROM utterances WHERE user_email = ? AND at >= ?
+       ) GROUP BY room ORDER BY t DESC LIMIT 10`,
+    )
+    .all(norm(email), since, norm(email), since);
+  return rows.map((r) => s(r.room));
 }
 
 /** Speech the user sent from the room in the ~10 minutes before `before` (oldest first, newest kept). */

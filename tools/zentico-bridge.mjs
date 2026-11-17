@@ -65,7 +65,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node
 import { hostname, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-export const VERSION = "1.3.0";
+export const VERSION = "1.4.0";
 
 /** Agents the bridge can drive: the name reported to the workspace and a label for logs. */
 export const AGENTS = {
@@ -250,6 +250,9 @@ function buildPrompt(c) {
   // Asked in Zentico Chat by @-mentioning the user's Claude: the server builds the prompt (request,
   // conversation context marked as untrusted data, guidance), since only it knows the conversation.
   if (c.source === "chat" && typeof c.prompt === "string" && c.prompt.trim()) return c.prompt;
+  // A proactive update of the meeting's live stage (whiteboard / cards): the server writes the
+  // prompt with the stage, the new speech and the rules.
+  if (c.source === "assist" && typeof c.prompt === "string" && c.prompt.trim()) return c.prompt;
   const tz = c.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
   const fmt = (iso) => {
     try {
@@ -293,6 +296,7 @@ function buildPrompt(c) {
     "Guidance:",
     "- Use the zentico MCP tools for workspace actions (mail, calendar, contacts, Drive/Docs, chat, meeting transcripts). Look things up (e.g. contacts_search for email addresses) instead of guessing.",
     "- Write actions (sending mail, creating events, posting messages, writing files) are confirmed by the user in the meeting window automatically: just call the tool, don't ask for confirmation in text. If a tool answers \"Not confirmed by the user\", don't retry; say the action was not done.",
+    "- To show something to everyone in the call (a diagram, notes, decisions, action items, an agenda, a table), use the meeting_* stage tools (meeting_stage_open, meeting_whiteboard_add, meeting_pin_card, meeting_update_card): they act on this meeting, appear live for everyone and need no confirmation.",
     "- If the request is unclear or something essential is missing, do only the safe read-only part and say what is missing.",
     "- Finish with a short answer (at most 5 sentences) for a small panel in the call, in the language of the request.",
     "- Then end with the SAY line described in your output rules.",
@@ -371,9 +375,15 @@ const SAY_PROMPT =
   "Use the same language the request was spoken in. Nothing may follow the SAY line.";
 if (!/^[\w .,:;'-]+$/.test(SAY_PROMPT)) throw new Error("SAY_PROMPT must stay cmd.exe-safe");
 
+// Single line, cmd.exe-safe (see SAY_PROMPT).
+const ASSIST_PROMPT =
+  "This is an automatic background update of a live meeting stage, not a request from a person. Nobody reads your answer: " +
+  "make the stage changes with the meeting tools, then reply with one short line saying what changed and a last line with just SAY: and nothing after it.";
+if (!/^[\w .,:;'-]+$/.test(ASSIST_PROMPT)) throw new Error("ASSIST_PROMPT must stay cmd.exe-safe");
+
 /** The output rules for a command: Claude Code gets them as a system prompt, other agents before the prompt. */
 export function systemFor(c) {
-  return c.source === "dashboard" ? DASHBOARD_PROMPT : c.source === "chat" ? CHAT_PROMPT : SAY_PROMPT;
+  return c.source === "dashboard" ? DASHBOARD_PROMPT : c.source === "chat" ? CHAT_PROMPT : c.source === "assist" ? ASSIST_PROMPT : SAY_PROMPT;
 }
 
 const SPOKEN_MAX = 300;
@@ -1041,7 +1051,8 @@ async function runApi(ctx, state, progress) {
   const signal = state.abort.signal;
   try {
     await mcp.init(signal);
-    const prefixes = ctx.source === "dashboard" ? [...c.toolPrefixes, "ui_", "dashboard_"] : c.toolPrefixes;
+    // Stage updates only need the meeting tools (fewer tools: cheaper and easier for small models).
+    const prefixes = ctx.source === "assist" ? ["meeting_"] : ctx.source === "dashboard" ? [...c.toolPrefixes, "ui_", "dashboard_"] : c.toolPrefixes;
     const tools = pickTools(await mcp.listTools(signal), prefixes);
     const loop = c.agent === "anthropic" ? anthropicLoop : openAiLoop;
     const text = await loop({
@@ -1086,8 +1097,8 @@ export function makeContext(c, dir, config = cfg) {
 }
 
 async function runCommand(c) {
-  const label = c.source === "voice" ? "said" : c.source === "dashboard" ? "dashboard" : c.source === "chat" ? "chat" : "typed";
-  log(`▶ ${label}: ${c.text.slice(0, 120)}`);
+  const label = c.source === "voice" ? "said" : c.source === "dashboard" ? "dashboard" : c.source === "chat" ? "chat" : c.source === "assist" ? "stage" : "typed";
+  log(`▶ ${label}: ${c.source === "assist" ? "updating the meeting stage" : c.text.slice(0, 120)}`);
   const state = { id: c.id, child: null, abort: new AbortController(), cancelled: false, timedOut: false };
   running = state;
   const ack = await report(c.id, { type: "started" });
