@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="-6 -6 44 44" role="img" aria-labelledby="t">
+  <title id="t">Zentico Workspace</title>
+  <style>
+    .tile { fill: #0a0a0a; transform-box: fill-box; transform-origin: center;
+            animation: tile-in .55s cubic-bezier(.2,.8,.2,1) both; }
+    .z { fill: none; stroke: #ffffff; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round;
+         stroke-dasharray: 41; stroke-dashoffset: 0;
+         animation: draw .9s cubic-bezier(.65,0,.35,1) .35s both; }
+    .ring { fill: none; stroke: #0a0a0a; stroke-width: .8; opacity: 0;
+            transform-box: fill-box; transform-origin: center;
+            animation: ring 3.6s ease-out 1.4s infinite; }
+    .glint { fill: none; stroke: #ffffff; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round;
+             stroke-dasharray: 5 41; stroke-dashoffset: 46; opacity: 0;
+             animation: glint 3.6s ease-in-out 1.4s infinite; }
+    @keyframes tile-in { from { opacity: 0; transform: scale(.82); } to { opacity: 1; transform: scale(1); } }
+    @keyframes draw { from { stroke-dashoffset: 41; } to { stroke-dashoffset: 0; } }
+    @keyframes ring {
+      0% { opacity: 0; transform: scale(1); }
+      8% { opacity: .45; }
+      60%, 100% { opacity: 0; transform: scale(1.22); }
+    }
+    @keyframes glint {
+      0% { opacity: 0; stroke-dashoffset: 46; }
+      6% { opacity: .9; }
+      40% { opacity: .9; stroke-dashoffset: 0; }
+      48%, 100% { opacity: 0; stroke-dashoffset: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .tile, .z, .ring, .glint { animation: none; }
+    }
+  </style>
+  <rect class="ring" width="32" height="32" rx="8"/>
+  <rect class="tile" width="32" height="32" rx="8"/>
+  <path class="z" d="M10 10.5h12l-12 11h12"/>
+  <path class="glint" d="M10 10.5h12l-12 11h12" filter="url(#soft)"/>
+  <defs>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation=".6"/></filter>
+  </defs>
+</svg>
