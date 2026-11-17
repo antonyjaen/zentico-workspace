@@ -1,77 +1,222 @@
 // UI strings for Settings → Integrations (kept local so this page doesn't touch the shared
-// message catalogs).
+// message catalogs), plus the per-agent setup snippets and the paste-into-your-agent prompts.
 
 /** What the setup prompt needs: the workspace URL, its MCP endpoint and the new token. */
 export type PromptInput = { appUrl: string; endpoint: string; token: string };
 
+/** The tabs of the agent picker. "mcp" = an editor or any MCP client; "api" = the bridge on an API key. */
+export const SETUP_AGENTS = ["claude", "codex", "opencode", "gemini", "mcp", "api"] as const;
+export type SetupAgent = (typeof SETUP_AGENTS)[number];
+/** The CLIs that can set themselves up from a pasted prompt and run under the bridge. */
+export type CliAgent = "claude" | "codex" | "opencode" | "gemini";
+export const isCli = (a: SetupAgent): a is CliAgent => a === "claude" || a === "codex" || a === "opencode" || a === "gemini";
+
+/** The env var the non-Claude configs read the token from (keeps it out of config files). */
+export const TOKEN_ENV = "ZENTICO_MCP_TOKEN";
+
+/** Where each CLI keeps its MCP servers, and the config block for the workspace (token from TOKEN_ENV). */
+export function mcpSnippet(agent: CliAgent | "cursor" | "vscode", endpoint: string, token: string): { file: string; code: string } {
+  switch (agent) {
+    case "claude":
+      return { file: "", code: `claude mcp add --transport http zentico ${endpoint} --header "Authorization: Bearer ${token}" --scope user` };
+    case "codex":
+      return {
+        file: "~/.codex/config.toml",
+        code: `[mcp_servers.zentico]\nurl = "${endpoint}"\nbearer_token_env_var = "${TOKEN_ENV}"\ntool_timeout_sec = 180`,
+      };
+    case "opencode":
+      return {
+        file: "~/.config/opencode/opencode.json",
+        code: JSON.stringify(
+          {
+            $schema: "https://opencode.ai/config.json",
+            mcp: { zentico: { type: "remote", url: endpoint, enabled: true, oauth: false, headers: { Authorization: `Bearer {env:${TOKEN_ENV}}` } } },
+          },
+          null,
+          2,
+        ),
+      };
+    case "gemini":
+      return {
+        file: "~/.gemini/settings.json",
+        code: JSON.stringify({ mcpServers: { zentico: { httpUrl: endpoint, headers: { Authorization: `Bearer $${TOKEN_ENV}` }, timeout: 180000 } } }, null, 2),
+      };
+    case "cursor":
+      return {
+        file: "~/.cursor/mcp.json",
+        code: JSON.stringify({ mcpServers: { zentico: { url: endpoint, headers: { Authorization: `Bearer ${token}` } } } }, null, 2),
+      };
+    case "vscode":
+      return {
+        file: ".vscode/mcp.json",
+        code: JSON.stringify(
+          {
+            servers: { zentico: { type: "http", url: endpoint, headers: { Authorization: "Bearer ${input:zentico-token}" } } },
+            inputs: [{ type: "promptString", id: "zentico-token", description: "Zentico access token", password: true }],
+          },
+          null,
+          2,
+        ),
+      };
+  }
+}
+
+/** How to check the server shows up, per CLI. */
+const LIST_CMD: Record<CliAgent, string> = { claude: "claude mcp list", codex: "codex mcp list", opencode: "opencode mcp list", gemini: "gemini mcp list" };
+const LABEL: Record<CliAgent, string> = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode", gemini: "Gemini CLI" };
+
+/** The bridge's command line: --agent <cli>, or the API mode on OpenRouter as an example. */
+export function bridgeCommands(agent: CliAgent | "api", appUrl: string, token: string): { unix: string; windows: string } {
+  const extra =
+    agent === "api"
+      ? ["--agent", "openai", "--base-url", "https://openrouter.ai/api/v1", "--model", "openai/gpt-4.1-mini", "--api-key-env", "OPENROUTER_API_KEY"]
+      : agent === "claude"
+        ? []
+        : ["--agent", agent];
+  const unix = `mkdir -p ~/.zentico && curl -fsSL ${appUrl}/bridge.mjs -o ~/.zentico/zentico-bridge.mjs\nZENTICO_TOKEN=${token} nohup node ~/.zentico/zentico-bridge.mjs --url ${appUrl}${extra.map((a) => ` ${a}`).join("")} > ~/.zentico/bridge.log 2>&1 &`;
+  const args = ["$HOME\\.zentico\\zentico-bridge.mjs", "--url", appUrl, ...extra].map((a) => `"${a}"`).join(",");
+  const windows = `New-Item -ItemType Directory -Force "$HOME\\.zentico" | Out-Null; Invoke-WebRequest ${appUrl}/bridge.mjs -OutFile "$HOME\\.zentico\\zentico-bridge.mjs"\n$env:ZENTICO_TOKEN="${token}"; Start-Process node -ArgumentList ${args} -WindowStyle Hidden`;
+  return { unix, windows };
+}
+
+const PROMPT_TEXT = {
+  en: {
+    intro: (label: string, appUrl: string) => `Connect my Zentico workspace (${appUrl}) to ${label}. Do the setup yourself, step by step:`,
+    addClaude: "Add the Zentico MCP server for my user:",
+    saveEnv: (token: string) =>
+      `Save my access token in the user environment variable ${TOKEN_ENV}, so it persists (Windows: setx ${TOKEN_ENV} "${token}"; macOS / Linux: export it from my shell profile):\n   ${token}`,
+    addConfig: (file: string) => `Add the Zentico MCP server to ${file} (create the file if needed; merge with what is there, keep my other settings):`,
+    check: (cmd: string) => `Check with \`${cmd}\` that "zentico" shows up (open a new terminal first if the variable was just set).`,
+    bridge: "Download the bridge that lets me ask you things from meetings, chat and the dashboard (needs Node 18+), and start it in the background so it keeps running after this session ends:",
+    bridgeCheck: 'Check ~/.zentico/bridge.log (or the window) says "Connected as …".',
+    done: (label: string) => `Tell me when it's ready, and remind me to restart ${label} to use the Zentico tools.`,
+  },
+  es: {
+    intro: (label: string, appUrl: string) => `Conecta mi espacio de trabajo de Zentico (${appUrl}) a ${label}. Hazlo tú mismo, paso a paso:`,
+    addClaude: "Añade el servidor MCP de Zentico para mi usuario:",
+    saveEnv: (token: string) =>
+      `Guarda mi token de acceso en la variable de entorno de usuario ${TOKEN_ENV}, de forma persistente (Windows: setx ${TOKEN_ENV} "${token}"; macOS / Linux: expórtala desde el perfil de mi shell):\n   ${token}`,
+    addConfig: (file: string) => `Añade el servidor MCP de Zentico a ${file} (crea el archivo si hace falta; combínalo con lo que haya y conserva mis otros ajustes):`,
+    check: (cmd: string) => `Comprueba con \`${cmd}\` que «zentico» aparece (abre antes una terminal nueva si la variable se acaba de crear).`,
+    bridge: "Descarga el puente que me permite pedirte cosas desde reuniones, chat y el dashboard (necesita Node 18+) y arráncalo en segundo plano, de forma que siga activo cuando termine esta sesión:",
+    bridgeCheck: "Comprueba que ~/.zentico/bridge.log (o la ventana) dice «Connected as …».",
+    done: (label: string) => `Confírmame cuando esté listo y recuérdame que reinicie ${label} para usar las herramientas de Zentico.`,
+  },
+};
+
+const indent = (s: string) => s.split("\n").map((l) => `   ${l}`).join("\n");
+
+/** The prompt pasted into a CLI agent: it adds the MCP server and starts the bridge with itself. */
+export function setupPrompt(locale: "en" | "es", agent: SetupAgent, { appUrl, endpoint, token }: PromptInput): string {
+  if (!isCli(agent)) return "";
+  const t = PROMPT_TEXT[locale];
+  const steps: string[] = [];
+  if (agent === "claude") steps.push(`${t.addClaude}\n${indent(mcpSnippet("claude", endpoint, token).code)}`);
+  else {
+    const s = mcpSnippet(agent, endpoint, token);
+    steps.push(t.saveEnv(token), `${t.addConfig(s.file)}\n${indent(s.code)}`);
+  }
+  steps.push(t.check(LIST_CMD[agent]));
+  const b = bridgeCommands(agent, appUrl, token);
+  steps.push(`${t.bridge}\n   - macOS / Linux:\n${indent(indent(b.unix))}\n   - Windows (PowerShell):\n${indent(indent(b.windows))}\n   ${t.bridgeCheck}`);
+  steps.push(t.done(LABEL[agent]));
+  return `${t.intro(LABEL[agent], appUrl)}\n\n${steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`;
+}
+
 const en = {
   title: "Integrations",
   back: "Back",
-  intro: "Connect Claude to your workspace so it can help with your mail, calendar, files, chat and meetings.",
+  intro:
+    "Connect your own AI agent (Claude Code, Codex, OpenCode, Gemini CLI, Cursor, VS Code or any MCP client, or just an API key) so it can help with your mail, calendar, files, chat and meetings.",
+  agentTitle: "Your AI agent",
   // Status card
   statusConnected: "Connected",
   statusIdle: "Set up, no recent activity",
   statusOff: "Not connected",
-  statusConnectedHint: "Claude can use your workspace whenever you ask it.",
-  statusIdleHint: "Claude has access but hasn't used it this week. It shows as connected as soon as it does.",
-  statusOffHint: "Connect Claude so it can read your mail, check your calendar, find files and get things done for you.",
-  mcpLabel: "Claude can read and act in your workspace",
-  bridgeLabel: "Claude Code on your computer takes requests from meetings, chat and the dashboard",
+  statusConnectedHint: "Your agent can use your workspace whenever you ask it.",
+  statusIdleHint: "Your agent has access but hasn't used it this week. It shows as connected as soon as it does.",
+  statusOffHint: "Connect an agent so it can read your mail, check your calendar, find files and get things done for you.",
+  mcpLabel: "An agent can read and act in your workspace",
+  bridgeLabel: "The bridge on your computer takes requests from meetings, chat and the dashboard",
   mcpActive: (name: string, ago: string) => `Active via “${name}” · ${ago}`,
   mcpLast: (ago: string) => `Last activity ${ago}`,
   mcpNever: "Not used yet",
   mcpNone: "Not set up",
-  bridgeActive: (host: string | null) => (host ? `Bridge running on ${host}` : "Bridge running"),
+  bridgeActive: (host: string | null, agent: string | null) =>
+    agent ? (host ? `${agent} on ${host}` : `${agent} running`) : host ? `Bridge running on ${host}` : "Bridge running",
   bridgeLast: (ago: string) => `Bridge last seen ${ago}`,
   bridgeNever: "Bridge not running",
   needsAttention: "A connection needs to be reconnected — see below.",
+  // Agent picker
+  pickAgent: "Which agent do you use?",
+  tabs: {
+    claude: "Claude Code",
+    codex: "Codex",
+    opencode: "OpenCode",
+    gemini: "Gemini CLI",
+    mcp: "Cursor / VS Code / any MCP client",
+    api: "API key (no CLI)",
+  } as Record<string, string>,
+  tabHints: {
+    claude: "Anthropic's coding agent in your terminal.",
+    codex: "OpenAI's coding agent in your terminal (codex).",
+    opencode: "The open-source terminal agent, with any model provider.",
+    gemini: "Google's agent in your terminal (gemini).",
+    mcp: "Use the workspace tools from your editor or any app that speaks MCP. Meetings, chat and the dashboard need one of the other options (they run through the bridge).",
+    api: "No agent to install: the bridge talks to an OpenAI-compatible API (OpenAI, OpenRouter, Groq, or a local Ollama / LM Studio) or to Anthropic's API, with your own key.",
+  } as Record<string, string>,
   // Connect
-  connect: "Connect Claude",
-  connectAnother: "Connect another computer",
+  connect: "Connect",
+  connectAnother: "Connect another",
   connecting: "Connecting…",
   expiryLabel: "Access expires",
   never: "Never",
   days: (n: number) => `In ${n} days`,
   year: "In 1 year",
-  autoName: (date: string) => `Claude Code – ${date}`,
-  stepTitle: "Paste this into Claude Code",
-  stepHint: "Claude Code sets everything up on its own and tells you when it's ready.",
+  autoName: (agent: string, date: string) => `${agent} – ${date}`,
+  stepTitle: (agent: string) => `Paste this into ${agent}`,
+  stepHint: (agent: string) => `${agent} sets everything up on its own and tells you when it's ready.`,
+  stepTitleMcp: "Add this to your app",
+  stepHintMcp: "Pick the snippet for your app. The token is shown only now.",
+  stepTitleApi: "Run the bridge with your API key",
+  stepHintApi:
+    "Needs Node 18+. Set your provider's key in the environment variable named by --api-key-env (it never leaves your computer except to that provider). For Ollama use --base-url http://localhost:11434/v1 and no key.",
   copyPrompt: "Copy prompt",
   copyToken: "Copy token only",
   copied: "Copied",
   copy: "Copy",
-  tokenOnce: "This prompt contains your access key and is shown only now. If you lose it, just connect again.",
-  waiting: "Waiting for Claude to connect…",
-  joined: "Claude is connected.",
+  tokenOnce: "This contains your access key and is shown only now. If you lose it, just connect again.",
+  waiting: "Waiting for the agent to connect…",
+  joined: "The agent is connected.",
   waitingBridge: "Waiting for the bridge to start…",
   bridgeUp: (host: string | null) => (host ? `Bridge running on ${host}.` : "Bridge running."),
   done: "Done",
-  prompt: ({ appUrl, endpoint, token }: PromptInput) =>
-    `Connect my Zentico workspace (${appUrl}) to Claude Code. Do the setup yourself, step by step:
-
-1. Add the Zentico MCP server for my user:
-   claude mcp add --transport http zentico ${endpoint} --header "Authorization: Bearer ${token}" --scope user
-2. Check with \`claude mcp list\` that "zentico" shows as connected.
-3. Download the bridge that lets me ask you things from meetings, chat and the dashboard (needs Node 18+):
-   mkdir -p ~/.zentico && curl -fsSL ${appUrl}/bridge.mjs -o ~/.zentico/zentico-bridge.mjs
-4. Start it in the background so it keeps running after this session ends:
-   - macOS / Linux: ZENTICO_TOKEN=${token} nohup node ~/.zentico/zentico-bridge.mjs --url ${appUrl} > ~/.zentico/bridge.log 2>&1 &
-   - Windows (PowerShell): $env:ZENTICO_TOKEN="${token}"; Start-Process node -ArgumentList "$HOME\\.zentico\\zentico-bridge.mjs","--url","${appUrl}" -WindowStyle Hidden
-   Check that it says "Connected as …".
-5. Tell me when it's ready, and remind me to restart Claude Code to use the Zentico tools.`,
+  prompt: (agent: SetupAgent, input: PromptInput) => setupPrompt("en", agent, input),
   // Manual setup
   manualTitle: "Manual setup",
-  manualHint: "For other apps, or if you'd rather do it by hand. Replace <token> with your token.",
+  manualHint: "If you'd rather do it by hand. Replace <token> with your token.",
   manualClaudeCode: "Claude Code (terminal)",
   manualDesktop: "Claude Desktop",
   manualDesktopHint: "Add to claude_desktop_config.json and restart Claude Desktop (needs Node.js).",
   manualGeneric: "Any other MCP client",
-  manualGenericHint: "Streamable HTTP server with this address and header:",
+  manualGenericHint: "Standard MCP Streamable HTTP server with a static Bearer token:",
+  manualEnv: "Keep the token in the ZENTICO_MCP_TOKEN environment variable (the configs below read it from there):",
   manualBridge: "Bridge (meetings, chat and dashboard)",
-  manualBridgeHint: "Download it and keep it running (Node 18+ and Claude Code installed):",
+  manualBridgeHint: "Download it and keep it running (Node 18+). --agent picks the agent; --dry-run shows what it would run.",
   manualClaudeAi:
-    "The “Add custom connector” option in claude.ai and Claude Desktop signs in with OAuth, which isn't available yet. Use Claude Code or the Claude Desktop config above.",
+    "claude.ai and ChatGPT connectors sign in with OAuth, which isn't available yet: use a CLI, an editor or the API-key bridge instead.",
   tokenPlaceholder: "<token>",
+  // Assistant name
+  nameTitle: "Assistant name",
+  nameHint:
+    "What you call your assistant in meetings (“Codex, …”) and how it's shown. Leave it empty to name it after your agent. “Assistant” / “Asistente” always works too.",
+  nameLabel: "Name",
+  wakeLabel: "Other wake words",
+  wakeHint: "Separated by commas, up to 6 (letters and spaces).",
+  save: "Save",
+  saved: "Saved",
+  nameInvalid: "Use 1–24 letters and spaces.",
+  wakeInvalid: "Use up to 6 words or names, letters and spaces only.",
   // Connections (tokens)
   tokensTitle: "Connections",
   tokensHint: "Each connection is an access key that acts as you. Revoke it and that app loses access right away.",
@@ -89,13 +234,13 @@ const en = {
   revoke: "Revoke",
   revokeConfirm: (name: string) => `Revoke “${name}”? Apps using it will lose access.`,
   // Capabilities
-  capsTitle: "What Claude can do",
+  capsTitle: "What your agent can do",
   capsIntro:
-    "Claude acts as you and only sees what you can already see. Items marked “changes” need a connection that can read and act; anything that sends, posts, shares or deletes is confirmed with you first.",
+    "Your agent acts as you and only sees what you can already see. Items marked “changes” need a connection that can read and act; anything that sends, posts, shares or deletes is confirmed with you first.",
   changesBadge: "changes",
   bridgeCapsTitle: "From meetings, chat and the dashboard",
   bridgeCaps:
-    "With the bridge running, hold C in a Zentico Meet call (or type in “Ask my Claude”), mention your Claude in Chat, or ask from your dashboard — your own Claude Code does it on your computer. Your requests only reach your own bridge, and anything that sends or changes something waits for your OK.",
+    "With the bridge running, hold C in a Zentico Meet call (or type in “Ask my …”), mention your assistant in Chat, or ask from your dashboard — your own agent does it on your computer. Your requests only reach your own bridge, and anything that sends or changes something waits for your OK.",
   groups: {
     account: "Account",
     mail: "Mail",
@@ -199,68 +344,92 @@ export type Copy = typeof en;
 const es: Copy = {
   title: "Integraciones",
   back: "Volver",
-  intro: "Conecta Claude a tu espacio de trabajo para que te ayude con tu correo, calendario, archivos, chat y reuniones.",
+  intro:
+    "Conecta tu propio agente de IA (Claude Code, Codex, OpenCode, Gemini CLI, Cursor, VS Code o cualquier cliente MCP, o simplemente una clave de API) para que te ayude con tu correo, calendario, archivos, chat y reuniones.",
+  agentTitle: "Tu agente de IA",
   statusConnected: "Conectado",
   statusIdle: "Configurado, sin actividad reciente",
   statusOff: "No conectado",
-  statusConnectedHint: "Claude puede usar tu espacio de trabajo cuando se lo pidas.",
-  statusIdleHint: "Claude tiene acceso, pero no lo ha usado esta semana. Aparecerá como conectado en cuanto lo haga.",
-  statusOffHint: "Conecta Claude para que pueda leer tu correo, mirar tu calendario, encontrar archivos y hacer cosas por ti.",
-  mcpLabel: "Claude puede leer y actuar en tu espacio de trabajo",
-  bridgeLabel: "Claude Code en tu ordenador recibe peticiones de reuniones, chat y dashboard",
+  statusConnectedHint: "Tu agente puede usar tu espacio de trabajo cuando se lo pidas.",
+  statusIdleHint: "Tu agente tiene acceso, pero no lo ha usado esta semana. Aparecerá como conectado en cuanto lo haga.",
+  statusOffHint: "Conecta un agente para que pueda leer tu correo, mirar tu calendario, encontrar archivos y hacer cosas por ti.",
+  mcpLabel: "Un agente puede leer y actuar en tu espacio de trabajo",
+  bridgeLabel: "El puente en tu ordenador recibe peticiones de reuniones, chat y dashboard",
   mcpActive: (name: string, ago: string) => `Activo con «${name}» · ${ago}`,
   mcpLast: (ago: string) => `Última actividad ${ago}`,
   mcpNever: "Aún sin usar",
   mcpNone: "Sin configurar",
-  bridgeActive: (host: string | null) => (host ? `Puente activo en ${host}` : "Puente activo"),
+  bridgeActive: (host: string | null, agent: string | null) =>
+    agent ? (host ? `${agent} en ${host}` : `${agent} en marcha`) : host ? `Puente activo en ${host}` : "Puente activo",
   bridgeLast: (ago: string) => `Puente visto por última vez ${ago}`,
   bridgeNever: "Puente sin iniciar",
   needsAttention: "Hay una conexión que necesita reconectarse: mira más abajo.",
-  connect: "Conectar Claude",
-  connectAnother: "Conectar otro ordenador",
+  pickAgent: "¿Qué agente usas?",
+  tabs: {
+    claude: "Claude Code",
+    codex: "Codex",
+    opencode: "OpenCode",
+    gemini: "Gemini CLI",
+    mcp: "Cursor / VS Code / cualquier cliente MCP",
+    api: "Clave de API (sin CLI)",
+  },
+  tabHints: {
+    claude: "El agente de programación de Anthropic en tu terminal.",
+    codex: "El agente de programación de OpenAI en tu terminal (codex).",
+    opencode: "El agente de terminal de código abierto, con cualquier proveedor de modelos.",
+    gemini: "El agente de Google en tu terminal (gemini).",
+    mcp: "Usa las herramientas del espacio de trabajo desde tu editor o cualquier app que hable MCP. Reuniones, chat y dashboard necesitan una de las otras opciones (pasan por el puente).",
+    api: "Sin nada que instalar: el puente habla con una API compatible con OpenAI (OpenAI, OpenRouter, Groq, o Ollama / LM Studio en local) o con la API de Anthropic, con tu propia clave.",
+  },
+  connect: "Conectar",
+  connectAnother: "Conectar otro",
   connecting: "Conectando…",
   expiryLabel: "El acceso caduca",
   never: "Nunca",
   days: (n: number) => `En ${n} días`,
   year: "En 1 año",
-  autoName: (date: string) => `Claude Code – ${date}`,
-  stepTitle: "Pega esto en Claude Code",
-  stepHint: "Claude Code lo configura todo por su cuenta y te avisa cuando esté listo.",
+  autoName: (agent: string, date: string) => `${agent} – ${date}`,
+  stepTitle: (agent: string) => `Pega esto en ${agent}`,
+  stepHint: (agent: string) => `${agent} lo configura todo por su cuenta y te avisa cuando esté listo.`,
+  stepTitleMcp: "Añade esto a tu app",
+  stepHintMcp: "Elige el fragmento de tu app. El token solo se muestra ahora.",
+  stepTitleApi: "Arranca el puente con tu clave de API",
+  stepHintApi:
+    "Necesita Node 18+. Pon la clave de tu proveedor en la variable de entorno que indica --api-key-env (solo sale de tu ordenador hacia ese proveedor). Para Ollama usa --base-url http://localhost:11434/v1 y sin clave.",
   copyPrompt: "Copiar prompt",
   copyToken: "Copiar solo el token",
   copied: "Copiado",
   copy: "Copiar",
-  tokenOnce: "Este prompt incluye tu clave de acceso y solo se muestra ahora. Si lo pierdes, vuelve a conectar.",
-  waiting: "Esperando a que Claude se conecte…",
-  joined: "Claude se ha conectado.",
+  tokenOnce: "Esto incluye tu clave de acceso y solo se muestra ahora. Si lo pierdes, vuelve a conectar.",
+  waiting: "Esperando a que el agente se conecte…",
+  joined: "El agente se ha conectado.",
   waitingBridge: "Esperando a que arranque el puente…",
   bridgeUp: (host: string | null) => (host ? `Puente activo en ${host}.` : "Puente activo."),
   done: "Hecho",
-  prompt: ({ appUrl, endpoint, token }: PromptInput) =>
-    `Conecta mi espacio de trabajo de Zentico (${appUrl}) a Claude Code. Hazlo tú mismo, paso a paso:
-
-1. Añade el servidor MCP de Zentico para mi usuario:
-   claude mcp add --transport http zentico ${endpoint} --header "Authorization: Bearer ${token}" --scope user
-2. Comprueba con \`claude mcp list\` que «zentico» aparece como conectado.
-3. Descarga el puente que me permite pedirte cosas desde reuniones, chat y el dashboard (necesita Node 18+):
-   mkdir -p ~/.zentico && curl -fsSL ${appUrl}/bridge.mjs -o ~/.zentico/zentico-bridge.mjs
-4. Déjalo corriendo en segundo plano, de forma que siga activo cuando termine esta sesión:
-   - macOS / Linux: ZENTICO_TOKEN=${token} nohup node ~/.zentico/zentico-bridge.mjs --url ${appUrl} > ~/.zentico/bridge.log 2>&1 &
-   - Windows (PowerShell): $env:ZENTICO_TOKEN="${token}"; Start-Process node -ArgumentList "$HOME\\.zentico\\zentico-bridge.mjs","--url","${appUrl}" -WindowStyle Hidden
-   Comprueba que dice «Connected as …».
-5. Confírmame cuando esté listo y recuérdame que reinicie Claude Code para usar las herramientas de Zentico.`,
+  prompt: (agent: SetupAgent, input: PromptInput) => setupPrompt("es", agent, input),
   manualTitle: "Configuración manual",
-  manualHint: "Para otras aplicaciones, o si prefieres hacerlo a mano. Sustituye <token> por tu token.",
+  manualHint: "Si prefieres hacerlo a mano. Sustituye <token> por tu token.",
   manualClaudeCode: "Claude Code (terminal)",
   manualDesktop: "Claude Desktop",
   manualDesktopHint: "Añádelo a claude_desktop_config.json y reinicia Claude Desktop (necesita Node.js).",
   manualGeneric: "Cualquier otro cliente MCP",
-  manualGenericHint: "Servidor Streamable HTTP con esta dirección y esta cabecera:",
+  manualGenericHint: "Servidor MCP Streamable HTTP estándar con un token Bearer fijo:",
+  manualEnv: "Guarda el token en la variable de entorno ZENTICO_MCP_TOKEN (las configuraciones de abajo lo leen de ahí):",
   manualBridge: "Puente (reuniones, chat y dashboard)",
-  manualBridgeHint: "Descárgalo y déjalo corriendo (Node 18+ y Claude Code instalado):",
+  manualBridgeHint: "Descárgalo y déjalo corriendo (Node 18+). --agent elige el agente; --dry-run muestra lo que ejecutaría.",
   manualClaudeAi:
-    "La opción «Añadir conector personalizado» de claude.ai y Claude Desktop inicia sesión con OAuth, que aún no está disponible. Usa Claude Code o la configuración de Claude Desktop de arriba.",
+    "Los conectores de claude.ai y ChatGPT inician sesión con OAuth, que aún no está disponible: usa una CLI, un editor o el puente con clave de API.",
   tokenPlaceholder: "<token>",
+  nameTitle: "Nombre del asistente",
+  nameHint:
+    "Cómo llamas a tu asistente en las reuniones («Codex, …») y cómo se muestra. Déjalo vacío para usar el nombre de tu agente. «Asistente» / «Assistant» también funciona siempre.",
+  nameLabel: "Nombre",
+  wakeLabel: "Otras palabras de activación",
+  wakeHint: "Separadas por comas, hasta 6 (letras y espacios).",
+  save: "Guardar",
+  saved: "Guardado",
+  nameInvalid: "Usa de 1 a 24 letras y espacios.",
+  wakeInvalid: "Usa hasta 6 palabras o nombres, solo letras y espacios.",
   tokensTitle: "Conexiones",
   tokensHint: "Cada conexión es una clave de acceso que actúa como tú. Si la revocas, esa aplicación pierde el acceso al momento.",
   noTokens: "Aún no hay nada conectado.",
@@ -276,13 +445,13 @@ const es: Copy = {
   reconnect: "Reconectar",
   revoke: "Revocar",
   revokeConfirm: (name: string) => `¿Revocar «${name}»? Las aplicaciones que la usan perderán el acceso.`,
-  capsTitle: "Qué puede hacer Claude",
+  capsTitle: "Qué puede hacer tu agente",
   capsIntro:
-    "Claude actúa como tú y solo ve lo que tú ya puedes ver. Lo marcado con «cambia» necesita una conexión que pueda leer y actuar; todo lo que envía, publica, comparte o borra te lo confirma antes.",
+    "Tu agente actúa como tú y solo ve lo que tú ya puedes ver. Lo marcado con «cambia» necesita una conexión que pueda leer y actuar; todo lo que envía, publica, comparte o borra te lo confirma antes.",
   changesBadge: "cambia",
   bridgeCapsTitle: "Desde reuniones, chat y dashboard",
   bridgeCaps:
-    "Con el puente en marcha, mantén pulsada la C en una llamada de Zentico Meet (o escribe en «Pregunta a mi Claude»), menciona a tu Claude en el chat o pídeselo desde tu dashboard: tu propio Claude Code lo hace en tu ordenador. Tus peticiones solo llegan a tu puente, y todo lo que envía o cambia algo espera a que des el visto bueno.",
+    "Con el puente en marcha, mantén pulsada la C en una llamada de Zentico Meet (o escribe en «Pregunta a mi …»), menciona a tu asistente en el chat o pídeselo desde tu dashboard: tu propio agente lo hace en tu ordenador. Tus peticiones solo llegan a tu puente, y todo lo que envía o cambia algo espera a que des el visto bueno.",
   groups: {
     account: "Cuenta",
     mail: "Correo",

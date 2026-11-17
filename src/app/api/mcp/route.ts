@@ -1,6 +1,8 @@
-// Remote MCP server (Streamable HTTP, stateless, JSON responses) for automating the workspace from
-// Claude and other MCP clients. Authenticated with personal access tokens created in
-// Settings → Integrations; each tool runs as the token's user via runWithSession().
+// Remote MCP server (standard Streamable HTTP, stateless, JSON responses) for automating the
+// workspace from any MCP client: Claude Code, Codex, OpenCode, Gemini CLI, Cursor, VS Code, or the
+// bridge's own API-mode loop (tools/zentico-bridge.mjs --agent openai|anthropic). Authenticated with
+// a static Bearer token (personal access tokens from Settings → Integrations; no OAuth yet, so the
+// claude.ai / ChatGPT connectors can't use it); each tool runs as the token's user via runWithSession().
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";

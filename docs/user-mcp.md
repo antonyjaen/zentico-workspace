@@ -115,9 +115,25 @@ in `src/lib/user-mcp/grants.ts`.
 | `unreachable` / `upstream_error` | 502 | network failure / protocol or server error |
 | `failed` | 500 | unexpected |
 
-## Claude
+## Any agent (Claude Code, Codex, OpenCode, Gemini CLI, editors, API keys)
 
 The same servers are exposed through the workspace MCP (`/api/mcp`) as `ext_<slug>__<tool>`
 (≤ 64 chars; long or non `[A-Za-z0-9_-]` tool names get a hash suffix). Read-only tools are listed
 for every token; other tools only for read+write tokens and, inside meeting/dashboard commands, they
 wait for the user's in-call confirmation like built-in write tools.
+
+`/api/mcp` is a standard MCP **Streamable HTTP** server (stateless, JSON responses) with a static
+`Authorization: Bearer zwmcp_…` token from Settings → Integrations, so any MCP client works:
+Claude Code (`claude mcp add --transport http`), Codex (`[mcp_servers.zentico]` with `url`,
+`bearer_token_env_var`, `tool_timeout_sec = 180`), OpenCode (`mcp.zentico` with `type: "remote"`),
+Gemini CLI (`mcpServers.zentico.httpUrl`), Cursor (`.cursor/mcp.json`) and VS Code
+(`.vscode/mcp.json`, `type: "http"`). The integrations page generates each snippet. claude.ai and
+ChatGPT connectors need OAuth, which the server doesn't offer yet.
+
+Meetings, Chat mentions and the dashboard reach the user's agent through `tools/zentico-bridge.mjs`
+(served at `/bridge.mjs`), which runs on their computer: `--agent claude|codex|opencode|gemini|custom`
+drives that CLI, and `--agent openai|anthropic` runs a small tool loop against an OpenAI-compatible
+or Anthropic API with the user's key (no CLI). Every run sends `X-Zentico-Command: <id>`, which turns
+on the in-call write confirmation. The bridge reports its agent in `X-Zentico-Bridge`
+(`zentico-bridge/1.3.0 codex (host)`); that names the assistant ("Codex") until the user picks a
+name and wake words (`GET/PUT /api/agent/profile`).

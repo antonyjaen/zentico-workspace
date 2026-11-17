@@ -1,8 +1,9 @@
-// What Settings → Integrations shows about the user's Claude connection: their tokens (with last
-// use) and whether their local bridge is connected. Rendered by the page and polled by the client
-// through /api/integrations/status. Server-only.
+// What Settings → Integrations shows about the user's agent connection: their tokens (with last
+// use) and whether their local bridge is connected, and with which agent. Rendered by the page and
+// polled by the client through /api/integrations/status. Server-only.
 import { bridgeStatus } from "@/lib/mcp/agent";
 import { userTokens } from "@/lib/mcp/db";
+import { FAMILY_LABELS, familyOf, hostOf, type AgentFamily } from "@/lib/meetings/wake";
 import type { Session } from "@/lib/session";
 
 export type TokenView = {
@@ -19,8 +20,11 @@ export type TokenView = {
 
 export type ClaudeStatus = {
   tokens: TokenView[];
-  /** host = the computer the bridge runs on, from its "zentico-bridge/<version> (<hostname>)" header. */
-  bridge: { connected: boolean; lastSeen: number | null; host: string | null };
+  /**
+   * From the bridge's "zentico-bridge/<version> <agent> (<hostname>)" header: host = the computer it
+   * runs on, family / agent = what it runs (bridges before 1.3.0 only ran Claude Code).
+   */
+  bridge: { connected: boolean; lastSeen: number | null; host: string | null; family: AgentFamily | null; agent: string | null };
   now: number;
 };
 
@@ -36,6 +40,10 @@ export function claudeStatus(session: Session): ClaudeStatus {
     legacy: !t.credentialSealed,
   }));
   const b = bridgeStatus(session.email);
-  const host = b.client ? (/\(([^()]+)\)\s*$/.exec(b.client)?.[1] ?? b.client) || null : null;
-  return { tokens, bridge: { connected: b.connected, lastSeen: b.lastSeen, host }, now: Date.now() };
+  const family = familyOf(b.client);
+  return {
+    tokens,
+    bridge: { connected: b.connected, lastSeen: b.lastSeen, host: hostOf(b.client), family, agent: family ? FAMILY_LABELS[family] : null },
+    now: Date.now(),
+  };
 }

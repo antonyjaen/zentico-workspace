@@ -4,7 +4,7 @@ import { Check, ChevronRight, Copy, Loader2, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { createTokenAction, reauthorizeTokenAction, revokeTokenAction } from "./actions";
-import { copyFor, type Copy as CopyText } from "./copy";
+import { bridgeCommands, copyFor, isCli, mcpSnippet, SETUP_AGENTS, TOKEN_ENV, type Copy as CopyText, type SetupAgent } from "./copy";
 import type { ClaudeStatus, TokenView } from "./status";
 
 export type AuditView = { id: number; tokenName: string; tool: string; at: number; ok: boolean; error: string | null };
@@ -37,7 +37,9 @@ const EXPIRY_OPTIONS = [0, 30, 90, 365];
 // Creating a token's Stalwart API key may need a one-off authorization on the mail server; the
 // pending request survives that round trip here and is retried on return (?mcp=ok).
 const PENDING_KEY = "zw-mcp-pending";
-type Pending = { op: "create"; name: string; scope: "read" | "write"; expiresInDays: number | null } | { op: "reconnect"; id: string };
+type Pending =
+  | { op: "create"; name: string; scope: "read" | "write"; expiresInDays: number | null; agent?: SetupAgent }
+  | { op: "reconnect"; id: string };
 
 function authorizeAndRetry(pending: Pending) {
   try {
@@ -128,6 +130,185 @@ function Fold({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 
+/** The tab to start on: the agent the bridge last reported, else Claude Code. */
+function initialAgent(family: ClaudeStatus["bridge"]["family"]): SetupAgent {
+  if (family === "openai" || family === "anthropic") return "api";
+  return family && (SETUP_AGENTS as readonly string[]).includes(family) ? (family as SetupAgent) : "claude";
+}
+
+/** Short name of a tab for the connection's name ("Codex – 17 Nov 2026"). */
+const tokenLabel = (agent: SetupAgent, c: CopyText) => (agent === "mcp" ? "MCP client" : agent === "api" ? "API bridge" : c.tabs[agent]);
+
+function AgentPicker({ value, onChange, c }: { value: SetupAgent; onChange: (a: SetupAgent) => void; c: CopyText }) {
+  return (
+    <div className="space-y-2">
+      <p id="agent-pick" className="text-[13px] font-medium text-ink">
+        {c.pickAgent}
+      </p>
+      <div role="radiogroup" aria-labelledby="agent-pick" className="flex flex-wrap gap-1.5">
+        {SETUP_AGENTS.map((a) => (
+          <button
+            key={a}
+            type="button"
+            role="radio"
+            aria-checked={value === a}
+            onClick={() => onChange(a)}
+            className={`h-8 rounded-md border px-2.5 text-[13px] transition-colors ${
+              value === a ? "border-ink bg-ink text-sheet" : "border-line-strong text-ink-soft hover:bg-hover hover:text-ink"
+            }`}
+          >
+            {c.tabs[a]}
+          </button>
+        ))}
+      </div>
+      <p className="text-[12.5px] leading-relaxed text-ink-mute">{c.tabHints[value]}</p>
+    </div>
+  );
+}
+
+/** Config snippets for one tab (with the real token right after connecting, else a placeholder). */
+function SetupSnippets({ agent, endpoint, appUrl, token, c }: { agent: SetupAgent; endpoint: string; appUrl: string; token: string; c: CopyText }) {
+  const block = (title: string, code: string, hint?: string) => (
+    <div key={title} className="space-y-1.5">
+      <p className="text-[13px] font-semibold text-ink">{title}</p>
+      {hint && <p className="text-[12.5px] text-ink-mute">{hint}</p>}
+      <Snippet code={code} c={c} />
+    </div>
+  );
+  const bridge = (a: Parameters<typeof bridgeCommands>[0]) => {
+    const b = bridgeCommands(a, appUrl, token);
+    return block(c.manualBridge, `# macOS / Linux\n${b.unix}\n\n# Windows (PowerShell)\n${b.windows}`, c.manualBridgeHint);
+  };
+  const env = `# macOS / Linux (add to your shell profile)\nexport ${TOKEN_ENV}="${token}"\n\n# Windows\nsetx ${TOKEN_ENV} "${token}"`;
+  if (agent === "mcp") {
+    const cursor = mcpSnippet("cursor", endpoint, token);
+    const vscode = mcpSnippet("vscode", endpoint, token);
+    return (
+      <div className="space-y-4">
+        {block(`Cursor · ${cursor.file}`, cursor.code)}
+        {block(`VS Code · ${vscode.file}`, vscode.code)}
+        {block(c.manualGeneric, `URL: ${endpoint}\nAuthorization: Bearer ${token}`, c.manualGenericHint)}
+      </div>
+    );
+  }
+  if (agent === "api") return <div className="space-y-4">{bridge("api")}</div>;
+  if (agent === "claude") {
+    const desktop = JSON.stringify(
+      {
+        mcpServers: {
+          zentico: {
+            command: "npx",
+            args: ["-y", "mcp-remote", endpoint, "--header", "Authorization:${ZENTICO_AUTH}"],
+            env: { ZENTICO_AUTH: `Bearer ${token}` },
+          },
+        },
+      },
+      null,
+      2,
+    );
+    return (
+      <div className="space-y-4">
+        {block(c.manualClaudeCode, mcpSnippet("claude", endpoint, token).code)}
+        {bridge("claude")}
+        {block(c.manualDesktop, desktop, c.manualDesktopHint)}
+      </div>
+    );
+  }
+  const s = mcpSnippet(agent, endpoint, token);
+  return (
+    <div className="space-y-4">
+      {block(TOKEN_ENV, env, c.manualEnv)}
+      {block(`${c.tabs[agent]} · ${s.file}`, s.code)}
+      {bridge(agent)}
+    </div>
+  );
+}
+
+type Profile = { name: string; customName: string | null; defaultName: string; wakeWords: string[] };
+
+/** The assistant's name and extra wake words (GET/PUT /api/agent/profile). */
+function AgentNameCard({ c }: { c: CopyText }) {
+  const router = useRouter();
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [name, setName] = useState("");
+  const [wake, setWake] = useState("");
+  const [state, setState] = useState<"idle" | "saving" | "saved" | "nameInvalid" | "wakeInvalid" | "failed">("idle");
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/agent/profile", { cache: "no-store" })
+      .then((r) => (r.ok ? (r.json() as Promise<Profile>) : null))
+      .then((p) => {
+        if (!alive || !p) return;
+        setProfile(p);
+        setName(p.customName ?? "");
+        setWake(p.wakeWords.join(", "));
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setState("saving");
+    const wakeWords = wake
+      .split(",")
+      .map((w) => w.trim())
+      .filter(Boolean);
+    try {
+      const r = await fetch("/api/agent/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim() || null, wakeWords }),
+      });
+      if (!r.ok) {
+        const err = ((await r.json().catch(() => null)) as { error?: string } | null)?.error;
+        return setState(err === "invalid_name" ? "nameInvalid" : err === "invalid_wake_words" ? "wakeInvalid" : "failed");
+      }
+      setProfile((await r.json()) as Profile);
+      setState("saved");
+      // Messages carry the name ({agent}): re-render them.
+      router.refresh();
+    } catch {
+      setState("failed");
+    }
+  };
+
+  const field = "h-9 w-full rounded-md border border-line-strong bg-sheet px-2.5 text-[14px] text-ink outline-none focus:border-ink";
+  return (
+    <section aria-labelledby="agent-name-title" className="rounded-xl border border-line bg-sheet p-4 md:p-5">
+      <h3 id="agent-name-title" className="text-[16px] font-semibold text-ink">
+        {c.nameTitle}
+      </h3>
+      <p className="mt-1 text-[13px] leading-relaxed text-ink-mute">{c.nameHint}</p>
+      <form onSubmit={save} className="mt-3 grid gap-3 sm:grid-cols-2">
+        <label className="space-y-1 text-[13px] text-ink-soft">
+          <span>{c.nameLabel}</span>
+          <input className={field} value={name} maxLength={24} placeholder={profile?.defaultName ?? ""} onChange={(e) => setName(e.target.value)} disabled={!profile} />
+        </label>
+        <label className="space-y-1 text-[13px] text-ink-soft">
+          <span>{c.wakeLabel}</span>
+          <input className={field} value={wake} maxLength={200} onChange={(e) => setWake(e.target.value)} disabled={!profile} aria-describedby="wake-hint" />
+          <span id="wake-hint" className="block text-[12px] text-ink-mute">
+            {c.wakeHint}
+          </span>
+        </label>
+        <div className="flex items-center gap-3 sm:col-span-2">
+          <button type="submit" className={smallBtn} disabled={!profile || state === "saving"}>
+            {state === "saving" ? <Loader2 size={14} aria-hidden className="animate-spin" /> : null}
+            {c.save}
+          </button>
+          <span role="status" className={`text-[12.5px] ${state === "saved" ? "text-signal" : "text-danger"}`}>
+            {state === "saved" ? c.saved : state === "nameInvalid" ? c.nameInvalid : state === "wakeInvalid" ? c.wakeInvalid : state === "failed" ? c.errors.failed : ""}
+          </span>
+        </div>
+      </form>
+    </section>
+  );
+}
+
 function Progress({ done, waiting, finished }: { done: boolean; waiting: string; finished: string }) {
   return (
     <p className={`flex items-center gap-2 text-[13px] ${done ? "text-signal" : "text-ink-soft"}`}>
@@ -202,6 +383,7 @@ export function IntegrationsClient({
   const [expiry, setExpiry] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ id: string; token: string } | null>(null);
+  const [agent, setAgent] = useState<SetupAgent>(() => initialAgent(initial.bridge.family));
 
   const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
   const date = new Intl.DateTimeFormat(locale, { dateStyle: "medium" });
@@ -258,7 +440,7 @@ export function IntegrationsClient({
         ? c.mcpLast(ago(lastUse, now, rtf))
         : c.mcpNever;
   const bridgeText = bridge.connected
-    ? c.bridgeActive(bridge.host)
+    ? c.bridgeActive(bridge.host, bridge.agent)
     : bridge.lastSeen
       ? c.bridgeLast(ago(bridge.lastSeen, now, rtf))
       : c.bridgeNever;
@@ -266,24 +448,8 @@ export function IntegrationsClient({
   const newRow = created ? tokens.find((t) => t.id === created.id) : undefined;
   const joined = newRow?.lastUsed != null;
 
-  const token = created?.token ?? c.tokenPlaceholder;
-  const prompt = created ? c.prompt({ appUrl, endpoint, token: created.token }) : "";
-  const manualCode = `claude mcp add --transport http zentico ${endpoint} --header "Authorization: Bearer ${token}" --scope user`;
-  const manualDesktop = JSON.stringify(
-    {
-      mcpServers: {
-        zentico: {
-          command: "npx",
-          args: ["-y", "mcp-remote", endpoint, "--header", "Authorization:${ZENTICO_AUTH}"],
-          env: { ZENTICO_AUTH: `Bearer ${token}` },
-        },
-      },
-    },
-    null,
-    2,
-  );
-  const manualGeneric = `URL: ${endpoint}\nAuthorization: Bearer ${token}`;
-  const manualBridge = `curl -fsSL ${appUrl}/bridge.mjs -o zentico-bridge.mjs\nZENTICO_TOKEN=${token} node zentico-bridge.mjs --url ${appUrl}`;
+  const prompt = created && isCli(agent) ? c.prompt(agent, { appUrl, endpoint, token: created.token }) : "";
+  const agentLabel = isCli(agent) ? c.tabs[agent] : "";
 
   const run = (p: Pending) => {
     setError(null);
@@ -303,7 +469,7 @@ export function IntegrationsClient({
 
   const connect = () => {
     const today = new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", year: "numeric" }).format(Date.now());
-    run({ op: "create", name: c.autoName(today), scope: "write", expiresInDays: expiry || null });
+    run({ op: "create", name: c.autoName(tokenLabel(agent, c), today), scope: "write", expiresInDays: expiry || null, agent });
   };
 
   // Back from the mail server's authorization: retry the pending request (or report why not).
@@ -318,6 +484,7 @@ export function IntegrationsClient({
     window.history.replaceState(null, "", window.location.pathname);
     const p = takePending();
     if (failure != null) return setError(failure === "invalid_scope" ? c.errors.not_allowed : c.errors.authorize_failed);
+    if (p?.op === "create" && p.agent && (SETUP_AGENTS as readonly string[]).includes(p.agent)) setAgent(p.agent);
     if (outcome === "ok" && p) run(p);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
   }, []);
@@ -347,7 +514,7 @@ export function IntegrationsClient({
             </span>
             <div className="min-w-0 flex-1">
               <h3 id="claude-title" className="text-[16px] font-semibold text-ink">
-                Claude
+                {c.agentTitle}
               </h3>
               <p role="status" className="mt-0.5 flex items-center gap-2 text-[14px] font-medium text-ink">
                 <Dot tone={tone} big />
@@ -378,46 +545,64 @@ export function IntegrationsClient({
           {created ? (
             <div className="space-y-3 border-t border-line pt-4">
               <div>
-                <p className="text-[15px] font-semibold text-ink">{c.stepTitle}</p>
-                <p className="mt-0.5 text-[13px] text-ink-mute">{c.stepHint}</p>
+                <p className="text-[15px] font-semibold text-ink">
+                  {isCli(agent) ? c.stepTitle(agentLabel) : agent === "mcp" ? c.stepTitleMcp : c.stepTitleApi}
+                </p>
+                <p className="mt-0.5 text-[13px] leading-relaxed text-ink-mute">
+                  {isCli(agent) ? c.stepHint(agentLabel) : agent === "mcp" ? c.stepHintMcp : c.stepHintApi}
+                </p>
               </div>
-              <pre className="max-h-72 overflow-auto rounded-md border border-line bg-sheet-muted p-3 font-mono text-[12px] leading-relaxed break-words whitespace-pre-wrap text-ink">
-                {prompt}
-              </pre>
-              <div className="flex flex-wrap items-center gap-2">
-                <CopyButton text={prompt} label={c.copyPrompt} done={c.copied} primary />
-                <CopyButton text={created.token} label={c.copyToken} done={c.copied} />
-              </div>
+              {isCli(agent) ? (
+                <>
+                  <pre className="max-h-72 overflow-auto rounded-md border border-line bg-sheet-muted p-3 font-mono text-[12px] leading-relaxed break-words whitespace-pre-wrap text-ink">
+                    {prompt}
+                  </pre>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <CopyButton text={prompt} label={c.copyPrompt} done={c.copied} primary />
+                    <CopyButton text={created.token} label={c.copyToken} done={c.copied} />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <SetupSnippets agent={agent} endpoint={endpoint} appUrl={appUrl} token={created.token} c={c} />
+                  <CopyButton text={created.token} label={c.copyToken} done={c.copied} />
+                </>
+              )}
               <p className="text-[12.5px] text-amber">{c.tokenOnce}</p>
               <div className="space-y-1.5 pt-1">
                 <Progress done={joined} waiting={c.waiting} finished={c.joined} />
-                <Progress done={bridge.connected} waiting={c.waitingBridge} finished={c.bridgeUp(bridge.host)} />
+                {agent !== "mcp" && (
+                  <Progress done={bridge.connected} waiting={c.waitingBridge} finished={c.bridgeUp(bridge.host)} />
+                )}
               </div>
               <button type="button" className={smallBtn} onClick={() => setCreated(null)}>
                 {c.done}
               </button>
             </div>
           ) : (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-3 border-t border-line pt-4">
-              <button type="button" className={primaryBtn} onClick={connect} disabled={pending}>
-                {pending ? <Loader2 size={15} aria-hidden className="animate-spin" /> : <Sparkles size={15} aria-hidden />}
-                {pending ? c.connecting : usable.length ? c.connectAnother : c.connect}
-              </button>
-              <label className="flex items-center gap-2 text-[13px] text-ink-mute">
-                {c.expiryLabel}
-                <select
-                  className="h-8 rounded-md border border-line-strong bg-sheet px-2 text-[13px] text-ink outline-none focus:border-ink"
-                  value={expiry}
-                  onChange={(e) => setExpiry(Number(e.target.value))}
-                  disabled={pending}
-                >
-                  {EXPIRY_OPTIONS.map((d) => (
-                    <option key={d} value={d}>
-                      {d === 0 ? c.never : d === 365 ? c.year : c.days(d)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <div className="space-y-4 border-t border-line pt-4">
+              <AgentPicker value={agent} onChange={setAgent} c={c} />
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+                <button type="button" className={primaryBtn} onClick={connect} disabled={pending}>
+                  {pending ? <Loader2 size={15} aria-hidden className="animate-spin" /> : <Sparkles size={15} aria-hidden />}
+                  {pending ? c.connecting : usable.length ? c.connectAnother : c.connect}
+                </button>
+                <label className="flex items-center gap-2 text-[13px] text-ink-mute">
+                  {c.expiryLabel}
+                  <select
+                    className="h-8 rounded-md border border-line-strong bg-sheet px-2 text-[13px] text-ink outline-none focus:border-ink"
+                    value={expiry}
+                    onChange={(e) => setExpiry(Number(e.target.value))}
+                    disabled={pending}
+                  >
+                    {EXPIRY_OPTIONS.map((d) => (
+                      <option key={d} value={d}>
+                        {d === 0 ? c.never : d === 365 ? c.year : c.days(d)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
             </div>
           )}
           {error && (
@@ -427,6 +612,8 @@ export function IntegrationsClient({
           )}
         </div>
       </section>
+
+      <AgentNameCard c={c} />
 
       {/* Connections */}
       <section aria-labelledby="tokens-title" className="space-y-3">
@@ -492,25 +679,17 @@ export function IntegrationsClient({
         <Fold title={c.manualTitle}>
           <div className="space-y-5">
             <p className="text-[13px] text-ink-mute">{c.manualHint}</p>
+            <AgentPicker value={agent} onChange={setAgent} c={c} />
+            <SetupSnippets agent={agent} endpoint={endpoint} appUrl={appUrl} token={c.tokenPlaceholder} c={c} />
             <div className="space-y-1.5">
-              <p className="text-[13px] font-semibold text-ink">{c.manualClaudeCode}</p>
-              <Snippet code={manualCode} c={c} />
-            </div>
-            <div className="space-y-1.5">
-              <p className="text-[13px] font-semibold text-ink">{c.manualDesktop}</p>
-              <p className="text-[12.5px] text-ink-mute">{c.manualDesktopHint}</p>
-              <Snippet code={manualDesktop} c={c} />
+              {agent !== "mcp" && (
+                <>
+                  <p className="text-[13px] font-semibold text-ink">{c.manualGeneric}</p>
+                  <p className="text-[12.5px] text-ink-mute">{c.manualGenericHint}</p>
+                  <Snippet code={`URL: ${endpoint}\nAuthorization: Bearer ${c.tokenPlaceholder}`} c={c} />
+                </>
+              )}
               <p className="text-[12.5px] leading-relaxed text-ink-mute">{c.manualClaudeAi}</p>
-            </div>
-            <div className="space-y-1.5">
-              <p className="text-[13px] font-semibold text-ink">{c.manualGeneric}</p>
-              <p className="text-[12.5px] text-ink-mute">{c.manualGenericHint}</p>
-              <Snippet code={manualGeneric} c={c} />
-            </div>
-            <div className="space-y-1.5">
-              <p className="text-[13px] font-semibold text-ink">{c.manualBridge}</p>
-              <p className="text-[12.5px] text-ink-mute">{c.manualBridgeHint}</p>
-              <Snippet code={manualBridge} c={c} />
             </div>
           </div>
         </Fold>
