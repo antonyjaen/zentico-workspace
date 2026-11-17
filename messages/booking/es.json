@@ -81,6 +81,8 @@
     "settings": {
       "title": "Páginas de reserva",
       "sidebarLink": "Páginas de reserva",
+      "shareCta": "Compartir disponibilidad",
+      "shareCtaHint": "Enlace para que otros reserven contigo",
       "back": "Volver a Calendario",
       "introTitle": "Deja que la gente reserve tiempo contigo",
       "introBody": "Comparte un enlace y cualquiera (sin cuenta) podrá elegir un hueco libre de tu calendario. Las reservas entran en tu calendario con un enlace de Zentico Meet y ambos recibís un correo.",

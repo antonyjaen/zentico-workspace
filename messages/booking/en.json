@@ -81,6 +81,8 @@
     "settings": {
       "title": "Booking pages",
       "sidebarLink": "Booking pages",
+      "shareCta": "Share availability",
+      "shareCtaHint": "A link others can book you with",
       "back": "Back to Calendar",
       "introTitle": "Let people book time with you",
       "introBody": "Share a link and anyone (no account needed) can pick a free slot in your calendar. Bookings land in your calendar with a Zentico Meet link and both of you get an email.",

@@ -1,10 +1,10 @@
 "use client";
 
-import { Bell, Blocks, Download, ExternalLink, Languages, LogOut, Plug, ShieldCheck, UserPlus } from "lucide-react";
+import { Bell, Blocks, Download, ExternalLink, Languages, LogOut, Plug, Search, ShieldCheck, UserPlus } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import type { AccountSummary } from "@/lib/auth";
 import { initials as initialsOf } from "@/app/(apps)/contacts/hrefs";
 import { usePopover } from "./usePopover";
@@ -54,6 +54,11 @@ export function AccountMenu({ accounts, accountUrl }: { accounts: AccountSummary
   const active = accounts.find((a) => a.active) ?? accounts[0];
   const others = accounts.filter((a) => a !== active);
   const multiple = accounts.length > 1;
+  // Many accounts: a filter box and a scrolling list keep the menu inside the screen.
+  const [query, setQuery] = useState("");
+  const many = others.length > 5;
+  const q = query.trim().toLowerCase();
+  const shown = q ? others.filter((a) => `${a.name} ${a.email}`.toLowerCase().includes(q)) : others;
 
   // Written client-side (the cookie isn't httpOnly) instead of via a server action, so it keeps
   // working in tabs left open across a deploy, where stale action ids fail silently.
@@ -85,7 +90,7 @@ export function AccountMenu({ accounts, accountUrl }: { accounts: AccountSummary
         </span>
       </button>
       {open && (
-        <div role="menu" className="pop absolute right-0 top-12 z-50 w-[320px] p-2">
+        <div role="menu" className="pop absolute right-0 top-12 z-50 max-h-[calc(100dvh-4.5rem)] w-[min(340px,calc(100vw-1rem))] overflow-y-auto overscroll-contain p-2">
           <div className="flex items-center gap-3 px-3 py-3">
             <Avatar account={active} size={40} />
             <span className="min-w-0">
@@ -106,17 +111,34 @@ export function AccountMenu({ accounts, accountUrl }: { accounts: AccountSummary
           </a>
 
           <div className="border-t border-line p-1 py-1.5">
+            {many && (
+              <label className="mx-1 mb-1 flex h-8 items-center gap-2 rounded-lg border border-line bg-sheet-muted px-2.5 text-ink-mute focus-within:border-line-strong">
+                <Search size={14} aria-hidden className="shrink-0" />
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={t("filterAccounts")}
+                  aria-label={t("filterAccounts")}
+                  className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-mute"
+                />
+              </label>
+            )}
             {others.length > 0 && (
-              <ul aria-label={t("otherAccounts")}>
-                {others.map((account) => (
+              <ul aria-label={t("otherAccounts")} className={many ? "max-h-[min(300px,45dvh)] overflow-y-auto overscroll-contain" : undefined}>
+                {shown.map((account) => (
                   <li key={`${account.slot}:${account.account ?? ""}`}>
                     <form action="/api/auth/switch" method="post">
                       <input type="hidden" name="slot" value={account.slot} />
                       {/* Delegated account reached through this slot's sign-in (checked server-side). */}
                       {account.account && <input type="hidden" name="account" value={account.account} />}
                       <input type="hidden" name="returnTo" value={pathname} />
-                      <button type="submit" aria-label={t("switchTo", { email: account.email })} className={itemClass}>
-                        <Avatar account={account} size={28} />
+                      <button
+                        type="submit"
+                        aria-label={t("switchTo", { email: account.email })}
+                        className={many ? `${itemClass} !py-1.5` : itemClass}
+                      >
+                        <Avatar account={account} size={many ? 26 : 28} />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-[13.5px] text-ink">{account.name}</span>
                           <span className="block truncate text-[12.5px] text-ink-mute">{account.email}</span>

@@ -1,6 +1,7 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Loader2, Plus } from "lucide-react";
+import { CalendarClock, ChevronLeft, ChevronRight, Loader2, Plus } from "lucide-react";
+import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
@@ -34,6 +35,7 @@ type Override = Pick<CalEvent, "utcStart" | "utcEnd" | "startDay" | "endDay">;
 
 export function CalendarApp({ calendars, events, expanded, view, date, tz, tzFromCookie, weekStart, people: initialPeople, myEmail }: Props) {
   const t = useTranslations("calendar");
+  const tBooking = useTranslations("booking.settings");
   const locale = useLocale();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -277,6 +279,14 @@ export function CalendarApp({ calendars, events, expanded, view, date, tz, tzFro
           <Plus size={16} aria-hidden />
           {t("create")}
         </button>
+        <Link
+          href="/calendar/booking"
+          title={tBooking("shareCtaHint")}
+          className="mb-4 ml-1 -mt-2 inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-line-strong px-4 text-[14px] font-medium text-ink transition-colors duration-150 hover:bg-hover"
+        >
+          <CalendarClock size={16} aria-hidden />
+          {tBooking("shareCta")}
+        </Link>
         <MiniMonth
           key={date}
           date={date}
@@ -314,6 +324,9 @@ export function CalendarApp({ calendars, events, expanded, view, date, tz, tzFro
           >
             <Plus size={18} aria-hidden />
           </button>
+          <Link href="/calendar/booking" className="icon-btn lg:hidden" aria-label={tBooking("shareCta")} title={tBooking("shareCta")}>
+            <CalendarClock size={18} aria-hidden />
+          </Link>
           <button type="button" className={BTN} onClick={() => go(view, todayKey)} title="T">
             {t("today")}
           </button>
