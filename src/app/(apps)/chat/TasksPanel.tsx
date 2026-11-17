@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { usePopover } from "@/components/usePopover";
 import type { Subscribe } from "./ChatApp";
 import { Markdown } from "./Markdown";
@@ -204,8 +205,9 @@ function AssigneePicker({
     (m) => !q || fold(m.name).includes(q) || fold(m.email).includes(q),
   );
   const toggle = (id: number) => onChange(picked.has(id) ? [...picked].filter((x) => x !== id) : [...picked, id]);
-  // The panel scrolls (overflow) and sits beside the chat, so an absolute menu got clipped. Pin it to
-  // the viewport next to the button instead, flipping up when there's no room below.
+  // The panel scrolls (overflow) and sits beside the chat, so an absolute menu got clipped. It's
+  // rendered into <body> (an ancestor's transform, e.g. the form's entry animation, would otherwise
+  // make "fixed" relative to that ancestor) and pinned next to the button, flipping up when needed.
   const button = useRef<HTMLButtonElement>(null);
   const [place, setPlace] = useState<React.CSSProperties | null>(null);
   const MENU_W = 256;
@@ -251,8 +253,15 @@ function AssigneePicker({
         {value.length ? <Assignees people={value} size={compact ? 18 : 20} /> : <UserPlus size={compact ? 14 : 15} aria-hidden />}
         {!compact && <span className="truncate">{value.length ? t("assigneeCount", { count: value.length }) : t("assign")}</span>}
       </button>
-      {pop.open && place && (
-        <div className="pop fixed z-[70] flex w-64 flex-col p-1.5" style={place}>
+      {pop.open &&
+        place &&
+        createPortal(
+          <div
+            className="pop fixed z-[70] flex w-64 flex-col p-1.5"
+            style={place}
+            // Outside the popover's DOM subtree: keep clicks in here from counting as "outside".
+            onPointerDown={(e) => e.stopPropagation()}
+          >
           <input
             autoFocus
             value={query}
@@ -291,8 +300,9 @@ function AssigneePicker({
               </li>
             ))}
           </ul>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
