@@ -363,7 +363,7 @@ export const BUILTIN_MODS: Record<string, ModFiles> = {
     "manifest.json": json({
       name: "Mail quick actions",
       version: "1.0.0",
-      description: "Acts on the conversation selected on the page: mark read, star, archive, quick reply drafts, or ask Claude for a draft.",
+      description: "Acts on the conversation selected on the page: mark read, star, archive, quick reply drafts, or ask your assistant for a draft.",
       entry: "index.html",
       icon: "zap",
       permissions: ["mail.read", "mail.modify", "mail.draft", "claude"],

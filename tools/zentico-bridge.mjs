@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Zentico bridge: runs the commands you say in Zentico Meet ("Claude, …" / "Codex, …" / "Assistant, …"),
+// Zentico bridge: runs the commands you say in Zentico Meet ("Assistant, …" or the name you gave it),
 // type in your Dashboard or ask your assistant in Chat (@-mentioning it) with YOUR OWN coding agent:
 // Claude Code, Codex, OpenCode, Gemini CLI, any other CLI (custom template), or straight against an
 // OpenAI-compatible or Anthropic API with no agent installed. Plain Node 18+, no dependencies.
@@ -30,7 +30,7 @@
 //   --once "<request>"      Run one request locally through the agent, print the answer, and exit
 //
 //   claude only:
-//   --allowed-tools <list>  Tools Claude may use without asking (default: mcp__zentico,Read,Glob,Grep)
+//   --allowed-tools <list>  Tools the agent may use without asking (default: mcp__zentico,Read,Glob,Grep)
 //   --keep-mcp              Also load your other MCP servers (default: only the zentico server, so no other
 //                           configured "zentico" server can bypass the in-meeting write confirmation)
 //
@@ -247,7 +247,7 @@ async function report(id, event) {
 
 function buildPrompt(c) {
   if (c.source === "dashboard") return buildDashboardPrompt(c);
-  // Asked in Zentico Chat by @-mentioning the user's Claude: the server builds the prompt (request,
+  // Asked in Zentico Chat by @-mentioning the user's assistant: the server builds the prompt (request,
   // conversation context marked as untrusted data, guidance), since only it knows the conversation.
   if (c.source === "chat" && typeof c.prompt === "string" && c.prompt.trim()) return c.prompt;
   // A proactive update of the meeting's live stage (whiteboard / cards): the server writes the
@@ -1235,7 +1235,7 @@ function onCancel(id) {
 /* --------------------------------------------------------------- SSE stream */
 
 /** Default wake word for the startup log, until the workspace says which name the user picked. */
-const WAKE_HINT = { claude: "Claude", codex: "Codex", opencode: "OpenCode", gemini: "Gemini" };
+const WAKE_HINT = "Assistant";
 
 async function connect() {
   const res = await fetch(`${cfg.baseUrl}/api/agent/stream`, {
@@ -1272,7 +1272,7 @@ async function connect() {
       }
       if (name === "hello") {
         connectedOnce = true;
-        const wakeName = typeof payload.agentName === "string" && payload.agentName ? payload.agentName : (WAKE_HINT[cfg.agent] ?? "Assistant");
+        const wakeName = typeof payload.agentName === "string" && payload.agentName ? payload.agentName : WAKE_HINT;
         log(`Connected as ${payload.user?.email} — waiting for "${wakeName}, …" in your meetings.`);
         if (payload.scope !== "write") log("! This token is read-only: the agent can look things up but not send, create or post.");
         // A cancel sent while the stream was down: check the command still running.

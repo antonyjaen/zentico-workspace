@@ -22,9 +22,12 @@ test("Claude and its old misspellings", () => {
   assert.equal(strip("Claude", "Hey Claude: book a room"), "book a room");
 });
 
-test("old Claude variants still work when the assistant has another name", () => {
-  assert.equal(strip("Codex", "Claude, send it"), "send it");
-  assert.equal(strip("Gemini", "cloud send it"), "send it");
+test("the bridge's agent name works as a wake word, but no other brand does", () => {
+  const re = wakeRegex({ name: "Asistente", family: "claude" });
+  assert.equal(stripWake("Claude, send it", re), "send it");
+  assert.equal(stripWake("cloud send it", re), "send it");
+  assert.equal(stripWake("Codex, send it", wakeRegex({ name: "Asistente", family: "codex" })), "send it");
+  assert.equal(strip("Codex", "Claude, send it"), "Claude, send it");
 });
 
 test("Codex and how recognition writes it", () => {
@@ -64,18 +67,16 @@ test("commandText strips the wake word and drops empty commands", () => {
   assert.equal(commandText([{ text: " Codex," } as never, { text: "what's on my calendar?" } as never], re), "what's on my calendar?");
   assert.equal(commandText("Codex.", re), null);
   assert.equal(commandText("“Oye asistente, abre la pizarra”", re), "abre la pizarra”");
-  // Default (no profile): generic words and Claude still work.
-  assert.equal(commandText("Claude, list my tasks"), "list my tasks");
+  // Default (no profile): generic words only.
+  assert.equal(commandText("Claude, list my tasks"), "Claude, list my tasks");
   assert.equal(commandText("assistant, list my tasks"), "list my tasks");
 });
 
-test("names: chosen name, bridge agent, legacy bridges, generic", () => {
-  assert.equal(resolveAgentName({ name: "Jarvis", client: "zentico-bridge/1.3.0 codex (box)", locale: "en" }), "Jarvis");
-  assert.equal(resolveAgentName({ name: null, client: "zentico-bridge/1.3.0 codex (box)", locale: "en" }), "Codex");
-  assert.equal(resolveAgentName({ name: null, client: "zentico-bridge/1.3.0 opencode (box)", locale: "en" }), "OpenCode");
-  assert.equal(resolveAgentName({ name: null, client: "zentico-bridge/1.2.0 (box)", locale: "es" }), "Claude");
-  assert.equal(resolveAgentName({ name: null, client: "zentico-bridge/1.3.0 openai (box)", locale: "es" }), "Asistente");
-  assert.equal(resolveAgentName({ name: null, client: null, locale: "en" }), "Assistant");
+test("names: chosen name, else generic (never the agent's brand); families from bridge headers", () => {
+  assert.equal(resolveAgentName({ name: "Jarvis", locale: "en" }), "Jarvis");
+  assert.equal(resolveAgentName({ name: "  ", locale: "es" }), "Asistente");
+  assert.equal(resolveAgentName({ name: null, locale: "en" }), "Assistant");
+  assert.equal(familyOf("zentico-bridge/1.2.0 (box)"), "claude");
   assert.equal(familyOf("zentico-bridge/1.3.0 gemini (my-pc)"), "gemini");
   assert.equal(familyOf("zentico-bridge/1.3.0 weird (my-pc)"), null);
   assert.equal(hostOf("zentico-bridge/1.3.0 codex (my-pc)"), "my-pc");

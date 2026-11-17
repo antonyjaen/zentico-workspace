@@ -2,13 +2,13 @@
 // the language of its voice replies.
 // GET → AgentProfileResponse.
 // PUT { name: string | null, wakeWords?: string[], voiceLang?: string | null } → AgentProfileResponse.
-//   name null = named after the agent the bridge runs ("Codex"…), or "Assistant" without a bridge.
+//   name null = the generic "Assistant" / "Asistente" (never the vendor's brand).
 import { NextResponse, type NextRequest } from "next/server";
 import { getLocale } from "next-intl/server";
 import { getSession } from "@/lib/auth";
 import { jsonError, NO_STORE, sameOrigin } from "@/lib/meetings/http";
 import { agentNameFor, getAgentProfile, setAgentProfile } from "@/lib/mcp/agent";
-import { cleanAgentName, FAMILY_LABELS, MAX_WAKE_WORDS, resolveAgentName, type AgentFamily } from "@/lib/meetings/wake";
+import { cleanAgentName, FAMILY_LABELS, genericAgentName, MAX_WAKE_WORDS, type AgentFamily } from "@/lib/meetings/wake";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -34,7 +34,7 @@ async function view(email: string): Promise<AgentProfileResponse> {
   return {
     name: agentNameFor(email, locale),
     customName: p.name,
-    defaultName: resolveAgentName({ name: null, client: p.family ? `zentico-bridge/0 ${p.family}` : null, locale }),
+    defaultName: genericAgentName(locale),
     wakeWords: p.wakeWords,
     voiceLang: p.voiceLang,
     agent: p.family ? { family: p.family, label: FAMILY_LABELS[p.family] } : null,

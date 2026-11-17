@@ -1,5 +1,5 @@
 // Voice clips sent from a call (see /api/meet/voice): push-to-talk commands of one user and, while
-// their "Claude listens to the meeting" toggle is on, ~15 s chunks of the meeting's mixed audio.
+// their "assistant listens to the meeting" toggle is on, ~15 s chunks of the meeting's mixed audio.
 // Server-only: pure functions plus small in-memory state (rate limits, language memory and the
 // transcription queue). Single instance.
 import type { TranscriptSegment } from "@/app/(apps)/meet/recording";
@@ -7,7 +7,7 @@ import { genericAgentName, stripWake, wakeRegex } from "./wake";
 
 export type ClipKind = "command" | "context";
 
-/** Wake prefix when the user's own isn't passed: the generic words and the old Claude variants. */
+/** Wake prefix when the user's own isn't passed: the generic words. */
 const DEFAULT_WAKE = wakeRegex({ name: genericAgentName("en") });
 const LEADING_JUNK = /^[\s"'“”‘’¿¡.,;:!?\-–—…]+/;
 

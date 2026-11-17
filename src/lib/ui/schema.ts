@@ -420,7 +420,7 @@ export const TOPBAR_ITEMS = ["search", "notifications", "theme", "launcher"] as 
 export type TopbarItem = (typeof TOPBAR_ITEMS)[number];
 /** Never hideable: the settings menu holds "Restore default UI"; the account menu holds sign-out. */
 export const LOCKED_TOPBAR_ITEMS = ["settings", "account"] as const;
-/** Built-in shortcut that opens "Customize with Claude"; keys.json can't rebind it. */
+/** Built-in shortcut that opens "Customize with your assistant"; keys.json can't rebind it. */
 export const CUSTOMIZE_KEY = "alt+shift+k";
 export type ShellSlot = { mod: string; title?: string; config: Raw; width: number; open: boolean };
 /** ui.json `shell`: the workspace around the apps (rail, landing app, density, top bar, slots). */
@@ -887,7 +887,7 @@ function compileKeys(raw: unknown, e: Errs, pages: Set<string>, mods: Map<string
     const parsed = key ? parseKey(key) : null;
     if (parsed && "error" in parsed) e.add(`${ptr}/key`, parsed.error);
     const norm = parsed && "chords" in parsed ? parsed.chords.join(" ") : null;
-    if (norm === CUSTOMIZE_KEY) e.add(`${ptr}/key`, `"${key}" is reserved for "Customize with Claude"`, "another chord, e.g. alt+shift+j");
+    if (norm === CUSTOMIZE_KEY) e.add(`${ptr}/key`, `"${key}" is reserved for "Customize with your assistant"`, "another chord, e.g. alt+shift+j");
     if (norm) {
       if (seen.has(norm)) e.add(`${ptr}/key`, `"${key}" is already bound by /bindings/${seen.get(norm)}`);
       seen.set(norm, i);

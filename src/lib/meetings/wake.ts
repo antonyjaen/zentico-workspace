@@ -5,9 +5,6 @@
 export const AGENT_FAMILIES = ["claude", "codex", "opencode", "gemini", "custom", "openai", "anthropic"] as const;
 export type AgentFamily = (typeof AGENT_FAMILIES)[number];
 
-/** Display names of the agents that have one; API and custom runners use the generic name. */
-const FAMILY_NAMES: Partial<Record<AgentFamily, string>> = { claude: "Claude", codex: "Codex", opencode: "OpenCode", gemini: "Gemini" };
-
 /** Label of each family for "Codex on HOST" and the integrations page. */
 export const FAMILY_LABELS: Record<AgentFamily, string> = {
   claude: "Claude Code",
@@ -39,12 +36,12 @@ export function hostOf(client: string | null | undefined): string | null {
   return /\(([^()]+)\)\s*$/.exec(client)?.[1] || null;
 }
 
-/** The name shown in the UI and used as the main wake word: the user's choice, else the bridge's agent. */
-export function resolveAgentName(input: { name: string | null; client: string | null; locale: string }): string {
-  const own = input.name?.trim();
-  if (own) return own;
-  const family = familyOf(input.client);
-  return (family && FAMILY_NAMES[family]) || genericAgentName(input.locale);
+/**
+ * The name shown in the UI and used as the main wake word: the user's choice, else the generic
+ * "Assistant". Never a vendor's brand: which agent runs is shown as a fact (FAMILY_LABELS), not as a name.
+ */
+export function resolveAgentName(input: { name: string | null; locale: string }): string {
+  return input.name?.trim() || genericAgentName(input.locale);
 }
 
 /** 1–24 letters (any script) and single spaces. */
@@ -78,12 +75,13 @@ const fold = (s: string) =>
 /** A typed or spoken word: accents optional, spaces flexible. */
 const wordSource = (w: string) => escape(fold(w).trim()).replace(/\s+/g, "\\s+");
 
-export type WakeProfile = { name: string; wakeWords?: string[] };
+/** `family`: the agent the user's bridge runs; people address it by its name ("Codex, …") out of habit. */
+export type WakeProfile = { name: string; wakeWords?: string[]; family?: AgentFamily | null };
 
 /**
  * The wake prefix for a user: their assistant's name (plus how recognition misspells known names),
- * their extra wake words, the generic words, and the old Claude variants (people keep saying them),
- * with an optional "hey" / "oye" / "ok" in front. Anchored at the start; matches on accent-folded text.
+ * their extra wake words, the name of the agent their bridge runs, and the generic words, with an
+ * optional "hey" / "oye" / "ok" in front. Anchored at the start; matches on accent-folded text.
  */
 export function wakeRegex(profile: WakeProfile): RegExp {
   const alts = new Set<string>();
@@ -94,8 +92,8 @@ export function wakeRegex(profile: WakeProfile): RegExp {
   };
   add(profile.name);
   for (const w of profile.wakeWords ?? []) add(w);
+  if (profile.family) add(profile.family);
   for (const w of GENERIC) alts.add(w);
-  for (const v of VARIANTS.claude) alts.add(v);
   // Longest first, so "open code" wins over "open".
   const list = [...alts].sort((a, b) => b.length - a.length);
   return new RegExp(`^(?:(?:hey|oye|ok|okay)[\\s,]+)?(?:${list.join("|")})(?![\\p{L}\\p{N}])[,:.!]?\\s*`, "iu");

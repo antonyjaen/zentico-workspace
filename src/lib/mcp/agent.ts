@@ -719,13 +719,14 @@ export function setAgentProfile(email: string, p: { name: string | null; wakeWor
     .run(norm(email), p.name, JSON.stringify(p.wakeWords), p.voiceLang, Date.now());
 }
 
-/** The assistant's name as the user sees it: their choice, else the bridge's agent ("Codex"), else "Assistant". */
+/** The assistant's name as the user sees it: their choice, else "Assistant" / "Asistente". */
 export function agentNameFor(email: string, locale: string): string {
-  const { p, client } = profileRow(norm(email));
-  return resolveAgentName({ name: s(p?.name) || null, client, locale });
+  const { p } = profileRow(norm(email));
+  return resolveAgentName({ name: s(p?.name) || null, locale });
 }
 
-/** The wake prefix that addresses the user's assistant (name, extra words, generic and legacy words). */
+/** The wake prefix that addresses the user's assistant (name, extra words, their agent's name, generic words). */
 export function wakeRegexFor(email: string, locale = "en"): RegExp {
-  return wakeRegex({ name: agentNameFor(email, locale), wakeWords: getAgentProfile(email).wakeWords });
+  const p = getAgentProfile(email);
+  return wakeRegex({ name: agentNameFor(email, locale), wakeWords: p.wakeWords, family: p.family });
 }

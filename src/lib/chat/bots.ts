@@ -208,7 +208,7 @@ function insertIdentity(input: IdentityInput, extra: Record<string, string | num
 
 /**
  * The person's own assistant bot (created on first use; kind 'claude' whatever agent runs it). Its
- * name follows the owner's and their assistant's: "Codex (Ana)".
+ * name follows the owner's and their assistant's: "Jarvis (Ana)", else "Assistant (Ana)".
  */
 export function ensureClaudeBot(owner: { id: number; name: string; email: string }): BotRow {
   const name = `${agentNameFor(owner.email, "en")} (${owner.name || owner.email})`;
@@ -229,7 +229,7 @@ export function ensureClaudeBot(owner: { id: number; name: string; email: string
       kind: "claude",
       ownerId: owner.id,
       name,
-      handleBase: `claude-${local}`,
+      handleBase: `assistant-${local}`,
       description: "",
       color: 25,
       avatar: null,

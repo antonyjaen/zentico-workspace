@@ -47,11 +47,16 @@ export function toRaw(n: UiNode): Record<string, unknown> {
 export const parentPtr = (ptr: string) => ptr.replace(/\/children\/\d+$/, "");
 const indexOf = (ptr: string) => Number(/\/children\/(\d+)$/.exec(ptr)?.[1] ?? -1);
 
+const LEGACY_ASSISTANT_TITLES = new Set(["Claude", "Assistant", "Asistente"]);
+
 export function useNodeTitle() {
   const t = useTranslations("dashboard");
   const studio = useStudio();
   return (n: UiNode) => {
-    if (n.title) return n.title;
+    // Older starter layouts saved a fixed "Claude" / "Assistant" title on the assistant panel: show
+    // the user's assistant name instead.
+    const assistant = n.type === "component" && n.component === "claude" && n.title && LEGACY_ASSISTANT_TITLES.has(n.title);
+    if (n.title && !assistant) return n.title;
     if (n.type === "component") return t(`types.${n.component.replace(".", "_")}`);
     if (n.type === "mod") return studio.view.ui?.mods[n.mod]?.name ?? n.mod;
     return "";

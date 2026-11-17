@@ -184,7 +184,7 @@ export const TEMPLATES: Template[] = [
               at(c("drive", { mode: "recent", limit: 10 }), 0, 8, 12, 6),
             ],
           },
-          c("claude", {}, { title: "Assistant" }),
+          c("claude", {}),
         ],
         [3, 1.2],
       ),
@@ -203,7 +203,7 @@ export const TEMPLATES: Template[] = [
       title: l === "en" ? "Focus" : "Foco",
       icon: "focus",
       theme: { density: "spacious", background: "plain" },
-      layout: row([m("pomodoro", { title: "Pomodoro" }), c("doc.markdown", {}, { title: l === "en" ? "Document" : "Documento" }), c("claude", {}, { title: "Assistant" })], [2, 3, 2]),
+      layout: row([m("pomodoro", { title: "Pomodoro" }), c("doc.markdown", {}, { title: l === "en" ? "Document" : "Documento" }), c("claude", {})], [2, 3, 2]),
     }),
   },
   {

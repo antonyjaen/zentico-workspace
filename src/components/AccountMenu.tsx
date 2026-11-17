@@ -164,7 +164,7 @@ export function AccountMenu({ accounts, accountUrl }: { accounts: AccountSummary
 
           <div className="border-t border-line p-1 py-1.5">
             <Link href="/settings/integrations" onClick={toggle} className={itemClass}>
-              <Plug size={16} aria-hidden /> {locale === "es" ? "Integraciones (Claude / MCP)" : "Integrations (Claude / MCP)"}
+              <Plug size={16} aria-hidden /> {locale === "es" ? "Integraciones (agente IA / MCP)" : "Integrations (AI agent / MCP)"}
             </Link>
             <Link href="/settings/apps" onClick={toggle} className={itemClass}>
               <Blocks size={16} aria-hidden /> {ta("title")}
