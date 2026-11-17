@@ -4,7 +4,7 @@
 // Claude Code, Codex, OpenCode, Gemini CLI, any other CLI (custom template), or straight against an
 // OpenAI-compatible or Anthropic API with no agent installed. Plain Node 18+, no dependencies.
 //
-//   node zentico-bridge.mjs --url https://team.zentico.dev [--agent claude|codex|opencode|gemini|custom|openai|anthropic]
+//   node zentico-bridge.mjs --url https://team.example.com [--agent claude|codex|opencode|gemini|custom|openai|anthropic]
 //
 // Options
 //   --url <url>             Workspace URL (required)
@@ -126,7 +126,7 @@ export function loadConfig(args, env = process.env) {
     baseUrl = u.origin;
   } catch (e) {
     if (String(e?.message).startsWith("--url")) throw e;
-    throw new Error("--url is required, e.g. --url https://team.zentico.dev");
+    throw new Error("--url is required, e.g. --url https://team.example.com");
   }
   let token = (args.token ?? env.ZENTICO_TOKEN ?? "").trim();
   if (!token && dryRun) token = FAKE_TOKEN;
@@ -1354,7 +1354,7 @@ function dryRun() {
 
 async function main() {
   if (process.argv.includes("--help")) {
-    console.log("Usage: node zentico-bridge.mjs --url https://team.zentico.dev [--agent claude|codex|opencode|gemini|custom|openai|anthropic] [--model id] [--dry-run]");
+    console.log("Usage: node zentico-bridge.mjs --url https://team.example.com [--agent claude|codex|opencode|gemini|custom|openai|anthropic] [--model id] [--dry-run]");
     console.log("Every option is described at the top of this file.");
     return;
   }
