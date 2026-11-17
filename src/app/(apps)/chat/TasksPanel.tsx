@@ -204,9 +204,37 @@ function AssigneePicker({
     (m) => !q || fold(m.name).includes(q) || fold(m.email).includes(q),
   );
   const toggle = (id: number) => onChange(picked.has(id) ? [...picked].filter((x) => x !== id) : [...picked, id]);
+  // The panel scrolls (overflow) and sits beside the chat, so an absolute menu got clipped. Pin it to
+  // the viewport next to the button instead, flipping up when there's no room below.
+  const button = useRef<HTMLButtonElement>(null);
+  const [place, setPlace] = useState<React.CSSProperties | null>(null);
+  const MENU_W = 256;
+  const MENU_H = 340;
+  const measure = useCallback(() => {
+    const r = button.current?.getBoundingClientRect();
+    if (!r) return;
+    const left = Math.max(8, Math.min(r.right - MENU_W, window.innerWidth - MENU_W - 8));
+    const below = window.innerHeight - r.bottom;
+    setPlace(
+      below >= MENU_H || below >= r.top
+        ? { left, top: r.bottom + 4, maxHeight: Math.max(160, below - 12) }
+        : { left, bottom: window.innerHeight - r.top + 4, maxHeight: Math.max(160, r.top - 12) },
+    );
+  }, []);
+  useEffect(() => {
+    if (!pop.open) return;
+    measure();
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+    };
+  }, [pop.open, measure]);
   return (
     <div ref={pop.ref} className="relative">
       <button
+        ref={button}
         type="button"
         onClick={() => (pop.toggle(), setQuery(""))}
         disabled={disabled}
@@ -223,8 +251,8 @@ function AssigneePicker({
         {value.length ? <Assignees people={value} size={compact ? 18 : 20} /> : <UserPlus size={compact ? 14 : 15} aria-hidden />}
         {!compact && <span className="truncate">{value.length ? t("assigneeCount", { count: value.length }) : t("assign")}</span>}
       </button>
-      {pop.open && (
-        <div className="pop absolute top-9 right-0 z-40 w-64 p-1.5">
+      {pop.open && place && (
+        <div className="pop fixed z-[70] flex w-64 flex-col p-1.5" style={place}>
           <input
             autoFocus
             value={query}
@@ -242,7 +270,7 @@ function AssigneePicker({
             maxLength={100}
             className="mb-1 h-8 w-full rounded-md border border-line bg-sheet px-2 text-[13px] text-ink outline-none placeholder:text-ink-mute focus:border-ink-mute"
           />
-          <ul id={listId} role="listbox" aria-multiselectable className="max-h-64 overflow-y-auto overscroll-contain">
+          <ul id={listId} role="listbox" aria-multiselectable className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             {options.length === 0 && <li className="px-2 py-2 text-[12.5px] text-ink-mute">{t("noMembers")}</li>}
             {options.map((m) => (
               <li key={m.id} role="option" aria-selected={picked.has(m.id)}>
