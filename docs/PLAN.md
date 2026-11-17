@@ -103,6 +103,10 @@ team.example.com (Next.js · React · Tailwind v4 · next-intl)
 - [ ] Verify live with Claude Code against production
 
 ### 6b. Claude in meetings ("Claude, do X") — built, not yet verified live (2026-11-15)
+> Since bridge 1.3 this works with any agent (Claude Code, Codex, OpenCode, Gemini CLI, a custom CLI or an
+> OpenAI-compatible / Anthropic API), and the assistant's name and wake words follow the user's agent. The
+> notes below describe the first build, which ran Claude Code only.
+
 Say "Claude, …" in a call and the speaker's OWN Claude Code does it. Executor = the user's own Claude
 Code on their machine (no server-side agent). Isolation: a command only ever reaches the bridge of the
 person who said/typed it, whoever is recording. Writes need the speaker's confirmation; reads run directly.

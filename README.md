@@ -8,7 +8,10 @@
 # Zentico Workspace
 
 **A self-hosted workspace — mail, calendar, contacts, Drive, docs, chat and meetings — on top of
-Stalwart, LiveKit and Collabora, with Claude built in through MCP.**
+Stalwart, LiveKit and Collabora, with your own AI agent (Claude Code, Codex, Gemini CLI, …) built in
+through MCP.**
+
+[Website](https://www.zentico.dev/zentico-workspace) · [Self-hosting](#self-hosting) · [License (MIT)](LICENSE)
 
 ![Next.js 15](https://img.shields.io/badge/Next.js-15-000?logo=nextdotjs)
 ![React 19](https://img.shields.io/badge/React-19-000?logo=react)
@@ -22,8 +25,8 @@ Zentico Workspace is the product layer only: it does not replace your mail, vide
 servers. [Stalwart](https://stalw.art) stores mail, calendars, contacts and files and handles
 sign-in (OIDC); [LiveKit](https://livekit.io) carries meetings; [Collabora Online](https://www.collaboraoffice.com)
 edits office documents. This Next.js app talks to them on the user's behalf and adds what they
-don't have: chat, booking pages, a programmable dashboard, meeting transcripts and a Claude
-integration. English and Spanish UI.
+don't have: chat, booking pages, a programmable dashboard, meeting transcripts and an
+integration with your own AI agent. English and Spanish UI.
 
 ## Screenshots
 
@@ -67,14 +70,15 @@ integration. English and Spanish UI.
 - DMs, groups and teams with public/private channels; threads, reactions, mentions, edits, unread state.
 - Attachments, Drive file sharing, **shared tasks** with assignees, due dates and subtasks.
 - Ringing **calls** and "Meet now" in any conversation; scheduling straight into the calendar.
-- Bots and apps: HTTP apps, incoming webhooks, and each person's own Claude.
+- Bots and apps: HTTP apps, incoming webhooks, and each person's own AI agent (@-mention it in a conversation).
 
 ### Meet
 - LiveKit video meetings: pre-join, grid/speaker layouts, screen share, in-call chat, shareable links.
 - **Recordings** (audio, and video through LiveKit Egress) with **transcripts** from a self-hosted
   Whisper server.
-- **"Claude, …" voice commands**: opt-in per participant; a command only reaches the speaker's own
-  Claude, and writes need the speaker's confirmation. Speech can be transcribed in the browser
+- **Voice commands to your agent** ("Codex, …", "Claude, …", "Assistant, …"): opt-in per participant;
+  a command only reaches the speaker's own agent, and writes need the speaker's confirmation. The wake
+  word follows the user's agent or a name they choose. Speech can be transcribed in the browser
   (WebGPU) so only text leaves the device.
 
 ### Dashboard and mods
@@ -85,13 +89,16 @@ integration. English and Spanish UI.
 - Mods can call the user's connected MCP servers through the host, with per-tool consent
   (see [docs/user-mcp.md](docs/user-mcp.md)).
 
-### Claude and MCP
+### AI agents and MCP
 - A remote **MCP server** at `/api/mcp` (Streamable HTTP) exposing mail, calendar, contacts, Drive,
-  docs, chat, tasks, meetings and dashboard tools.
+  docs, chat, tasks, meetings and dashboard tools. Any MCP client can use it: Claude Code, Codex,
+  OpenCode, Gemini CLI, Cursor, VS Code…
 - Personal access tokens (read or read+write, optional expiry, shown once, stored hashed) with rate
-  limits and an audit log, created in **Settings → Apps & bots**.
+  limits and an audit log, created in **Settings → Integrations**, which also generates a setup prompt for each agent.
 - A local **bridge** (`tools/zentico-bridge.mjs`, Node 18+, no dependencies) runs the user's own
-  Claude Code for meeting voice commands and the Dashboard chat — no server-side agent.
+  agent for meeting voice commands, Chat mentions and the Dashboard chat — no server-side agent.
+  `--agent` picks Claude Code (default), Codex, OpenCode, Gemini CLI or any other CLI, or runs
+  straight against an OpenAI-compatible or Anthropic API with the user's own key (no CLI needed).
 - **Connected apps**: GitHub, Google, Atlassian, Notion and Slack via OAuth, and any remote MCP server
   the user adds.
 
@@ -126,7 +133,7 @@ flowchart LR
   app --- data[("DATA_DIR<br/>SQLite + files")]
 
   clients["Native mail / calendar apps"] -- "IMAP · SMTP · CalDAV · CardDAV" --> stalwart
-  claude["Claude Code / Claude Desktop"] -- "MCP + bridge" --> app
+  agent["Your AI agent<br/>Claude Code · Codex · Gemini CLI · …"] -- "MCP + bridge" --> app
 ```
 
 - The app keeps its own state in SQLite files under `DATA_DIR` (Node's built-in `node:sqlite`):
@@ -289,7 +296,7 @@ npm run dev                  # http://localhost:3000 (Turbopack)
 | `npm run lint` | `next lint` |
 
 Project layout: `src/app` (routes and API), `src/lib` (server logic per area), `src/components`,
-`messages/` (EN/ES translations), `tools/` (the Claude bridge), `scripts/` (maintenance scripts),
+`messages/` (EN/ES translations), `tools/` (the agent bridge), `scripts/` (maintenance scripts),
 `apps/` (desktop and mobile shells), `docs/`.
 
 ## Desktop and mobile apps

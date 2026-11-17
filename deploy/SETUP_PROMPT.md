@@ -1,6 +1,6 @@
 # Setup prompt for an AI agent
 
-Copy the prompt below into Claude Code (or any agent that can run commands over SSH) on your own
+Copy the prompt below into your AI coding agent (Claude Code, Codex, Gemini CLI… any agent that can run commands over SSH) on your own
 computer. It sets up Zentico Workspace on a fresh Ubuntu 22.04/24.04 server with
 [`install.sh`](install.sh). You stay in charge of DNS and of anything destructive.
 
