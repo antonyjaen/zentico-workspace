@@ -4,17 +4,19 @@ import { Check, ChevronRight, Copy, Loader2, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { createTokenAction, reauthorizeTokenAction, revokeTokenAction } from "./actions";
-import { bridgeCommands, copyFor, isCli, mcpSnippet, SETUP_AGENTS, TOKEN_ENV, type Copy as CopyText, type SetupAgent } from "./copy";
+import { bridgeCommands, copyFor, isCli, mcpSnippet, SETUP_AGENTS, TOKEN_ENV, type BridgeAgent, type Copy as CopyText, type SetupAgent } from "./copy";
 import type { ClaudeStatus, TokenView } from "./status";
 
 export type AuditView = { id: number; tokenName: string; tool: string; at: number; ok: boolean; error: string | null };
 
 export type ToolView = { name: string; write: boolean };
 
-/** A token used this recently counts as "connected". */
+/**
+ * An MCP-only client (no bridge ever seen) counts as connected while its token was used this recently.
+ * With a bridge, "connected" means the bridge is connected right now: that is what meetings, chat
+ * and the dashboard need.
+ */
 const RECENT_MS = 10 * 60_000;
-/** A token used this recently counts as "connected": Claude only calls the workspace when asked. */
-const CONNECTED_MS = 7 * 24 * 3_600_000;
 const POLL_MS = 10_000;
 const STATUS_URL = "/api/integrations/status";
 
@@ -130,16 +132,25 @@ function Fold({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 
-/** The tab to start on: the agent the bridge last reported, else Claude Code. */
-function initialAgent(family: ClaudeStatus["bridge"]["family"]): SetupAgent {
+type Family = ClaudeStatus["bridge"]["family"];
+
+/** The tab to start on: the agent the bridge last reported, else none (the user picks). */
+function initialAgent(family: Family): SetupAgent | null {
   if (family === "openai" || family === "anthropic") return "api";
-  return family && (SETUP_AGENTS as readonly string[]).includes(family) ? (family as SetupAgent) : "claude";
+  return family && (SETUP_AGENTS as readonly string[]).includes(family) ? (family as SetupAgent) : null;
+}
+
+/** What the "start the bridge" command runs: the bridge's last agent, else the one picked on this page. */
+function bridgeAgentOf(family: Family, picked: SetupAgent | null): BridgeAgent | null {
+  if (family === "openai" || family === "anthropic") return "api";
+  if (family) return family;
+  return picked && picked !== "mcp" ? picked : null;
 }
 
 /** Short name of a tab for the connection's name ("Codex – 17 Nov 2026"). */
 const tokenLabel = (agent: SetupAgent, c: CopyText) => (agent === "mcp" ? "MCP client" : agent === "api" ? "API bridge" : c.tabs[agent]);
 
-function AgentPicker({ value, onChange, c }: { value: SetupAgent; onChange: (a: SetupAgent) => void; c: CopyText }) {
+function AgentPicker({ value, onChange, c }: { value: SetupAgent | null; onChange: (a: SetupAgent) => void; c: CopyText }) {
   return (
     <div className="space-y-2">
       <p id="agent-pick" className="text-[13px] font-medium text-ink">
@@ -161,7 +172,7 @@ function AgentPicker({ value, onChange, c }: { value: SetupAgent; onChange: (a: 
           </button>
         ))}
       </div>
-      <p className="text-[12.5px] leading-relaxed text-ink-mute">{c.tabHints[value]}</p>
+      <p className="text-[12.5px] leading-relaxed text-ink-mute">{value ? c.tabHints[value] : c.pickAgentHint}</p>
     </div>
   );
 }
@@ -383,7 +394,7 @@ export function IntegrationsClient({
   const [expiry, setExpiry] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ id: string; token: string } | null>(null);
-  const [agent, setAgent] = useState<SetupAgent>(() => initialAgent(initial.bridge.family));
+  const [agent, setAgent] = useState<SetupAgent | null>(() => initialAgent(initial.bridge.family));
 
   const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
   const date = new Intl.DateTimeFormat(locale, { dateStyle: "medium" });
@@ -425,13 +436,22 @@ export function IntegrationsClient({
     .filter((t) => t.lastUsed != null && now - t.lastUsed < RECENT_MS)
     .sort((a, b) => (b.lastUsed ?? 0) - (a.lastUsed ?? 0))[0];
   const lastUse = Math.max(0, ...usable.map((t) => t.lastUsed ?? 0)) || null;
-  const inUse = lastUse != null && now - lastUse < CONNECTED_MS;
-  const tone: Tone = recent || inUse || bridge.connected ? "on" : usable.length ? "idle" : "off";
+  // What works right now: a connected bridge, or (for MCP-only clients, no bridge ever) a token in use.
+  const bridgeSeen = bridge.lastSeen != null || bridge.family != null;
+  const tone: Tone = bridge.connected || (!bridgeSeen && recent) ? "on" : usable.length ? "idle" : "off";
+  const noBridge = tone === "idle" && bridgeSeen;
   const attention = usable.some((t) => t.needsReauth || t.legacy);
 
-  const headline = { on: c.statusConnected, idle: c.statusIdle, off: c.statusOff }[tone];
-  const hint = { on: c.statusConnectedHint, idle: c.statusIdleHint, off: c.statusOffHint }[tone];
-  const mcpTone: Tone = recent || inUse ? "on" : usable.length ? "idle" : "off";
+  const headline = { on: c.statusConnected, idle: noBridge ? c.statusTokenNoBridge : c.statusIdle, off: c.statusOff }[tone];
+  const hint = {
+    on: c.statusConnectedHint,
+    idle: noBridge && bridge.lastSeen ? c.statusTokenNoBridgeHint(ago(bridge.lastSeen, now, rtf)) : c.statusIdleHint,
+    off: c.statusOffHint,
+  }[tone];
+  // The exact command to (re)start the bridge, with the real workspace URL and the user's agent.
+  const startAgent = tone === "idle" ? bridgeAgentOf(bridge.family, agent) : null;
+  const start = startAgent ? bridgeCommands(startAgent, appUrl, c.tokenPlaceholder) : null;
+  const mcpTone: Tone = recent ? "on" : usable.length ? "idle" : "off";
   const mcpText = recent
     ? c.mcpActive(recent.name, ago(recent.lastUsed!, now, rtf))
     : !usable.length
@@ -448,8 +468,9 @@ export function IntegrationsClient({
   const newRow = created ? tokens.find((t) => t.id === created.id) : undefined;
   const joined = newRow?.lastUsed != null;
 
-  const prompt = created && isCli(agent) ? c.prompt(agent, { appUrl, endpoint, token: created.token }) : "";
-  const agentLabel = isCli(agent) ? c.tabs[agent] : "";
+  const cli = agent != null && isCli(agent);
+  const prompt = created && agent && isCli(agent) ? c.prompt(agent, { appUrl, endpoint, token: created.token }) : "";
+  const agentLabel = agent && isCli(agent) ? c.tabs[agent] : "";
 
   const run = (p: Pending) => {
     setError(null);
@@ -468,6 +489,7 @@ export function IntegrationsClient({
   };
 
   const connect = () => {
+    if (!agent) return;
     const today = new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", year: "numeric" }).format(Date.now());
     run({ op: "create", name: c.autoName(tokenLabel(agent, c), today), scope: "write", expiresInDays: expiry || null, agent });
   };
@@ -506,14 +528,14 @@ export function IntegrationsClient({
       </header>
 
       {/* Status + connect */}
-      <section id="bridge" aria-labelledby="claude-title" className="scroll-mt-4 rounded-xl border border-line bg-sheet">
+      <section id="bridge" aria-labelledby="agent-title" className="scroll-mt-4 rounded-xl border border-line bg-sheet">
         <div className="space-y-4 p-4 md:p-5">
           <div className="flex items-start gap-3">
             <span className="mt-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sheet-muted text-ink">
               <Sparkles size={18} aria-hidden />
             </span>
             <div className="min-w-0 flex-1">
-              <h3 id="claude-title" className="text-[16px] font-semibold text-ink">
+              <h3 id="agent-title" className="text-[16px] font-semibold text-ink">
                 {c.agentTitle}
               </h3>
               <p role="status" className="mt-0.5 flex items-center gap-2 text-[14px] font-medium text-ink">
@@ -535,24 +557,32 @@ export function IntegrationsClient({
             </li>
             <li className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-3">
               <span className="flex min-w-0 flex-1 items-center gap-2 text-ink-soft">
-                <Dot tone={bridge.connected ? "on" : "off"} />
+                <Dot tone={bridge.connected ? "on" : bridgeSeen && usable.length ? "idle" : "off"} />
                 {c.bridgeLabel}
               </span>
               <span className="pl-4 text-ink-mute sm:pl-0 sm:text-right">{bridgeText}</span>
             </li>
           </ul>
 
-          {created ? (
+          {start && !created && (
+            <div className="space-y-1.5">
+              <p className="text-[13px] font-semibold text-ink">{c.startBridgeTitle}</p>
+              <p className="text-[12.5px] text-ink-mute">{c.startBridgeHint}</p>
+              <Snippet code={`# macOS / Linux\n${start.unix}\n\n# Windows (PowerShell)\n${start.windows}`} c={c} />
+            </div>
+          )}
+
+          {created && agent ? (
             <div className="space-y-3 border-t border-line pt-4">
               <div>
                 <p className="text-[15px] font-semibold text-ink">
-                  {isCli(agent) ? c.stepTitle(agentLabel) : agent === "mcp" ? c.stepTitleMcp : c.stepTitleApi}
+                  {cli ? c.stepTitle(agentLabel) : agent === "mcp" ? c.stepTitleMcp : c.stepTitleApi}
                 </p>
                 <p className="mt-0.5 text-[13px] leading-relaxed text-ink-mute">
-                  {isCli(agent) ? c.stepHint(agentLabel) : agent === "mcp" ? c.stepHintMcp : c.stepHintApi}
+                  {cli ? c.stepHint(agentLabel) : agent === "mcp" ? c.stepHintMcp : c.stepHintApi}
                 </p>
               </div>
-              {isCli(agent) ? (
+              {cli ? (
                 <>
                   <pre className="max-h-72 overflow-auto rounded-md border border-line bg-sheet-muted p-3 font-mono text-[12px] leading-relaxed break-words whitespace-pre-wrap text-ink">
                     {prompt}
@@ -583,7 +613,7 @@ export function IntegrationsClient({
             <div className="space-y-4 border-t border-line pt-4">
               <AgentPicker value={agent} onChange={setAgent} c={c} />
               <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-                <button type="button" className={primaryBtn} onClick={connect} disabled={pending}>
+                <button type="button" className={primaryBtn} onClick={connect} disabled={pending || !agent}>
                   {pending ? <Loader2 size={15} aria-hidden className="animate-spin" /> : <Sparkles size={15} aria-hidden />}
                   {pending ? c.connecting : usable.length ? c.connectAnother : c.connect}
                 </button>
@@ -680,9 +710,9 @@ export function IntegrationsClient({
           <div className="space-y-5">
             <p className="text-[13px] text-ink-mute">{c.manualHint}</p>
             <AgentPicker value={agent} onChange={setAgent} c={c} />
-            <SetupSnippets agent={agent} endpoint={endpoint} appUrl={appUrl} token={c.tokenPlaceholder} c={c} />
+            {agent && <SetupSnippets agent={agent} endpoint={endpoint} appUrl={appUrl} token={c.tokenPlaceholder} c={c} />}
             <div className="space-y-1.5">
-              {agent !== "mcp" && (
+              {agent && agent !== "mcp" && (
                 <>
                   <p className="text-[13px] font-semibold text-ink">{c.manualGeneric}</p>
                   <p className="text-[12.5px] text-ink-mute">{c.manualGenericHint}</p>

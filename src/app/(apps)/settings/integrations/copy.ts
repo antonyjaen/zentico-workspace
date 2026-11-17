@@ -11,7 +11,7 @@ export type SetupAgent = (typeof SETUP_AGENTS)[number];
 export type CliAgent = "claude" | "codex" | "opencode" | "gemini";
 export const isCli = (a: SetupAgent): a is CliAgent => a === "claude" || a === "codex" || a === "opencode" || a === "gemini";
 
-/** The env var the non-Claude configs read the token from (keeps it out of config files). */
+/** The env var the Codex / OpenCode / Gemini configs read the token from (keeps it out of config files). */
 export const TOKEN_ENV = "ZENTICO_MCP_TOKEN";
 
 /** Where each CLI keeps its MCP servers, and the config block for the workspace (token from TOKEN_ENV). */
@@ -65,13 +65,16 @@ export function mcpSnippet(agent: CliAgent | "cursor" | "vscode", endpoint: stri
 const LIST_CMD: Record<CliAgent, string> = { claude: "claude mcp list", codex: "codex mcp list", opencode: "opencode mcp list", gemini: "gemini mcp list" };
 const LABEL: Record<CliAgent, string> = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode", gemini: "Gemini CLI" };
 
-/** The bridge's command line: --agent <cli>, or the API mode on OpenRouter as an example. */
-export function bridgeCommands(agent: CliAgent | "api", appUrl: string, token: string): { unix: string; windows: string } {
+/** What the bridge can run: a CLI, the API mode (OpenRouter as the example) or a custom command line. */
+export type BridgeAgent = CliAgent | "api" | "custom";
+
+/** The bridge's command line, always with an explicit --agent so it matches the user's agent. */
+export function bridgeCommands(agent: BridgeAgent, appUrl: string, token: string): { unix: string; windows: string } {
   const extra =
     agent === "api"
       ? ["--agent", "openai", "--base-url", "https://openrouter.ai/api/v1", "--model", "openai/gpt-4.1-mini", "--api-key-env", "OPENROUTER_API_KEY"]
-      : agent === "claude"
-        ? []
+      : agent === "custom"
+        ? ["--agent", "custom", "--custom", "<your command line>"]
         : ["--agent", agent];
   const unix = `mkdir -p ~/.zentico && curl -fsSL ${appUrl}/bridge.mjs -o ~/.zentico/zentico-bridge.mjs\nZENTICO_TOKEN=${token} nohup node ~/.zentico/zentico-bridge.mjs --url ${appUrl}${extra.map((a) => ` ${a}`).join("")} > ~/.zentico/bridge.log 2>&1 &`;
   const args = ["$HOME\\.zentico\\zentico-bridge.mjs", "--url", appUrl, ...extra].map((a) => `"${a}"`).join(",");
@@ -131,13 +134,18 @@ const en = {
   agentTitle: "Your AI agent",
   // Status card
   statusConnected: "Connected",
-  statusIdle: "Set up, no recent activity",
+  statusIdle: "Token valid · no recent activity",
+  statusTokenNoBridge: "Token valid · the bridge isn't running on your computer",
   statusOff: "Not connected",
   statusConnectedHint: "Your agent can use your workspace whenever you ask it.",
-  statusIdleHint: "Your agent has access but hasn't used it this week. It shows as connected as soon as it does.",
+  statusIdleHint:
+    "Your agent has access, but nothing has used it in the last few minutes. Meetings, chat and the dashboard also need the bridge running on your computer.",
+  statusTokenNoBridgeHint: (ago: string) => `Requests from meetings, chat and the dashboard won't run until you start it. Last seen ${ago}.`,
+  startBridgeTitle: "Start the bridge on your computer",
+  startBridgeHint: "Replace <token> with your access token. If you no longer have it, connect again to get a new one.",
   statusOffHint: "Connect an agent so it can read your mail, check your calendar, find files and get things done for you.",
-  mcpLabel: "An agent can read and act in your workspace",
-  bridgeLabel: "The bridge on your computer takes requests from meetings, chat and the dashboard",
+  mcpLabel: "Access (token / MCP)",
+  bridgeLabel: "Bridge on your computer (meetings, chat, dashboard)",
   mcpActive: (name: string, ago: string) => `Active via “${name}” · ${ago}`,
   mcpLast: (ago: string) => `Last activity ${ago}`,
   mcpNever: "Not used yet",
@@ -149,6 +157,7 @@ const en = {
   needsAttention: "A connection needs to be reconnected — see below.",
   // Agent picker
   pickAgent: "Which agent do you use?",
+  pickAgentHint: "Pick your agent to see the steps.",
   tabs: {
     claude: "Claude Code",
     codex: "Codex",
@@ -209,7 +218,7 @@ const en = {
   // Assistant name
   nameTitle: "Assistant name",
   nameHint:
-    "What you call your assistant in meetings (“Codex, …”) and how it's shown. Leave it empty to name it after your agent. “Assistant” / “Asistente” always works too.",
+    "What you call your assistant in meetings (“Jarvis, …”) and how it's shown everywhere. Leave it empty to use “Assistant”, which always works too, as does your agent's own name.",
   nameLabel: "Name",
   wakeLabel: "Other wake words",
   wakeHint: "Separated by commas, up to 6 (letters and spaces).",
@@ -362,13 +371,18 @@ const es: Copy = {
     "Conecta tu propio agente de IA (Claude Code, Codex, OpenCode, Gemini CLI, Cursor, VS Code o cualquier cliente MCP, o simplemente una clave de API) para que te ayude con tu correo, calendario, archivos, chat y reuniones.",
   agentTitle: "Tu agente de IA",
   statusConnected: "Conectado",
-  statusIdle: "Configurado, sin actividad reciente",
+  statusIdle: "Token válido · sin actividad reciente",
+  statusTokenNoBridge: "Token válido · el puente no está activo en tu ordenador",
   statusOff: "No conectado",
   statusConnectedHint: "Tu agente puede usar tu espacio de trabajo cuando se lo pidas.",
-  statusIdleHint: "Tu agente tiene acceso, pero no lo ha usado esta semana. Aparecerá como conectado en cuanto lo haga.",
+  statusIdleHint:
+    "Tu agente tiene acceso, pero nada lo ha usado en los últimos minutos. Reuniones, chat y dashboard necesitan además el puente activo en tu ordenador.",
+  statusTokenNoBridgeHint: (ago: string) => `Las peticiones de reuniones, chat y dashboard no se ejecutarán hasta que lo arranques. Visto por última vez ${ago}.`,
+  startBridgeTitle: "Arranca el puente en tu ordenador",
+  startBridgeHint: "Sustituye <token> por tu token de acceso. Si ya no lo tienes, vuelve a conectar para obtener uno nuevo.",
   statusOffHint: "Conecta un agente para que pueda leer tu correo, mirar tu calendario, encontrar archivos y hacer cosas por ti.",
-  mcpLabel: "Un agente puede leer y actuar en tu espacio de trabajo",
-  bridgeLabel: "El puente en tu ordenador recibe peticiones de reuniones, chat y dashboard",
+  mcpLabel: "Acceso (token / MCP)",
+  bridgeLabel: "Puente en tu ordenador (reuniones, chat, dashboard)",
   mcpActive: (name: string, ago: string) => `Activo con «${name}» · ${ago}`,
   mcpLast: (ago: string) => `Última actividad ${ago}`,
   mcpNever: "Aún sin usar",
@@ -379,6 +393,7 @@ const es: Copy = {
   bridgeNever: "Puente sin iniciar",
   needsAttention: "Hay una conexión que necesita reconectarse: mira más abajo.",
   pickAgent: "¿Qué agente usas?",
+  pickAgentHint: "Elige tu agente para ver los pasos.",
   tabs: {
     claude: "Claude Code",
     codex: "Codex",
@@ -436,7 +451,7 @@ const es: Copy = {
   tokenPlaceholder: "<token>",
   nameTitle: "Nombre del asistente",
   nameHint:
-    "Cómo llamas a tu asistente en las reuniones («Codex, …») y cómo se muestra. Déjalo vacío para usar el nombre de tu agente. «Asistente» / «Assistant» también funciona siempre.",
+    "Cómo llamas a tu asistente en las reuniones («Jarvis, …») y cómo se muestra en todas partes. Déjalo vacío para usar «Asistente», que también funciona siempre, igual que el nombre de tu agente.",
   nameLabel: "Nombre",
   wakeLabel: "Otras palabras de activación",
   wakeHint: "Separadas por comas, hasta 6 (letras y espacios).",
