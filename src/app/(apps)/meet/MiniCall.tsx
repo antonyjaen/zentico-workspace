@@ -1,7 +1,7 @@
 "use client";
 
 import { Track, type Participant, type Room } from "livekit-client";
-import { Ear, Loader2, Maximize2, Mic, MicOff, MonitorUp, PhoneOff, Users, Video, VideoOff, Volume2 } from "lucide-react";
+import { Ear, Loader2, Maximize2, Mic, MicOff, MonitorUp, PhoneOff, Presentation, Users, Video, VideoOff, Volume2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -51,6 +51,8 @@ export function MiniCall({
   claude,
   reconnecting,
   toast,
+  stage,
+  onOpenStage,
 }: {
   room: Room;
   roomName: string;
@@ -63,6 +65,10 @@ export function MiniCall({
   claude: ReturnType<typeof useClaudeCommands>;
   reconnecting: boolean;
   toast: string | null;
+  /** The call's live stage, when it has something on it: item count and whether an assistant keeps it. */
+  stage: { count: number; assist: boolean } | null;
+  /** Shows the stage when the user goes back to the call. */
+  onOpenStage: () => void;
 }) {
   const t = useTranslations("meet");
   const router = useRouter();
@@ -171,6 +177,21 @@ export function MiniCall({
               <Ear size={12} aria-hidden style={{ color: "var(--color-app-meet)" }} />
               {t("miniClaudeListening")}
             </span>
+          )}
+          {stage && (
+            <button
+              type="button"
+              onClick={() => {
+                onOpenStage();
+                router.push(meetHref(roomName));
+              }}
+              className="flex items-center gap-1.5 rounded-md bg-black/65 px-1.5 py-0.5 text-[11.5px] font-medium text-white hover:bg-black/80"
+              title={t("stageOpenFromMini")}
+            >
+              <Presentation size={12} aria-hidden />
+              {t("miniStage", { count: stage.count })}
+              {stage.assist && <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--color-app-meet)" }} aria-label={t("miniStageAssist")} />}
+            </button>
           )}
           {pendingConfirm && (
             <span className="flex items-center gap-1.5 rounded-md bg-black/65 px-1.5 py-0.5 text-[11.5px] font-medium text-white">

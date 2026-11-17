@@ -10,6 +10,7 @@ import {
   type RemoteParticipant,
 } from "livekit-client";
 import {
+  Check,
   CircleDot,
   Clapperboard,
   FileText,
@@ -21,6 +22,7 @@ import {
   Mic,
   MicOff,
   MonitorUp,
+  Presentation,
   PhoneOff,
   Send,
   Settings2,
@@ -46,6 +48,9 @@ import { clock } from "./recording";
 import { CHAT_MAX_LENGTH, CHAT_TOPIC, meetHref, type ChatMessage } from "./shared";
 import { useClaudeCommands, type ClaudeNotice } from "./useClaudeCommands";
 import { useClaudeVoice } from "./useClaudeVoice";
+import { StageView } from "./StageView";
+import { STAGE_VIEW_PREF, type StageView as StageViewMode } from "./stage-types";
+import { useStage } from "./useStage";
 import {
   recordingSupported,
   useRecording,
@@ -87,6 +92,35 @@ function useRoomVersion(room: Room) {
 
 type TileInfo = { key: string; participant: Participant; source: TileSource; isLocal: boolean };
 type Panel = "chat" | "people" | "settings" | "claude" | null;
+
+function readStageView(): StageViewMode {
+  try {
+    const v = localStorage.getItem(STAGE_VIEW_PREF);
+    return v === "side" || v === "hidden" ? v : "stage";
+  } catch {
+    return "stage";
+  }
+}
+
+function writeStageView(v: StageViewMode) {
+  try {
+    localStorage.setItem(STAGE_VIEW_PREF, v);
+  } catch {
+    // blocked storage: the choice just isn't remembered
+  }
+}
+
+function useMediaQuery(query: string): boolean {
+  const [match, setMatch] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const on = () => setMatch(mq.matches);
+    on();
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, [query]);
+  return match;
+}
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
@@ -197,6 +231,62 @@ export function InCall({
     onTalk: hush,
     hotkey: onPage,
   });
+
+  // The live stage: whiteboards and cards shared with everyone in the call (and their agents).
+  const stage = useStage(room, roomName);
+  const [stageView, setStageViewState] = useState<StageViewMode>("stage");
+  /** The last visible layout, restored when the stage comes back. */
+  const [stageShown, setStageShown] = useState<Exclude<StageViewMode, "hidden">>("stage");
+  useEffect(() => {
+    const v = readStageView();
+    setStageViewState(v);
+    if (v !== "hidden") setStageShown(v);
+  }, []);
+  const setStageView = useCallback((v: StageViewMode) => {
+    setStageViewState(v);
+    if (v !== "hidden") setStageShown(v);
+    writeStageView(v);
+  }, []);
+  const wide = useMediaQuery("(min-width: 1024px)");
+  const phone = useMediaQuery("(max-width: 767px)");
+  const stageItems = stage.data.items.length;
+  const stageFocus = stage.data.focus;
+  // A stage that opens, or something brought to the front, is featured like a screen share.
+  const stageSeen = useRef<{ items: number; focus: string | null } | null>(null);
+  useEffect(() => {
+    if (!stage.data.loaded) return;
+    const prev = stageSeen.current;
+    stageSeen.current = { items: stageItems, focus: stageFocus };
+    if (!prev) return;
+    if ((prev.items === 0 && stageItems > 0) || (stageFocus && stageFocus !== prev.focus)) {
+      setStageViewState((v) => (v === "hidden" ? stageShown : v));
+    }
+  }, [stage.data.loaded, stageItems, stageFocus, stageShown]);
+  const stageOpen = stage.data.open && stageItems > 0;
+  const stageVisible = stageOpen && stageView !== "hidden" && !stage.data.disabled;
+  const stageMenu = usePopover<HTMLSpanElement>();
+  const openStage = () => {
+    stageMenu.setOpen(false);
+    if (stageOpen) return setStageView(stageShown);
+    void stage
+      .send([{ op: "item.add", item: { kind: "board", title: t("stageKind_board") } }])
+      .then(() => setStageView(stageShown))
+      .catch(() => flash(t("stageFailed")));
+  };
+
+  // The proactive assistant is announced to everyone: a line in the chat and one spoken notice.
+  const assistSince = stage.data.assist?.since ?? null;
+  const assistInfo = useRef(stage.data.assist);
+  assistInfo.current = stage.data.assist;
+  const announcedAssist = useRef<number | null>(null);
+  useEffect(() => {
+    const a = assistInfo.current;
+    if (!assistSince || !a || announcedAssist.current === assistSince) return;
+    announcedAssist.current = assistSince;
+    const text = t("stageAssistChat", { name: a.ownerName, assistant: a.agent });
+    setMessages((m) => [...m.slice(-499), { id: `assist-${assistSince}`, from: "", name: t("stageSystem"), text, at: assistSince, mine: false }]);
+    if (Date.now() - assistSince < 60_000) sayLocal(`assist-${assistSince}`, text, locale);
+  }, [assistSince, sayLocal, t, locale]);
 
   // A write action waiting for the local user's OK is announced on their own device only.
   const toolLabel = useToolLabel();
@@ -407,7 +497,36 @@ export function InCall({
         {/* Stage */}
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col p-2 md:p-3">
           <ClaudeConfirmations claude={claude} voice={voice} showTalk={panel !== "claude"} />
-          {effectiveLayout === "grid" ? (
+          {stageVisible ? (
+            <div className={`flex min-h-0 flex-1 gap-2 ${stageView === "side" && wide ? "flex-row" : "flex-col md:flex-row"}`}>
+              <div className={`min-h-0 min-w-0 ${stageView === "side" && wide ? "basis-2/3" : "flex-1"}`}>
+                <StageView
+                  stage={stage}
+                  me={lp.identity}
+                  bridgeConnected={!!claude.data?.bridge.connected}
+                  onStartListening={() => claude.setListen(true)}
+                  flash={flash}
+                  compact={phone}
+                />
+              </div>
+              {!phone && (
+                <div
+                  className={
+                    stageView === "side" && wide
+                      ? "grid min-h-0 basis-1/3 auto-rows-fr gap-2 overflow-y-auto [grid-template-columns:repeat(var(--cols-side),minmax(0,1fr))]"
+                      : "flex shrink-0 gap-2 overflow-x-auto md:w-52 md:flex-col md:overflow-x-hidden md:overflow-y-auto"
+                  }
+                  style={{ "--cols-side": n > 4 ? 2 : 1 } as React.CSSProperties}
+                >
+                  {tiles.map((x) => (
+                    <div key={x.key} className={stageView === "side" && wide ? "min-h-0" : "aspect-video w-40 shrink-0 md:w-full"}>
+                      <Tile participant={x.participant} source={x.source} isLocal={x.isLocal} compact />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : effectiveLayout === "grid" ? (
             <div
               className="grid min-h-0 flex-1 auto-rows-fr gap-2 [grid-template-columns:repeat(var(--cols-sm),minmax(0,1fr))] md:[grid-template-columns:repeat(var(--cols),minmax(0,1fr))]"
               style={{ "--cols": cols, "--cols-sm": colsSm } as React.CSSProperties}
@@ -577,6 +696,53 @@ export function InCall({
               )}
             </span>
           )}
+          {!stage.data.disabled && (
+            <span ref={stageMenu.ref} className="relative flex">
+              <button
+                type="button"
+                className={ctrl(stageVisible)}
+                onClick={() => (stageOpen ? stageMenu.toggle() : openStage())}
+                aria-haspopup={stageOpen ? "menu" : undefined}
+                aria-expanded={stageOpen ? stageMenu.open : undefined}
+                aria-label={stageOpen ? t("stageCount", { count: stageItems }) : t("stageOpen")}
+                title={stageOpen ? t("stageCount", { count: stageItems }) : t("stageOpen")}
+              >
+                <span className="relative">
+                  <Presentation size={18} aria-hidden />
+                  {stage.data.assist && !stage.data.assist.pausedBy && (
+                    <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full border-2 border-sheet" style={{ background: "var(--color-app-meet)" }} />
+                  )}
+                </span>
+              </button>
+              {stageMenu.open && stageOpen && (
+                <div role="menu" className="pop absolute bottom-full left-1/2 z-20 mb-2 w-52 -translate-x-1/2 p-1">
+                  {(
+                    [
+                      ["stage", t("stageViewStage")],
+                      ["side", t("stageViewSide")],
+                      ["hidden", t("stageViewHidden")],
+                    ] as const
+                  ).map(([v, label]) => (
+                    <button
+                      key={v}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={stageView === v}
+                      disabled={v === "side" && !wide}
+                      onClick={() => {
+                        stageMenu.setOpen(false);
+                        setStageView(v);
+                      }}
+                      className="flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-left text-[13.5px] text-ink-soft hover:bg-hover hover:text-ink disabled:opacity-40"
+                    >
+                      <Check size={14} aria-hidden className={stageView === v ? "" : "invisible"} />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </span>
+          )}
           <button
             type="button"
             className={ctrl(effectiveLayout === "speaker")}
@@ -704,6 +870,8 @@ export function InCall({
             claude={claude}
             reconnecting={reconnecting}
             toast={toast}
+            stage={stageOpen ? { count: stageItems, assist: !!stage.data.assist && !stage.data.assist.pausedBy } : null}
+            onOpenStage={() => setStageView(stageShown)}
           />,
           document.body,
         )}
