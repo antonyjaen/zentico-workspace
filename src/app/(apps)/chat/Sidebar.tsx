@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Contact, ListChecks, MessageSquare, MoreHorizontal, Plus, Search, SquarePen, UserPlus, Users, WifiOff, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Contact, ListChecks, MessageSquare, MoreHorizontal, Pencil, Plus, Search, SquarePen, UserPlus, Users, WifiOff, X } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { usePopover } from "@/components/usePopover";
@@ -16,6 +16,7 @@ type Props = {
   onNewTeam: () => void;
   onTeamMembers: (teamId: string) => void;
   onNewChannel: (teamId: string) => void;
+  onRenameTeam: (teamId: string) => void;
   tab: SidebarTab;
   onTab: (tab: SidebarTab) => void;
   /** People tab content for the current search. */
@@ -47,6 +48,7 @@ export function Sidebar({
   onNewTeam,
   onTeamMembers,
   onNewChannel,
+  onRenameTeam,
   tab,
   onTab,
   renderPeople,
@@ -159,6 +161,7 @@ export function Sidebar({
                 onOpen={onOpen}
                 onMembers={() => onTeamMembers(team.id)}
                 onNewChannel={() => onNewChannel(team.id)}
+                onRename={() => onRenameTeam(team.id)}
               />
             ))
           )}
@@ -209,6 +212,7 @@ function TeamBlock({
   onOpen,
   onMembers,
   onNewChannel,
+  onRename,
 }: {
   team: TeamSummary;
   open: boolean;
@@ -217,6 +221,7 @@ function TeamBlock({
   onOpen: (id: string) => void;
   onMembers: () => void;
   onNewChannel: () => void;
+  onRename: () => void;
 }) {
   const t = useTranslations("chat");
   const menu = usePopover();
@@ -233,7 +238,7 @@ function TeamBlock({
           <button
             type="button"
             onClick={menu.toggle}
-            className="icon-btn h-7 w-7 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100"
+            className="icon-btn h-7 w-7 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 md:aria-expanded:opacity-100"
             aria-label={t("teamOptions", { name: team.name })}
             aria-expanded={menu.open}
             aria-haspopup="menu"
@@ -247,6 +252,13 @@ function TeamBlock({
                 icon={<UserPlus size={14} />}
                 label={team.role === "owner" ? t("manageMembers") : t("viewMembers")}
                 onClick={() => (menu.setOpen(false), onMembers())}
+              />
+              <MenuItem
+                icon={<Pencil size={14} />}
+                label={t("renameTeam")}
+                disabled={team.role !== "owner"}
+                hint={team.role !== "owner" ? t("renameTeamOwnersOnly") : undefined}
+                onClick={() => (menu.setOpen(false), onRename())}
               />
             </div>
           )}
@@ -276,18 +288,36 @@ function TeamBlock({
   );
 }
 
-function MenuItem({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
+function MenuItem({
+  icon,
+  label,
+  onClick,
+  disabled = false,
+  hint,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  /** Why it's disabled: tooltip on desktop, a second line on touch screens. */
+  hint?: string;
+}) {
   return (
     <button
       type="button"
       role="menuitem"
-      onClick={onClick}
-      className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] text-ink-soft hover:bg-hover hover:text-ink"
+      onClick={disabled ? undefined : onClick}
+      aria-disabled={disabled || undefined}
+      title={hint}
+      className="flex min-h-8 w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[13px] text-ink-soft hover:bg-hover hover:text-ink aria-disabled:cursor-not-allowed aria-disabled:text-ink-mute aria-disabled:hover:bg-transparent aria-disabled:hover:text-ink-mute"
     >
-      <span className="text-ink-mute" aria-hidden>
+      <span className={`text-ink-mute ${hint ? "self-start pt-[3px]" : ""}`} aria-hidden>
         {icon}
       </span>
-      {label}
+      <span className="min-w-0 flex-1">
+        {label}
+        {hint && <span className="block text-[11.5px] leading-snug text-ink-mute">{hint}</span>}
+      </span>
     </button>
   );
 }

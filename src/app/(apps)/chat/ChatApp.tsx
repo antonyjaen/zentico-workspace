@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DesktopPrompt } from "./DesktopPrompt";
 import { getOverview } from "./actions";
 import { Conversation } from "./Conversation";
-import { CreateChannelDialog, CreateTeamDialog, NewChatDialog, TeamMembersDialog } from "./Dialogs";
+import { CreateChannelDialog, CreateTeamDialog, NewChatDialog, RenameTeamDialog, TeamMembersDialog } from "./Dialogs";
 import { AddressBookMenu, PeopleList, PeoplePane, usePeopleData, type PeopleView } from "./People";
 import { Sidebar, type SidebarTab } from "./Sidebar";
 import { isConversationId, OPEN_CONVERSATION_EVENT, UNREAD_EVENT, type ChatEvent, type ChatOverview, type ConversationSummary } from "./shared";
@@ -22,6 +22,7 @@ type DialogState =
   | { kind: "newTeam" }
   | { kind: "teamMembers"; teamId: string }
   | { kind: "newChannel"; teamId: string }
+  | { kind: "renameTeam"; teamId: string }
   | null;
 
 const urlFor = (id: string | null) => (id ? `/chat?c=${id}` : "/chat");
@@ -265,6 +266,7 @@ export function ChatApp({ initial, initialId, initialTask = null }: { initial: C
           onNewTeam={() => setDialog({ kind: "newTeam" })}
           onTeamMembers={(teamId) => setDialog({ kind: "teamMembers", teamId })}
           onNewChannel={(teamId) => setDialog({ kind: "newChannel", teamId })}
+          onRenameTeam={(teamId) => setDialog({ kind: "renameTeam", teamId })}
         />
       </div>
       <section className={`${showMain ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col`}>
@@ -325,6 +327,16 @@ export function ChatApp({ initial, initialId, initialTask = null }: { initial: C
           team={dialogTeam}
           onClose={() => setDialog(null)}
           onChanged={refresh}
+        />
+      )}
+      {dialog?.kind === "renameTeam" && dialogTeam && (
+        <RenameTeamDialog
+          team={dialogTeam}
+          onClose={() => setDialog(null)}
+          onSaved={() => {
+            setDialog(null);
+            refresh();
+          }}
         />
       )}
       {dialog?.kind === "newChannel" && dialogTeam && (

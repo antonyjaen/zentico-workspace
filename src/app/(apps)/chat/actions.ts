@@ -297,6 +297,10 @@ export async function createTeam(teamName: string, description: string, people: 
   });
 }
 
+export async function renameTeam(id: string, teamName: string, description: string): Promise<ActionResult> {
+  return act((me) => store.renameTeam(teamId(id), me.id, name(teamName, true)!, name(description, false, 500) ?? ""));
+}
+
 export async function addTeamPeople(id: string, people: Person[]): Promise<ActionResult> {
   return act(async (me) => store.addTeamMembers(teamId(id), me.id, await resolvePeople(me, people, 500)));
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Blocks, CalendarClock, CalendarPlus, ListChecks, Loader2, Upload, Video } from "lucide-react";
+import { ArrowLeft, Blocks, CalendarClock, CalendarPlus, ListChecks, Loader2, Pencil, Upload, Video } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -16,7 +16,7 @@ import { ClaudeStrip } from "./ClaudeStrip";
 import { Composer } from "./Composer";
 import { ScheduleDialog } from "./Dialogs";
 import { MessageItem } from "./MessageItem";
-import { MembersPanel, ThreadPanel } from "./Panels";
+import { MembersPanel, renameDeniedText, ThreadPanel } from "./Panels";
 import { TasksPanel } from "./TasksPanel";
 import { TYPING_TTL_MS, type CallMedia, type ChatMessage, type ChatUser, type ConversationDetail, type ConversationSummary, type MeetingInfo } from "./shared";
 import { Avatar, BTN, BTN_MEET, BTN_PRIMARY, ConversationIcon, dayKey, dayLabel, timeOf, useErrorText } from "./ui";
@@ -36,7 +36,8 @@ type Props = {
   focusTask?: { taskId: string | null; n: number } | null;
 };
 
-type Panel = { kind: "thread"; root: number } | { kind: "members" } | { kind: "apps" } | { kind: "tasks" } | null;
+/** `rename` (a counter, so repeated clicks re-open the form) opens the members panel on its rename form. */
+type Panel = { kind: "thread"; root: number } | { kind: "members"; rename?: number } | { kind: "apps" } | { kind: "tasks" } | null;
 
 const GROUP_GAP_MS = 5 * 60_000;
 const groupable = (m: ChatMessage) => m.kind === "text" || m.kind === "file";
@@ -388,7 +389,33 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
           </button>
           {view ? <ConversationIcon c={view} size={30} /> : <span className="h-[30px] w-[30px] animate-pulse rounded-full bg-hover" />}
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-[14.5px] font-semibold text-ink">{title || " "}</h2>
+            {detail && detail.kind !== "dm" ? (
+              // Groups and channels: the title opens "edit name and description" (or says who can).
+              <button
+                type="button"
+                onClick={() =>
+                  setPanel((p) => ({
+                    kind: "members",
+                    rename: detail.canRename ? ((p?.kind === "members" && p.rename) || 0) + 1 : undefined,
+                  }))
+                }
+                className="group/title flex max-w-full min-w-0 items-center gap-1.5 rounded text-left"
+                title={detail.canRename ? t("rename") : renameDeniedText(detail, t)}
+              >
+                <h2 className="truncate text-[14.5px] font-semibold text-ink decoration-line underline-offset-4 group-hover/title:underline">
+                  {title || " "}
+                </h2>
+                {detail.canRename && (
+                  <Pencil
+                    size={13}
+                    className="shrink-0 text-ink-mute opacity-70 md:opacity-0 md:group-hover/title:opacity-100 md:group-focus-visible/title:opacity-100"
+                    aria-label={t("rename")}
+                  />
+                )}
+              </button>
+            ) : (
+              <h2 className="truncate text-[14.5px] font-semibold text-ink">{title || " "}</h2>
+            )}
             {subtitle && <p className="truncate text-[12px] text-ink-mute">{subtitle}</p>}
           </div>
 
@@ -622,6 +649,7 @@ export function Conversation({ id, me, summary, subscribe, onBack, onChanged, on
           ) : (
             <MembersPanel
               conversation={detail}
+              renameRequest={panel.rename ?? 0}
               me={me}
               onClose={() => setPanel(null)}
               onChanged={async () => {

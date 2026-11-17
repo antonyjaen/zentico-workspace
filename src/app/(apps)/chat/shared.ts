@@ -90,7 +90,7 @@ export type CallMeta = {
 };
 
 export type SystemMeta = {
-  action: "created" | "added" | "joined" | "left" | "renamed" | "removed" | "call" | "task";
+  action: "created" | "added" | "joined" | "left" | "renamed" | "teamRenamed" | "removed" | "call" | "task";
   names?: string[];
   name?: string;
   /** action "call": how an unanswered call ended. */
@@ -226,8 +226,10 @@ export type ConversationDetail = ConversationSummary & {
   description: string;
   teamName: string | null;
   members: (ChatUser & { role: "owner" | "member" })[];
-  /** I may add people / rename (group members, team owners, channel creator). */
+  /** I may add people (group members; for channels I'm in: team owners, the creator, private-channel members). */
   canManage: boolean;
+  /** I may rename it: group members; for channels, team owners (always) or, if I'm in it, its creator / private-channel members. */
+  canRename: boolean;
   /** Last read message id when the conversation was loaded (for the unread marker). */
   lastReadId: number;
   ongoing: MeetingInfo | null;

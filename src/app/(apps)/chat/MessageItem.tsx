@@ -528,6 +528,9 @@ function SystemLine({ m }: { m: ChatMessage }) {
     case "renamed":
       text = s.name ? t("sys.renamed", { who, name: s.name }) : t("sys.renamedCleared", { who });
       break;
+    case "teamRenamed":
+      text = t("sys.teamRenamed", { who, name: s.name ?? "" });
+      break;
     case "removed":
       text = t("sys.removed", { who, names: (s.names ?? []).join(", ") });
       break;

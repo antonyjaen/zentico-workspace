@@ -14,6 +14,11 @@ import { AppBadge, appsAsPeople, Avatar, BTN, BTN_PRIMARY, FIELD, Label, PeopleP
 const groupedWith = (prev: ChatMessage | undefined, m: ChatMessage | undefined) =>
   !!prev && !!m && prev.author?.id === m.author?.id && !prev.deleted && m.created - prev.created < 5 * 60_000;
 
+/** Why I can't rename a group or channel (shown instead of the edit button). */
+export function renameDeniedText(c: Pick<ConversationDetail, "kind">, t: (key: "renameChannelDenied" | "renameGroupDenied") => string): string {
+  return c.kind === "channel" ? t("renameChannelDenied") : t("renameGroupDenied");
+}
+
 export function PanelHeader({ title, sub, onClose }: { title: string; sub?: string; onClose: () => void }) {
   const t = useTranslations("chat");
   return (
@@ -153,12 +158,15 @@ export function ThreadPanel({
 
 export function MembersPanel({
   conversation,
+  renameRequest = 0,
   me,
   onClose,
   onChanged,
   onLeft,
 }: {
   conversation: ConversationDetail;
+  /** Changes (>0) whenever the header asks to open the rename form. */
+  renameRequest?: number;
   me: ChatUser;
   onClose: () => void;
   onChanged: () => Promise<void> | void;
@@ -174,6 +182,10 @@ export function MembersPanel({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    if (renameRequest > 0) setRenaming(true);
+  }, [renameRequest]);
+
   const run = async (fn: () => Promise<{ ok: boolean; error?: string }>) => {
     setBusy(true);
     setError(null);
@@ -187,7 +199,7 @@ export function MembersPanel({
     <>
       <PanelHeader title={t("members")} sub={t("memberCount", { count: conversation.memberCount })} onClose={onClose} />
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
-        {conversation.canManage && renaming ? (
+        {conversation.canRename && renaming ? (
           <RenameForm
             conversation={conversation}
             busy={busy}
@@ -200,14 +212,15 @@ export function MembersPanel({
             }}
           />
         ) : (
-          (conversation.description || conversation.canManage) && (
+          conversation.kind !== "dm" && (
             <div className="mb-3 rounded-lg border border-line p-3">
               <div className="flex items-start gap-2">
                 <div className="min-w-0 flex-1">
                   <p className="text-[13.5px] font-medium text-ink">{conversation.kind === "channel" ? `#${conversation.name}` : conversation.name}</p>
                   {conversation.description && <p className="mt-1 text-[12.5px] whitespace-pre-wrap text-ink-soft">{conversation.description}</p>}
+                  {!conversation.canRename && <p className="mt-1.5 text-[12px] text-ink-mute">{renameDeniedText(conversation, t)}</p>}
                 </div>
-                {conversation.canManage && (
+                {conversation.canRename && (
                   <button type="button" onClick={() => setRenaming(true)} className="icon-btn h-7 w-7" aria-label={t("rename")} title={t("rename")}>
                     <Pencil size={14} aria-hidden />
                   </button>
@@ -346,6 +359,7 @@ function RenameForm({
           className={FIELD}
           placeholder={conversation.kind === "group" ? t("groupNamePlaceholder") : ""}
         />
+        {conversation.kind === "group" && <p className="mt-1 text-[12px] text-ink-mute">{t("groupNameEmptyHint")}</p>}
       </div>
       <div>
         <Label htmlFor="rename-desc">{t("description")}</Label>

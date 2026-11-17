@@ -3,7 +3,7 @@
 import { CalendarCheck, Hash, Lock, Video } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
-import { addTeamPeople, createChannel, createTeam, getTeamMembers, scheduleMeeting, startChat } from "./actions";
+import { addTeamPeople, createChannel, createTeam, getTeamMembers, renameTeam, scheduleMeeting, startChat } from "./actions";
 import { NAME_MAX, type ChatMessage, type ChatUser, type ConversationDetail, type Person, type TeamSummary } from "./shared";
 import { appsAsPeople, Avatar, BTN, BTN_MEET, BTN_PRIMARY, FIELD, Label, Modal, PeoplePicker, useApps, usePeople, useErrorText, useUserName } from "./ui";
 
@@ -129,6 +129,62 @@ export function CreateTeamDialog({ onClose, onCreated }: { onClose: () => void; 
           <Label>{t("members")}</Label>
           <PeoplePicker value={picked} onChange={setPicked} people={people} placeholder={t("searchPeople")} />
           <p className="mt-2 text-[12px] text-ink-mute">{t("teamHint")}</p>
+        </div>
+      </div>
+      <ErrorLine error={error} />
+    </Modal>
+  );
+}
+
+export function RenameTeamDialog({ team, onClose, onSaved }: { team: TeamSummary; onClose: () => void; onSaved: () => void }) {
+  const t = useTranslations("chat");
+  const [name, setName] = useState(team.name);
+  const [description, setDescription] = useState(team.description);
+  const { busy, error, submit } = useSubmit();
+  const save = () => {
+    if (!name.trim()) return;
+    void submit(() => renameTeam(team.id, name, description), onSaved);
+  };
+
+  return (
+    <Modal
+      title={t("renameTeam")}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" onClick={onClose} className={BTN}>
+            {t("cancel")}
+          </button>
+          <button type="button" disabled={busy || !name.trim()} onClick={save} className={BTN_PRIMARY}>
+            {t("save")}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div>
+          <Label htmlFor="team-rename">{t("teamName")}</Label>
+          <input
+            id="team-rename"
+            autoFocus
+            value={name}
+            maxLength={NAME_MAX}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && save()}
+            className={FIELD}
+            placeholder={t("teamNamePlaceholder")}
+          />
+        </div>
+        <div>
+          <Label htmlFor="team-rename-desc">{t("descriptionOptional")}</Label>
+          <textarea
+            id="team-rename-desc"
+            value={description}
+            maxLength={500}
+            rows={2}
+            onChange={(e) => setDescription(e.target.value)}
+            className={`${FIELD} h-auto py-1.5`}
+          />
         </div>
       </div>
       <ErrorLine error={error} />

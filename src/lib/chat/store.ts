@@ -730,6 +730,7 @@ export function detail(convId: string, userId: number): ConversationDetail {
     summary.joined &&
     (conv.kind === "group" || (conv.kind === "channel" && (role === "owner" || conv.created_by === userId || !!conv.is_private)));
   return {
+    canRename: canRename(conv, userId, summary.joined),
     ...summary,
     description: conv.description,
     teamName: team ? strv(team.name) : null,
@@ -738,6 +739,17 @@ export function detail(convId: string, userId: number): ConversationDetail {
     lastReadId: num(lastRead?.last_read_id),
     ...meetingsOf(convId),
   };
+}
+
+/**
+ * Who may rename a conversation: any member of a group; for a channel, the team's owners (always,
+ * even without joining it) and, among its members, its creator or anyone in a private channel.
+ */
+function canRename(conv: ConvRow, userId: number, member: boolean): boolean {
+  if (conv.kind === "group") return member;
+  if (conv.kind !== "channel" || !conv.team_id) return false;
+  if (teamRole(conv.team_id, userId) === "owner") return true;
+  return member && (conv.created_by === userId || !!conv.is_private);
 }
 
 function systemMessage(conv: ConvRow, actorId: number, meta: SystemMeta) {
@@ -842,8 +854,14 @@ export function joinChannel(convId: string, userId: number): void {
 }
 
 export function renameConversation(convId: string, userId: number, name: string | null, description?: string): void {
-  const conv = writable(convId, userId);
-  if (conv.kind === "dm" || !detail(convId, userId).canManage) throw new ChatError("forbidden");
+  const r = get("SELECT * FROM conversations WHERE id = ?", convId);
+  if (!r) throw new ChatError("notFound");
+  const conv = convRow(r);
+  const member = isMember(convId, userId);
+  if (!canRename(conv, userId, member)) {
+    readable(convId, userId); // notFound when I can't even see it
+    throw new ChatError("forbidden");
+  }
   if (conv.kind === "channel" && !name) throw new ChatError("invalid");
   run(
     "UPDATE conversations SET name = ?, description = ? WHERE id = ?",
@@ -917,6 +935,18 @@ export function addTeamMembers(teamId: string, userId: number, ids: number[]): v
   if (!added.length) return;
   const general = get("SELECT * FROM conversations WHERE team_id = ? AND is_private = 0 ORDER BY created LIMIT 1", teamId);
   if (general) systemMessage(convRow(general), userId, { action: "added", names: nameList(added) });
+  publish(all("SELECT user_id FROM team_members WHERE team_id = ?", teamId).map((r) => num(r.user_id)), { type: "conversations" });
+}
+
+/** Renames a team (owners only). Posts one line in its first public channel and refreshes every member. */
+export function renameTeam(teamId: string, userId: number, name: string, description?: string): void {
+  if (teamRole(teamId, userId) !== "owner") throw new ChatError(teamRole(teamId, userId) ? "forbidden" : "notFound");
+  const team = get("SELECT name, description FROM teams WHERE id = ?", teamId)!;
+  run("UPDATE teams SET name = ?, description = ? WHERE id = ?", name, description ?? strv(team.description), teamId);
+  if (name !== strv(team.name)) {
+    const general = get("SELECT * FROM conversations WHERE team_id = ? AND kind = 'channel' AND is_private = 0 ORDER BY created LIMIT 1", teamId);
+    if (general) systemMessage(convRow(general), userId, { action: "teamRenamed", name });
+  }
   publish(all("SELECT user_id FROM team_members WHERE team_id = ?", teamId).map((r) => num(r.user_id)), { type: "conversations" });
 }
 
