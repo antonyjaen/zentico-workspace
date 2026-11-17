@@ -33,10 +33,10 @@ integration. English and Spanish UI.
 | **Mail** | **Calendar** |
 | ![Chat](docs/screenshots/chat.png) | ![Dashboard](docs/screenshots/dashboard.png) |
 | **Chat** | **Dashboard** |
-| ![Booking page](docs/screenshots/booking.png) | ![Sign-in](docs/screenshots/sign-in.png) |
-| **Booking page** | **Sign-in** |
+| ![Sign-in](docs/screenshots/sign-in.png) | ![Desktop and mobile downloads](docs/screenshots/download.png) |
+| **Sign-in** | **Desktop and mobile apps** |
 
-<p align="center"><img src="docs/screenshots/download.png" width="70%" alt="Desktop and mobile downloads"><br><b>Desktop and mobile apps</b></p>
+<sub>Screenshots use demo data.</sub>
 
 ## Features
 
