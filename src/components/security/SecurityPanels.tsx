@@ -1,20 +1,23 @@
 "use client";
 
-import { Check, Copy, KeyRound, ShieldCheck, ShieldAlert, Trash2 } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, KeyRound, ShieldCheck, ShieldAlert, Trash2 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import {
+  changePasswordAction,
   confirmEnrollAction,
   createAppPasswordAction,
   deleteAppPasswordAction,
   disableAction,
   type Enrollment,
+  type PasswordError,
   type SecurityError,
   setRequire2faAction,
   setSessionLifetimeAction,
   startEnrollAction,
 } from "@/app/(apps)/settings/security/actions";
+import { PASSWORD_HINT, strengthEstimate, utf8Length } from "@/lib/security/password";
 
 const inputClass =
   "h-9 w-full rounded-lg border border-line-strong bg-sheet px-3 text-[14px] text-ink placeholder:text-ink-mute focus:border-ink focus:outline-none";
@@ -310,6 +313,248 @@ export function TwoFactorCard({
           <div className="mt-3">
             <VerifyLink mode={mode === "setup" ? "check" : "manage"} returnTo={returnTo} label={t("verify")} />
           </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/* --------------------------------------------------------------------- password */
+
+function SecretInput({
+  label,
+  value,
+  onChange,
+  autoComplete,
+  describedBy,
+  invalid,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  autoComplete: "current-password" | "new-password";
+  describedBy?: string;
+  invalid?: boolean;
+}) {
+  const t = useTranslations("security.password");
+  const [shown, setShown] = useState(false);
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[12.5px] text-ink-soft">{label}</span>
+      <span className="relative block">
+        <input
+          className={`${inputClass} pr-10`}
+          type={shown ? "text" : "password"}
+          autoComplete={autoComplete}
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          required
+          maxLength={256}
+          aria-describedby={describedBy}
+          aria-invalid={invalid || undefined}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+        <button
+          type="button"
+          className="icon-btn absolute top-0.5 right-0.5 h-8 w-8"
+          aria-label={shown ? t("hide") : t("show")}
+          title={shown ? t("hide") : t("show")}
+          aria-pressed={shown}
+          onClick={() => setShown((s) => !s)}
+        >
+          {shown ? <EyeOff size={15} aria-hidden /> : <Eye size={15} aria-hidden />}
+        </button>
+      </span>
+    </label>
+  );
+}
+
+export function PasswordCard({
+  canManage,
+  otpOn,
+  email,
+}: {
+  /** A working step-up security grant (fresh sign-in). */
+  canManage: boolean;
+  /** TOTP is on: Stalwart also wants a current code to change the password. */
+  otpOn: boolean;
+  email: string;
+}) {
+  const t = useTranslations("security.password");
+  const te = useTranslations("security.errors");
+  const [pending, start] = useTransition();
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<{ error: PasswordError; limit?: number; detail?: string } | null>(null);
+  const [done, setDone] = useState(false);
+
+  const close = () => {
+    setOpen(false);
+    setCurrent("");
+    setNext("");
+    setConfirm("");
+    setCode("");
+    setError(null);
+  };
+
+  const bytes = utf8Length(next);
+  const tooShort = next.length > 0 && bytes < PASSWORD_HINT.min;
+  const tooLong = bytes > PASSWORD_HINT.max;
+  const mismatch = confirm.length > 0 && next !== confirm;
+  const strength = strengthEstimate(next);
+  const strengthLabel = [t("strength0"), t("strength1"), t("strength2"), t("strength3"), t("strength4")][strength];
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (next !== confirm) return setError({ error: "mismatch" });
+    start(async () => {
+      setError(null);
+      const r = await changePasswordAction({ current, next, confirm, code: otpOn ? code : null });
+      if (!r.ok) return setError(r);
+      close();
+      setDone(true);
+    });
+  };
+
+  const errorText = (e: NonNullable<typeof error>) => {
+    if (e.error === "too_short" || e.error === "too_long") return t(e.error, { limit: e.limit ?? (e.error === "too_short" ? PASSWORD_HINT.min : PASSWORD_HINT.max) });
+    if (["invalid", "mismatch", "same", "weak", "rejected", "otp_required"].includes(e.error)) return t(e.error);
+    return te(te.has(e.error) ? e.error : "failed", { email });
+  };
+
+  const signInAgain = `/api/auth/login?hint=${encodeURIComponent(email)}&returnTo=${encodeURIComponent("/settings/security")}`;
+
+  return (
+    <section aria-labelledby="sec-password">
+      <SectionTitle id="sec-password">{t("title")}</SectionTitle>
+      <div className="mt-3 rounded-xl border border-line p-5">
+        {done ? (
+          <div role="status" className="space-y-3">
+            <div className="flex items-start gap-3">
+              <ShieldCheck size={20} className="mt-0.5 shrink-0 text-signal" aria-hidden />
+              <p className="text-[14px] font-medium text-ink">{t("doneTitle")}</p>
+            </div>
+            <p className="text-[13.5px] leading-relaxed text-ink-soft">{t("doneSessions")}</p>
+            <p className="rounded-lg border border-line bg-sheet-muted px-3 py-2 text-[12.5px] leading-relaxed text-ink-soft">
+              {t("doneMailApps")}
+            </p>
+            <a href={signInAgain} className={primaryBtn}>
+              {t("signInAgain")}
+            </a>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-start gap-3">
+              <KeyRound size={20} className="mt-0.5 shrink-0 text-ink-mute" aria-hidden />
+              <p className="text-[14px] leading-relaxed text-ink-soft">{t("body")}</p>
+            </div>
+            {!canManage ? (
+              <div className="mt-4 border-t border-line pt-4">
+                <p className="text-[13px] text-ink-soft">{t("verifyBody")}</p>
+                <div className="mt-3">
+                  <VerifyLink mode="manage" returnTo="/settings/security" label={t("verify")} />
+                </div>
+              </div>
+            ) : !open ? (
+              <div className="mt-4">
+                <button type="button" className={secondaryBtn} onClick={() => setOpen(true)}>
+                  {t("change")}
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={submit} className="mt-5 space-y-4 border-t border-line pt-5">
+                {/* Lets password managers file the new password under the right account. */}
+                <input type="email" name="username" autoComplete="username" value={email} readOnly hidden />
+                <SecretInput label={t("current")} value={current} onChange={setCurrent} autoComplete="current-password" />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <SecretInput
+                    label={t("new")}
+                    value={next}
+                    onChange={setNext}
+                    autoComplete="new-password"
+                    describedBy="pw-new-hint"
+                    invalid={tooShort || tooLong}
+                  />
+                  <SecretInput
+                    label={t("confirm")}
+                    value={confirm}
+                    onChange={setConfirm}
+                    autoComplete="new-password"
+                    describedBy="pw-confirm-hint"
+                    invalid={mismatch}
+                  />
+                </div>
+                <div className="grid gap-x-4 gap-y-1 text-[12px] sm:grid-cols-2">
+                  <div id="pw-new-hint" aria-live="polite">
+                    <p className={tooShort || tooLong ? "text-danger" : "text-ink-mute"}>
+                      {tooLong ? t("too_long", { limit: PASSWORD_HINT.max }) : t("lengthHint", { min: PASSWORD_HINT.min })}
+                    </p>
+                    {next && (
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <span className="flex gap-1" aria-hidden>
+                          {[1, 2, 3, 4].map((i) => (
+                            <span
+                              key={i}
+                              className={`h-1 w-6 rounded-full ${
+                                i > strength ? "bg-line-strong" : strength <= 1 ? "bg-danger" : strength === 2 ? "bg-amber" : "bg-signal"
+                              }`}
+                            />
+                          ))}
+                        </span>
+                        <span className="text-ink-mute">{t("strength", { label: strengthLabel })}</span>
+                      </div>
+                    )}
+                  </div>
+                  <p id="pw-confirm-hint" aria-live="polite" className={mismatch ? "text-danger" : "text-ink-mute"}>
+                    {confirm ? (mismatch ? t("mismatch") : t("match")) : ""}
+                  </p>
+                </div>
+                <p className="text-[12px] leading-relaxed text-ink-mute">{t("strengthHint")}</p>
+                {otpOn && (
+                  <label className="block sm:max-w-[50%] sm:pr-2">
+                    <span className="mb-1 block text-[12.5px] text-ink-soft">{t("code")}</span>
+                    <input
+                      className={`${inputClass} font-mono tracking-[0.3em]`}
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      pattern="[0-9 ]{6,7}"
+                      maxLength={7}
+                      required
+                      value={code}
+                      onChange={(e) => setCode(e.target.value.replace(/[^\d ]/g, ""))}
+                    />
+                  </label>
+                )}
+                <p className="rounded-lg border border-line bg-sheet-muted px-3 py-2 text-[12.5px] leading-relaxed text-ink-soft">
+                  {t("before")}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button type="submit" className={primaryBtn} disabled={pending || !current || !next || !confirm || mismatch}>
+                    {t("submit")}
+                  </button>
+                  <button type="button" className={secondaryBtn} disabled={pending} onClick={close}>
+                    {t("cancel")}
+                  </button>
+                </div>
+              </form>
+            )}
+            {error && (
+              <div role="alert" className="mt-3 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">
+                <p>{errorText(error)}</p>
+                {error.detail && <p className="mt-1 text-[12px] opacity-90">{t("detail", { detail: error.detail })}</p>}
+              </div>
+            )}
+            {error?.error === "reauth" && (
+              <div className="mt-3">
+                <VerifyLink mode="manage" returnTo="/settings/security" label={t("verify")} />
+              </div>
+            )}
+          </>
         )}
       </div>
     </section>

@@ -2,7 +2,14 @@ import { ArrowLeft } from "lucide-react";
 import { getTranslations } from "next-intl/server";
 import { cookies } from "next/headers";
 import Link from "next/link";
-import { AppPasswordsCard, type AppPasswordView, PolicyCard, type PolicyView, TwoFactorCard } from "@/components/security/SecurityPanels";
+import {
+  AppPasswordsCard,
+  type AppPasswordView,
+  PasswordCard,
+  PolicyCard,
+  type PolicyView,
+  TwoFactorCard,
+} from "@/components/security/SecurityPanels";
 import { requireSession } from "@/lib/auth";
 import { unseal } from "@/lib/crypto";
 import { listAppPasswords, otpEnabled, StalwartError } from "@/lib/security/stalwart";
@@ -65,6 +72,9 @@ export default async function SecuritySettingsPage({ searchParams }: { searchPar
             </p>
           )}
           <div className="mt-6">
+            <PasswordCard canManage={grantWorks && !!grant?.stepUp} otpOn={enabled === true} email={session.email} />
+          </div>
+          <div className="mt-8">
             <TwoFactorCard
               enabled={enabled}
               hasGrant={grantWorks}

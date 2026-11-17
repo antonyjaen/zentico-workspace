@@ -1,8 +1,9 @@
-// The user's own Stalwart credentials over JMAP (urn:stalwart:jmap): TOTP on the password
-// credential (x:AccountPassword, a singleton) and app passwords (x:AppPassword). Server-only.
+// The user's own Stalwart credentials over JMAP (urn:stalwart:jmap): the password and its TOTP
+// (x:AccountPassword, a singleton) and app passwords (x:AppPassword). Server-only.
 // Every call authenticates as the user with a short-lived grant carrying Stalwart's "security"
 // scope (the only scope that maps to sysAccountPassword* / sysAppPassword*).
 import { accountOf, jmapSession } from "../mcp/credential";
+import { type PasswordChangeResult, type PasswordInput, passwordSetArgs, readPasswordSetResult } from "./password";
 
 const USING = ["urn:ietf:params:jmap:core", "urn:stalwart:jmap"];
 
@@ -77,6 +78,23 @@ export async function setOtp(
   if (/not allowed|doesn't have one|does not support/i.test(description)) return { ok: false, error: "not_supported" };
   console.warn("[security] AccountPassword/set refused:", err?.type ?? "unknown");
   return { ok: false, error: "failed" };
+}
+
+/**
+ * Changes the account password (see password.ts for the request and why the TOTP is kept). On
+ * success Stalwart revokes every OAuth token of the account, `bearer` included: their credential
+ * version is a hash of the stored password hash.
+ */
+export async function changePassword(
+  bearer: string,
+  input: PasswordInput,
+): Promise<PasswordChangeResult | { ok: false; error: "authorize" | "rate_limited" }> {
+  try {
+    return readPasswordSetResult(await call(bearer, "x:AccountPassword/set", passwordSetArgs(input)));
+  } catch (e) {
+    if (e instanceof StalwartError && (e.code === "authorize" || e.code === "rate_limited")) return { ok: false, error: e.code };
+    throw e;
+  }
 }
 
 export type AppPassword = { id: string; description: string; createdAt: string | null; expiresAt: string | null };

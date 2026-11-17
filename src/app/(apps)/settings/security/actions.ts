@@ -4,8 +4,10 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { getSession, getSessionForSetup } from "@/lib/auth";
 import { seal, unseal } from "@/lib/crypto";
+import { checkPasswordInput, type PasswordChangeError, type PasswordInputError } from "@/lib/security/password";
 import { qrSvgPath } from "@/lib/security/qr";
 import {
+  changePassword,
   createAppPassword,
   destroyAppPassword,
   type OtpChangeError,
@@ -130,6 +132,49 @@ export async function disableAction(input: { code: unknown; password: unknown })
   resetAttempts(session.sub);
   recordStatus(session.sub, session.email, false);
   revalidatePath("/settings/security");
+  return { ok: true };
+}
+
+/* --------------------------------------------------------------------- password */
+
+export type PasswordError = SecurityError | PasswordInputError | PasswordChangeError;
+
+/**
+ * Changes the account password in Stalwart, which checks the current password (and the TOTP code
+ * when 2FA is on) and its own length/strength rules. Needs a fresh sign-in. On success Stalwart
+ * revokes the account's OAuth tokens, so this session must sign in again (the client sends it there).
+ */
+export async function changePasswordAction(input: {
+  current: unknown;
+  next: unknown;
+  confirm: unknown;
+  code: unknown;
+}): Promise<{ ok: true } | { ok: false; error: PasswordError; limit?: number; detail?: string }> {
+  const session = await getSession();
+  if (!session) return { ok: false, error: "signed_out" };
+  const code = input.code === null || input.code === undefined || input.code === "" ? null : parseCode(input.code);
+  if (code === null && input.code) return { ok: false, error: "invalid" };
+  const checked = checkPasswordInput({ current: input.current, next: input.next, confirm: input.confirm, code });
+  if ("error" in checked) return { ok: false, error: checked.error };
+  const grant = await grantFor(session, true);
+  if (!grant) return { ok: false, error: "reauth" };
+  if (!allowAttempt(session.sub)) return { ok: false, error: "rate_limited" };
+  try {
+    const result = await changePassword(grant.accessToken, checked);
+    if (!result.ok) {
+      if (result.error === "authorize") return { ok: false, error: "reauth" };
+      if (result.error === "failed") console.warn("[security] password change refused");
+      return result;
+    }
+  } catch (e) {
+    return stalwartFailure(e, "change password");
+  }
+  resetAttempts(session.sub);
+  console.info(`[security] password changed by ${session.email}`);
+  // The grant's token is revoked along with every other one; drop it with any pending enrollment.
+  const jar = await cookies();
+  jar.delete(SECURITY_COOKIE);
+  jar.delete(TOTP_PENDING_COOKIE);
   return { ok: true };
 }
 
