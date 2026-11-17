@@ -1,26 +1,32 @@
-// Master-account delegation in Stalwart (1.1): gives each person's @zentico.dev account full
-// access to the same person's accounts on the other company domains (same local part), through
-// per-collection ACLs (JMAP `shareWith`): every mailbox, calendar and address book, plus the Drive.
-// The delegated accounts then appear in the master's JMAP session (isPersonal: false), in IMAP
+// Master-account delegation in Stalwart (1.1): gives each person's account on the master domain
+// full access to the same person's accounts on the other organisation domains (same local part),
+// through per-collection ACLs (JMAP `shareWith`): every mailbox, calendar and address book, plus the
+// Drive. The delegated accounts then appear in the master's JMAP session (isPersonal: false), in IMAP
 // under "Shared Folders/<address>/…", and in CalDAV/CardDAV discovery.
 //
 // Stalwart can't do owner-level delegation between two *users*: `memberGroupIds` only accepts
 // Group accounts and an account's type can't be changed. So sending as the delegated address is
-// NOT granted by this (Identity/* and EmailSubmission/* are owner-only); see the report.
+// NOT granted by this (Identity/* and EmailSubmission/* are owner-only).
 //
 // Default: read-only. Prints the exact JMAP calls it would send (grant + rollback) as JSON.
 //   --apply      send the grant calls
 //   --rollback   remove every grant to the master (computed from the live state)
-//   --only=<local part>   restrict to one person (e.g. --only=alex.rivera)
+//   --only=<local part>                 restrict to one person (e.g. --only=ana.torres)
+//   --master-domain=<domain>            domain of the personal sign-ins (env MASTER_DOMAIN)
+//   --domains=<domain>[,<domain>...]    domains whose accounts are delegated (env DELEGATED_DOMAINS)
 //
-// Runs inside the workspace container (Node 24, reaches Stalwart at http://stalwart:8080) with the
-// recovery admin in STALWART_ADMIN ("user:password"), never on the command line:
-//   sudo sh -c 'STALWART_ADMIN=$(grep -E "^STALWART_RECOVERY_ADMIN=" /opt/workspace/.env | cut -d= -f2- | tr -d "\"") \
-//     docker exec -i -e STALWART_ADMIN workspace-workspace-1 node --input-type=module - [--apply|--rollback]' \
-//     < scripts/stalwart-master-accounts.mjs
+// Runs inside the workspace container (Node 24, reaches Stalwart at http://stalwart:8080, or set
+// STALWART_URL) with the recovery admin in STALWART_ADMIN ("user:password"), never on the command
+// line. From the deploy/ directory (STALWART_RECOVERY_ADMIN lives in deploy/.env):
+//   sudo sh -c 'STALWART_ADMIN=$(grep -E "^STALWART_RECOVERY_ADMIN=" .env | cut -d= -f2- | tr -d "\"") //     docker compose exec -T -e STALWART_ADMIN workspace node --input-type=module - //     --master-domain=example.com --domains=example.org,example.net [--apply|--rollback]' //     < ../scripts/stalwart-master-accounts.mjs
 
-const MASTER_DOMAIN = "zentico.dev";
-const DELEGATED_DOMAINS = ["acme.example", "globex.example", "initech.example"];
+const argValue = (name) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
+const MASTER_DOMAIN = (argValue("master-domain") ?? process.env.MASTER_DOMAIN ?? "example.com").trim().toLowerCase();
+const DELEGATED_DOMAINS = (argValue("domains") ?? process.env.DELEGATED_DOMAINS ?? "example.org")
+  .split(",")
+  .map((d) => d.trim().toLowerCase())
+  .filter((d) => d && d !== MASTER_DOMAIN);
+if (!DELEGATED_DOMAINS.length) throw new Error("Pass --domains=<domain>[,<domain>...] (other than the master domain)");
 /** Shared/role mailboxes are never delegated; people keep separate sign-ins for them. */
 const SKIP = new Set(["admin", "administrator", "postmaster", "abuse", "soporte", "facturas", "noreply", "no-reply"]);
 const URL_BASE = process.env.STALWART_URL ?? "http://stalwart:8080";
@@ -55,7 +61,7 @@ const RIGHTS = {
 };
 
 const args = new Set(process.argv.slice(2));
-const only = process.argv.find((a) => a.startsWith("--only="))?.slice(7).toLowerCase() ?? null;
+const only = argValue("only")?.toLowerCase() ?? null;
 const mode = args.has("--apply") ? "apply" : args.has("--rollback") ? "rollback" : "plan";
 if (args.has("--apply") && args.has("--rollback")) throw new Error("Pick one of --apply / --rollback");
 
@@ -79,7 +85,7 @@ async function jmap(using, methodCalls) {
   return out;
 }
 
-/** Pairs every master (@zentico.dev user) with its same-local-part users on the other domains. */
+/** Pairs every master (user on MASTER_DOMAIN) with its same-local-part users on the other domains. */
 async function pairs() {
   const r = await jmap([CORE, "urn:stalwart:jmap"], [
     ["x:Domain/get", { accountId: ADMIN_ACCOUNT, properties: ["name"] }, "d"],

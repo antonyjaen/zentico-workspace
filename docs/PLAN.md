@@ -5,7 +5,7 @@ familiar Google-Workspace-style layout, a privacy-first tone inspired by Proton,
 Vercel-style visual system (monochrome, Geist, 1px hairlines, tight radii) — in Zentico's own
 identity (no Google/Proton/Vercel logos or trade dress).
 
-Lives at **team.zentico.dev**, linked from the zentico.dev header.
+Lives at its own host (e.g. **team.example.com**), linked from the organisation's website.
 
 ## Principles
 
@@ -13,7 +13,7 @@ Lives at **team.zentico.dev**, linked from the zentico.dev header.
   and auto-update; this repo is only the product layer on top.
 - **One login.** Sign in with the email address and email password (OIDC via Stalwart).
 - **Private by default.** Tokens never reach the browser; remote images blocked; HTML mail
-  sanitized and isolated; everything stays on Zentico infrastructure.
+  sanitized and isolated; everything stays on your own infrastructure.
 - **Familiar, not copied.** Launcher, search bar, app rail, keyboard shortcuts — in a
   monochrome "Monochrome Grid" system: Geist + Geist Mono, hairline borders instead of shadows,
   solid-ink primary actions, Zentico cobalt only for focus/links, gradient avatars, dark mode first.
@@ -22,7 +22,7 @@ Lives at **team.zentico.dev**, linked from the zentico.dev header.
 ## Architecture
 
 ```
-team.zentico.dev (Next.js · React · Tailwind v4 · next-intl)
+team.example.com (Next.js · React · Tailwind v4 · next-intl)
  ├─ Login ─────────────── OIDC ──► Stalwart
  ├─ Mail/Calendar/Contacts/Files ─ JMAP ──► Stalwart   (push for live updates)
  ├─ Docs ──────────────── WOPI ──► Collabora
@@ -32,7 +32,7 @@ team.zentico.dev (Next.js · React · Tailwind v4 · next-intl)
 
 - Server-side JMAP client (`src/lib/jmap.ts`) using the user's OAuth access token.
 - Session: AES-GCM encrypted httpOnly cookie; middleware refreshes access tokens.
-- Deployed as a container next to Stalwart on the Oracle server, behind Caddy.
+- Deployed as a container next to Stalwart on the same server, behind Caddy (see `deploy/`).
 
 ## Phases
 
@@ -44,8 +44,8 @@ team.zentico.dev (Next.js · React · Tailwind v4 · next-intl)
 - [x] Workspace shell: app rail, search bar, app launcher, theme menu, account menu
 - [x] Mail: folder list with unread counts, message list, pagination, full-text search
 - [x] "Coming soon" pages for the remaining apps
-- [x] Workspace link in the zentico.dev header
-- [ ] Production deployment at team.zentico.dev
+- [x] Workspace link in the website header
+- [x] Production deployment (reference setup in `deploy/`)
 
 ### 1. Mail — built, verified live against Stalwart (2026-11-15)
 - [x] Read view: thread conversation, sanitized HTML in a sandboxed frame, remote-image blocking
@@ -128,7 +128,7 @@ person who said/typed it, whoever is recording. Writes need the speaker's confir
   `hello`, `command` {id, text, source, room, title, meetingUrl, speaker, createdAt, timeZone, transcript[]},
   `cancel` {id}, ping every 15 s; commands are claimed atomically) and `POST /api/agent/commands/<id>/events`
   (`started` | `progress` {text ≤ 500} | `done` {result ≤ 8,000} | `failed` {error}) → {status, cancelled}
-- [x] `tools/zentico-bridge.mjs` (Node 18+, no deps): `node zentico-bridge.mjs --url https://team.zentico.dev
+- [x] `tools/zentico-bridge.mjs` (Node 18+, no deps): `node zentico-bridge.mjs --url https://team.example.com
   --token <token> --cwd <dir> [--claude claude]` (or `ZENTICO_TOKEN`). One command at a time; runs
   `claude -p --output-format stream-json --verbose --mcp-config <temp> --strict-mcp-config --allowedTools
   mcp__zentico,Read,Glob,Grep` with the prompt on stdin (instruction + meeting, speaker, date/time zone, the

@@ -1,5 +1,5 @@
-// Delegated ("master") accounts: a person's @zentico.dev sign-in reaches the same person's
-// mailboxes on the other company domains through Stalwart ACL sharing (see
+// Delegated ("master") accounts: a person's sign-in on the main domain reaches the same
+// person's mailboxes on the organisation's other domains through Stalwart ACL sharing (see
 // scripts/stalwart-master-accounts.mjs). Those accounts show up in the JMAP session with
 // isPersonal: false; the workspace can "act as" one of them, which makes it the primary account
 // for every capability it offers. Pure functions, no Next.js imports (unit-testable).
@@ -23,8 +23,8 @@ export function personalAccountId(s: RawJmapSession): string | null {
 
 /**
  * Accounts this token can act as: shared (non-personal), writable mail accounts of the same person
- * on another domain, i.e. the same local part as the personal account ("alex.rivera@zentico.dev"
- * → "alex.rivera@initech.example"). Access itself is enforced by Stalwart; the local-part rule only
+ * on another domain, i.e. the same local part as the personal account ("ana.torres@example.com"
+ * → "ana.torres@example.org"). Access itself is enforced by Stalwart; the local-part rule only
  * keeps a colleague's shared calendar or mailbox out of the account switcher.
  */
 export function delegatedAccounts(s: RawJmapSession): DelegatedAccount[] {

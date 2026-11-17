@@ -237,8 +237,8 @@ export type ConversationDetail = ConversationSummary & {
 export type Person = { email: string; name: string; bot?: BotInfo };
 
 /**
- * Stalwart principals often carry the address as their name; turn "leo.park@x" into
- * "Leo Park" so people read like people. Real names are kept.
+ * Stalwart principals often carry the address as their name; turn "ana.torres@x" into
+ * "Ana Torres" so people read like people. Real names are kept.
  */
 export function readableName(name: string | null | undefined, email: string): string {
   const n = (name ?? "").trim();
@@ -423,8 +423,14 @@ export const driveOpenHref = (r: { accountId: string | null; fileId: string }) =
 export const driveDownloadHref = (r: { accountId: string | null; fileId: string }) =>
   `/api/drive/file/${encodeURIComponent(r.fileId)}${r.accountId ? `?account=${encodeURIComponent(r.accountId)}` : ""}`;
 
-/** Hosts whose links unfurl into Drive cards (besides the current origin). */
-export const DRIVE_LINK_HOSTS = ["team.zentico.dev"];
+/**
+ * Extra hosts whose links unfurl into Drive cards, besides the app's own host (APP_URL on the
+ * server, the current origin in the browser): DRIVE_LINK_HOSTS, comma separated (e.g. an old domain).
+ */
+export const DRIVE_LINK_HOSTS: string[] = (process.env.DRIVE_LINK_HOSTS ?? "")
+  .split(",")
+  .map((h) => h.trim().toLowerCase())
+  .filter(Boolean);
 
 const DRIVE_PATH = /^\/(?:drive|docs\/(?:edit|md|draw)\/[^/]+|api\/drive\/file\/[^/]+|api\/chat\/drive\/open)$/;
 

@@ -15,7 +15,11 @@ export default async function DownloadPage() {
   const t = await getTranslations("downloads");
   const files = await availableDownloads();
   const mine = platformFromUA((await headers()).get("user-agent"));
-  const host = (await headers()).get("host") ?? "";
+  // The configured public host (APP_URL), not whatever Host header reached the container.
+  let host = (await headers()).get("host") ?? "";
+  try {
+    if (process.env.APP_URL) host = new URL(process.env.APP_URL).host;
+  } catch {}
 
   const platforms: { id: Platform; icon: typeof Monitor; label: string }[] = [
     { id: "windows", icon: Monitor, label: "Windows" },

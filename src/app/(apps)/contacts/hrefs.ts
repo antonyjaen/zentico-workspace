@@ -24,7 +24,7 @@ export function avatarGradient(seed: string) {
 }
 
 export function initials(name: string) {
-  // "Antony Jaén (zentico.dev)" → "AJ": drop parenthesized/bracketed suffixes and addresses first.
+  // "Ana Torres (example.com)" → "AT": drop parenthesized/bracketed suffixes and addresses first.
   const base = name.replace(/\s*[([<][^)\]>]*[)\]>]\s*/g, " ").replace(/\S+@\S+/g, " ").trim() || name.split("@")[0];
   const parts = base.replace(/[^\p{L}\p{N}\s]/gu, " ").trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return "?";

@@ -1,4 +1,4 @@
-# Multi-stage build producing a minimal Next.js standalone image (linux/arm64 on the Oracle server).
+# Multi-stage build producing a minimal Next.js standalone image (amd64 or arm64).
 FROM node:24-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
