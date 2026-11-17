@@ -33,6 +33,13 @@ data/
 # Operational output captured from scripts run against a real server (contains real accounts)
 scripts/*.plan.json
 
+# Self-hosting (deploy/): files rendered from the *.example templates and runtime data
+deploy/Caddyfile
+deploy/livekit.yaml
+deploy/egress.yaml
+deploy/caddy/
+deploy/stalwart/
+
 # Logs, scratch and temp files
 *.log
 logs/

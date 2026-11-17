@@ -1,0 +1,17 @@
+# Copy to deploy/livekit.yaml (chmod 600). The key/secret pair must match LIVEKIT_API_KEY /
+# LIVEKIT_API_SECRET in workspace.env and egress.yaml (secret: at least 32 characters,
+# e.g. openssl rand -hex 32). Signalling stays on 127.0.0.1:7880 behind Caddy (meet.example.com);
+# media uses TCP 7881 and UDP 7882 directly, so open both in the firewall.
+port: 7880
+bind_addresses:
+  - 127.0.0.1
+rtc:
+  tcp_port: 7881
+  udp_port: 7882
+  use_external_ip: true
+keys:
+  CHANGE_ME_LIVEKIT_API_KEY: CHANGE_ME_LIVEKIT_API_SECRET
+logging:
+  level: info
+redis:
+  address: 127.0.0.1:6380

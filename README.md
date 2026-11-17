@@ -144,59 +144,118 @@ transformers.js (in-browser Whisper) · Tauri v2 · Capacitor 8.
 
 ## Self-hosting
 
-> [!NOTE]
-> This repository contains the web app and its `Dockerfile`. The compose file and proxy
-> configuration for Stalwart, LiveKit, Egress, Redis, Whisper, Collabora and Caddy are **not
-> included yet** (TODO). The steps below describe what the app needs from them.
+[`deploy/`](deploy) holds a reference deployment for one server: Docker Compose with the app,
+Stalwart (mail, calendar, contacts, files and sign-in), LiveKit + Egress + Redis (Meet and
+recordings), Caddy (HTTPS) and, optionally, Collabora Online (Docs) and a Whisper server
+(transcripts). It needs a server with a public IPv4, 4 GB of RAM or more (8 GB with Collabora and
+Whisper) and a domain whose DNS you control. Below, `example.com` stands for your domain.
 
-### 1. Prerequisites
+| Host | Service |
+| --- | --- |
+| `team.example.com` | this app |
+| `mail.example.com` | Stalwart (web admin, OIDC issuer, JMAP) |
+| `meet.example.com` | LiveKit |
+| `office.example.com` | Collabora (optional) |
 
-| Service | Needed for | Required |
-| --- | --- | --- |
-| Stalwart (with OIDC) | sign-in, mail, calendar, contacts, Drive | yes |
-| Reverse proxy with TLS (e.g. Caddy) | HTTPS for the app and its services | yes |
-| LiveKit (+ Egress and Redis for video recording) | Meet, calls | no |
-| Collabora Online | office documents | no |
-| Whisper server with an OpenAI-compatible API | meeting transcripts, voice commands | no |
+### Quick install
 
-Optional services are detected from the environment; when one is missing the related screen says
-it isn't configured.
+On a fresh Ubuntu 22.04/24.04 server:
 
-### 2. DNS
+```bash
+git clone https://github.com/antonyjaen/zentico-workspace.git
+cd zentico-workspace
+sudo ./deploy/install.sh            # or: --domain example.com --email you@example.com --yes [--office] [--whisper]
+```
 
-Point a hostname at your proxy for each public service, for example `workspace.example.com` (this
-app), `mail.example.com` (Stalwart), `meet.example.com` (LiveKit) and `office.example.com` (Collabora),
-plus the usual mail records (MX, SPF, DKIM, DMARC) that Stalwart documents.
+The script installs Docker (from Docker's apt repository) if needed, generates every secret,
+writes `deploy/.env` and `deploy/workspace.env` and renders the Caddy, LiveKit and Egress configs,
+prints the DNS records and waits until they resolve, opens the ports in `ufw` when it is active,
+starts everything and checks that it answers. It is safe to re-run: existing secrets and files are
+kept. It then prints the remaining manual steps, which are steps 4–6 below (Stalwart setup and its
+OIDC client).
 
-### 3. OIDC client in Stalwart
+To let an AI agent with SSH access do it for you, give it the prompt in
+[`deploy/SETUP_PROMPT.md`](deploy/SETUP_PROMPT.md).
 
-Create an OAuth client in Stalwart for this app:
+### Manual install
 
-- **Client ID**: e.g. `zentico-workspace` (→ `OIDC_CLIENT_ID`), with a client secret (→ `OIDC_CLIENT_SECRET`).
-- **Redirect URI**: `https://<your app host>/api/auth/callback`.
-- **Scopes**: `openid`, `offline_access`, the mail / contacts / calendars / files scopes, and
-  Stalwart's **security** scope (used for two-step verification, app passwords, MCP tokens and
-  booking pages).
+**1. DNS.** Create `A` records for `team`, `mail`, `meet` (and `office`) pointing at the server,
+plus the mail records: `MX example.com → 10 mail.example.com`, `TXT example.com "v=spf1 mx -all"`,
+a DMARC record at `_dmarc.example.com`, and later the DKIM record Stalwart shows. Set the server's
+reverse DNS (PTR) to `mail.example.com`.
 
-TODO: step-by-step screenshots of the Stalwart admin UI.
+**2. Firewall.** Open TCP 80, 443, 25, 465, 587, 993 (mail clients), 7881 and UDP 7882 (LiveKit media).
 
-### 4. Configuration
+**3. Configuration.** In `deploy/`, copy each example and fill it in; secrets must match where noted:
 
-Copy [`.env.example`](.env.example) and fill it in. Required:
+```bash
+cd deploy
+cp .env.example .env                       # DOMAIN, ACME_EMAIL, STALWART_RECOVERY_ADMIN, COMPOSE_PROFILES
+cp workspace.env.example workspace.env     # the app's environment (see the root .env.example)
+cp Caddyfile.example Caddyfile             # replace example.com; drop the office block without Collabora
+cp livekit.yaml.example livekit.yaml       # keys: <LIVEKIT_API_KEY>: <LIVEKIT_API_SECRET>
+cp egress.yaml.example egress.yaml         # the same key and secret
+mkdir -p stalwart/etc && cp stalwart-config.json stalwart/etc/config.json
+sudo chown -R 2000:2000 stalwart           # Stalwart runs as uid 2000
+chmod 600 .env workspace.env livekit.yaml egress.yaml
+
+openssl rand -hex 16    # Stalwart admin password  → STALWART_RECOVERY_ADMIN=admin:<password>
+openssl rand -hex 32    # SESSION_SECRET
+openssl rand -hex 32    # LIVEKIT_API_SECRET (LIVEKIT_API_KEY: any short id, e.g. "ZW" + openssl rand -hex 8)
+openssl rand -hex 32    # OIDC_CLIENT_SECRET (or use the secret Stalwart generates in step 5)
+```
+
+Optional services are Compose profiles: `COMPOSE_PROFILES=office,whisper` in `deploy/.env`. With
+`office`, set `COLLABORA_URL=https://office.example.com` in `workspace.env` (Collabora only accepts
+documents from `team.example.com`); with `whisper`, set `WHISPER_URL=http://whisper:8000` (the
+model is `WHISPER_MODEL`, the language hint `WHISPER_LANGUAGE`).
+
+**4. Start.**
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+**5. Stalwart.** Open `https://mail.example.com/admin` and sign in as `admin` with the password
+from `STALWART_RECOVERY_ADMIN`. Set the server hostname to `mail.example.com`, add your domain and
+publish the DKIM record it shows, and create the user accounts. For TLS on the mail ports, point
+Stalwart's certificate at `/opt/stalwart/certs/fullchain.pem` and `/opt/stalwart/certs/privkey.pem`;
+`sudo ./install.sh --sync-certs` copies Caddy's `mail.example.com` certificate there (the quick
+install runs it daily from cron).
+
+**6. OIDC client.** In Stalwart, create an OAuth client for the app:
+
+- **Client ID**: `zentico-workspace` (→ `OIDC_CLIENT_ID`), with the client secret from
+  `OIDC_CLIENT_SECRET` in `workspace.env` (if Stalwart generates one instead, copy it there and run
+  `docker compose up -d workspace`).
+- **Redirect URI**: `https://team.example.com/api/auth/callback`.
+- **Scopes**: `openid`, `offline_access`, `urn:ietf:params:oauth:scope:mail`, `…:contacts`,
+  `…:calendars`, `…:files`, and Stalwart's **security** scope (two-step verification, app
+  passwords, MCP tokens and booking pages).
+
+Then sign in at `https://team.example.com` with a Stalwart account.
+
+### Configuration reference
+
+Required in `workspace.env`:
 
 | Variable | Description |
 | --- | --- |
 | `OIDC_ISSUER` | Stalwart's public URL, e.g. `https://mail.example.com` |
-| `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | the client from step 3 |
-| `APP_URL` | public URL of this app (used for the OAuth redirect) |
-| `SESSION_SECRET` | random string of at least 32 characters, e.g. `openssl rand -base64 48` |
+| `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | the client from step 6 |
+| `APP_URL` | public URL of this app, e.g. `https://team.example.com` |
+| `SESSION_SECRET` | random string of at least 32 characters (`openssl rand -hex 32`) |
 
 Optional: `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`, `EGRESS_ENABLED`,
 `COLLABORA_URL`, `WOPI_BASE_URL`, `WHISPER_URL` / `WHISPER_MODEL` / `WHISPER_LANGUAGE`, `DATA_DIR`,
-`CHAT_DB_PATH`, `CHAT_FILES_DIR`, `WORKSPACE_ADMINS`, `ORG_DOMAINS`, `BUILD_ID` and the
-`CONNECT_<PROVIDER>_CLIENT_ID` / `_SECRET` pairs for connected apps. Each is documented in `.env.example`.
+`CHAT_DB_PATH`, `CHAT_FILES_DIR`, `WORKSPACE_ADMINS`, `ORG_DOMAINS`, `DRIVE_LINK_HOSTS`, `BUILD_ID`
+and the `CONNECT_<PROVIDER>_CLIENT_ID` / `_SECRET` pairs for connected apps. Each is documented in
+[`.env.example`](.env.example).
 
-### 5. Build and run
+### Running the image on its own
+
+If you already run Stalwart and the other services, you can run just the app:
 
 ```bash
 docker build -t zentico-workspace .

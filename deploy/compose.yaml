@@ -1,0 +1,115 @@
+# Reference deployment of Zentico Workspace on one server (see README → Self-hosting).
+# Run from this directory: `docker compose up -d`. Compose reads ./.env (copy .env.example) for
+# DOMAIN, the Stalwart recovery admin and COMPOSE_PROFILES; the app reads ./workspace.env.
+#
+# Caddy, LiveKit and Egress use the host network; everything else publishes only on 127.0.0.1
+# except Stalwart's mail ports. Optional services are Compose profiles:
+#   office  → Collabora Online (Docs)        whisper → speaches (meeting transcripts)
+# e.g. COMPOSE_PROFILES=office,whisper in ./.env.
+
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy/data:/data
+      - ./caddy/config:/config
+
+  stalwart:
+    image: stalwartlabs/stalwart:latest
+    restart: unless-stopped
+    environment:
+      # "admin:<password>": the admin login for the web admin (https://mail.<domain>/admin).
+      STALWART_RECOVERY_ADMIN: ${STALWART_RECOVERY_ADMIN:?set STALWART_RECOVERY_ADMIN in .env}
+    ports:
+      - "25:25"
+      - "465:465"
+      - "587:587"
+      - "143:143"
+      - "993:993"
+      - "4190:4190"
+      - "127.0.0.1:8081:8080"
+    volumes:
+      # Owned by uid 2000 (the image's stalwart user). etc/config.json selects the data store.
+      - ./stalwart:/opt/stalwart
+      - ./stalwart/etc:/etc/stalwart
+
+  workspace:
+    build:
+      context: ..
+    image: zentico-workspace:latest
+    restart: unless-stopped
+    env_file:
+      - ./workspace.env
+    ports:
+      - "127.0.0.1:3100:3000"
+    volumes:
+      - workspace_data:/app/data
+    # Reach Stalwart, LiveKit and Collabora through the host Caddy instead of hairpinning via the
+    # public IP.
+    extra_hosts:
+      - "mail.${DOMAIN:?set DOMAIN in .env}:host-gateway"
+      - "meet.${DOMAIN}:host-gateway"
+      - "office.${DOMAIN}:host-gateway"
+
+  livekit:
+    image: livekit/livekit-server:latest
+    restart: unless-stopped
+    network_mode: host
+    command: --config /etc/livekit.yaml
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    depends_on: [redis]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:6380:6379"
+
+  # Video recording (EGRESS_ENABLED=true): writes MP4s into the app's data volume at the same path.
+  egress:
+    image: livekit/egress:latest
+    restart: unless-stopped
+    network_mode: host
+    cap_add: [SYS_ADMIN]
+    environment:
+      EGRESS_CONFIG_FILE: /etc/egress.yaml
+    volumes:
+      - ./egress.yaml:/etc/egress.yaml:ro
+      - workspace_data:/app/data
+    depends_on: [redis, livekit]
+
+  whisper:
+    profiles: [whisper]
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    restart: unless-stopped
+    environment:
+      WHISPER__COMPUTE_TYPE: int8
+      WHISPER__CPU_THREADS: "${WHISPER_CPU_THREADS:-4}"
+      # Keep the model loaded (no cold start per meeting).
+      STT_MODEL_TTL: "-1"
+    # Internal only: the app reaches it at http://whisper:8000 (WHISPER_URL).
+    volumes:
+      - whisper_cache:/home/ubuntu/.cache/huggingface/hub
+
+  collabora:
+    profiles: [office]
+    image: collabora/code:latest
+    restart: unless-stopped
+    cap_add: [MKNOD]
+    environment:
+      # Only this app may open documents (WOPI host).
+      aliasgroup1: "https://team.${DOMAIN}:443"
+      extra_params: "--o:ssl.enable=false --o:ssl.termination=true"
+    ports:
+      - "127.0.0.1:9980:9980"
+    extra_hosts:
+      - "team.${DOMAIN}:host-gateway"
+
+volumes:
+  workspace_data:
+  whisper_cache:

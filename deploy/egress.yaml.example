@@ -1,0 +1,10 @@
+# Copy to deploy/egress.yaml (chmod 600). Same key/secret as livekit.yaml.
+log_level: info
+api_key: CHANGE_ME_LIVEKIT_API_KEY
+api_secret: CHANGE_ME_LIVEKIT_API_SECRET
+ws_url: ws://127.0.0.1:7880
+redis:
+  address: 127.0.0.1:6380
+health_port: 9091
+cpu_cost:
+  max_cpu_utilization: 0.9
