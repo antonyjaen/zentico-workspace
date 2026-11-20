@@ -130,7 +130,7 @@ for cmd in curl openssl dig awk; do command -v "$cmd" >/dev/null || missing+=("$
 if [ ${#missing[@]} -gt 0 ]; then
   log "Installing ${missing[*]}"
   apt-get update -qq
-  apt-get install -y -qq ca-certificates curl openssl dnsutils gawk >/dev/null
+  apt-get install -y -qq ca-certificates curl openssl dnsutils gawk sqlite3 rclone >/dev/null
 fi
 
 if ! command -v docker >/dev/null || ! docker compose version >/dev/null 2>&1; then
@@ -318,6 +318,15 @@ if [ ! -f "$cron" ]; then
   chmod 644 "$cron"
 fi
 
+# Nightly local backup (mail, app data, config). Off-site copy: README → Backups.
+bcron=/etc/cron.d/zentico-workspace-backup
+if [ ! -f "$bcron" ]; then
+  printf '# Nightly backup; settings in %s/backup.env.
+30 3 * * * root %s/backup.sh >>/var/log/zentico-workspace-backup.log 2>&1
+' "$DEPLOY_DIR" "$DEPLOY_DIR" >"$bcron"
+  chmod 644 "$bcron"
+fi
+
 # ---------- 7. next steps ----------
 
 cat <<EOF
@@ -341,6 +350,9 @@ Next steps (README → Self-hosting has the details):
    scopes         openid, offline_access, mail, contacts, calendars, files and the "security" scope
 
 3. Sign in at https://team.$DOMAIN with a Stalwart account.
+
+4. Backups run every night to /var/backups/zentico-workspace (last 7 kept). Add an encrypted
+   off-site copy (Google Drive, S3, B2…): README → Backups. Test once with: sudo $DEPLOY_DIR/backup.sh
 
 Re-running this script is safe; it keeps every secret and file it already wrote.
 EOF

@@ -260,6 +260,49 @@ Optional: `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`, `EGRESS_ENAB
 and the `CONNECT_<PROVIDER>_CLIENT_ID` / `_SECRET` pairs for connected apps. Each is documented in
 [`.env.example`](.env.example).
 
+### Backups
+
+Recommended for every server. [`deploy/backup.sh`](deploy/backup.sh) archives the mail store
+(Stalwart is paused for a few seconds for a consistent copy), every SQLite database through
+`.backup`, the config files and, if present, Nextcloud AIO (files plus a `pg_dump`). The installer
+schedules it nightly at 03:30 server time and keeps the last 7 archives in
+`/var/backups/zentico-workspace`.
+
+A copy on the same disk doesn't survive losing the server, so add an encrypted off-site copy. With
+Google Drive (15 GB free) and [rclone](https://rclone.org):
+
+```bash
+# 1. Authorize Google Drive. Run this from your own computer so the browser step works over SSH:
+#    It prints only the sign-in link (never the token); open it, approve, and the command returns.
+ssh -L 53682:127.0.0.1:53682 you@server \
+  'sudo rclone config create gdrive drive scope=drive.file 2>&1 | grep --line-buffered -o "http://127.0.0.1:53682/auth[^ ]*"'
+#    scope=drive.file means rclone only sees the files it creates, not the rest of your Drive.
+
+# 2. Encrypt everything before it leaves the server (Google only stores ciphertext):
+P1=$(openssl rand -hex 20); P2=$(openssl rand -hex 20)
+sudo rclone config create gcrypt crypt remote=gdrive:zentico-backup \
+  password=$(rclone obscure "$P1") password2=$(rclone obscure "$P2") >/dev/null
+echo "password=$P1 password2=$P2" | sudo tee /root/backup-secret.txt >/dev/null; sudo chmod 600 /root/backup-secret.txt
+
+# 3. Point the backup at it and run it once:
+cat <<'EOF' | sudo tee deploy/backup.env
+RCLONE_REMOTE=gcrypt:
+KEEP_DAYS=30
+ALERT_EMAIL=you@example.com
+ALERT_FROM=backup@example.com
+EOF
+sudo deploy/backup.sh && sudo rclone ls gcrypt:
+```
+
+Store the two crypt passwords from `/root/backup-secret.txt` somewhere outside the server (a
+password manager): without them the off-site copy can't be decrypted. Any other rclone remote (S3,
+Backblaze B2, another server over SFTP) works the same way. `ALERT_EMAIL` gets a mail through the
+local Stalwart whenever a run fails.
+
+To restore: `rclone copy gcrypt:zw-backup-<date>.tar.gz .`, extract it, then put `stalwart/`,
+`data/<service>/` (into the service's `/app/data` volume) and `config/` back with the services
+stopped; Nextcloud's database restores with `psql` from `nextcloud/database.sql.gz`.
+
 ### Running the image on its own
 
 If you already run Stalwart and the other services, you can run just the app:

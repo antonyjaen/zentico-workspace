@@ -37,6 +37,9 @@ Steps:
    zentico-workspace, redirect URI https://team.<domain>/api/auth/callback and the scopes listed).
    Tell me which command reveals each secret I need to paste (e.g. `sudo grep OIDC_CLIENT_SECRET
    deploy/workspace.env`) and let me run it myself.
+6. Set up the encrypted off-site backup from README → Backups (Google Drive or another rclone
+   remote). I open the sign-in link and approve it myself; never show me the crypt passwords, just
+   tell me the command that reveals them so I can save them in my password manager.
 
 Verify success and report each check as pass/fail:
 - `cd deploy && sudo docker compose ps`: every service is running (none restarting).
@@ -45,6 +48,7 @@ Verify success and report each check as pass/fail:
 - `curl -fsSI https://meet.<domain>` answers (LiveKit).
 - With --office: `curl -fsS https://office.<domain>/hosting/discovery | head -c 200` returns XML.
 - I can sign in at https://team.<domain> with a Stalwart account and see the mail inbox.
+- `sudo deploy/backup.sh` ends with "backup done", and `sudo rclone ls gcrypt:` lists the archive.
 
 Safety rules:
 - Never print, echo, log or paste secret values (deploy/.env, deploy/workspace.env, livekit.yaml,
