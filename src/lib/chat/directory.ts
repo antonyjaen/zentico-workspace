@@ -207,6 +207,30 @@ async function buildDirectory(me: ChatUser): Promise<DirectoryResult> {
   return { people, partial: d.partial, orgDomains: d.orgDomains, contacts, books, diagnostics: d };
 }
 
+const gPool = globalThis as typeof globalThis & {
+  __zwRecipientPool?: Map<string, { at: number; value: Promise<Person[]> }>;
+};
+const poolCache = (gPool.__zwRecipientPool ??= new Map());
+
+/**
+ * People to suggest as mail recipients beyond the address book: the org directory plus recent
+ * correspondents of the mailbox being used (cached per user and account, like the directory).
+ */
+export async function recipientPool(me: ChatUser): Promise<Person[]> {
+  const key = `${me.id}:${await primaryAccount(CAP.mail).catch(() => "")}`;
+  const hit = poolCache.get(key);
+  if (hit && Date.now() - hit.at < DIRECTORY_TTL_MS) return hit.value;
+  const value = Promise.all([
+    loadDirectory(me)
+      .then((r) => r.people.filter((p) => !HIDDEN_LOCALS.has(localPart(p.email))))
+      .catch(() => [] as Person[]),
+    mailCorrespondents().catch(() => [] as Person[]),
+  ]).then(([dir, mail]) => [...dir, ...mail].map(({ email, name }) => ({ email, name })));
+  if (poolCache.size > 1000) poolCache.clear();
+  poolCache.set(key, { at: Date.now(), value });
+  return value;
+}
+
 /** Directory people (Stalwart principals) plus everyone already known to Chat (and fallbacks). */
 export async function directory(me: ChatUser): Promise<Person[]> {
   return (await loadDirectory(me)).people.map(({ email, name }) => ({ email, name }));

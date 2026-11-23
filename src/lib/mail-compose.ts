@@ -562,9 +562,35 @@ export async function uploadBlob(
 export async function suggestContacts(query: string): Promise<Address[]> {
   const q = query.trim().slice(0, 100);
   if (q.length < 2) return [];
-  try {
-    return (await suggestRecipients(q)).map((c) => ({ name: c.name || null, email: c.email }));
-  } catch {
-    return []; // contacts unavailable: autocomplete simply stays empty
-  }
+  const needle = q.toLowerCase();
+  const [contacts, pool] = await Promise.all([
+    suggestRecipients(q).catch(() => []), // contacts unavailable: rely on the other sources
+    recipientPool().catch(() => []),
+  ]);
+  // Address-book matches first, then directory people and recent correspondents.
+  const others = pool
+    .map((p) => {
+      const name = p.name && p.name !== p.email ? p.name : "";
+      const hay = `${name} ${p.email}`.toLowerCase();
+      if (!hay.includes(needle)) return null;
+      const prefix = p.email.toLowerCase().startsWith(needle) || name.toLowerCase().startsWith(needle);
+      return { name, email: p.email, score: prefix ? 0 : 1 };
+    })
+    .filter((x) => x !== null)
+    .sort((a, b) => a.score - b.score);
+  const seen = new Set<string>();
+  return [...contacts, ...others]
+    .filter((c) => !seen.has(c.email.toLowerCase()) && seen.add(c.email.toLowerCase()))
+    .slice(0, 8)
+    .map((c) => ({ name: c.name || null, email: c.email }));
+}
+
+/** Directory + recent correspondents (lazy import: chat pulls in server-only stores). */
+async function recipientPool() {
+  const [{ chatUserOrNull }, { recipientPool: pool }] = await Promise.all([
+    import("./chat/session"),
+    import("./chat/directory"),
+  ]);
+  const me = await chatUserOrNull();
+  return me ? pool(me) : [];
 }
