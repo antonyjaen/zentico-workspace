@@ -123,6 +123,7 @@ async function composeInput(args: Args) {
   const html = mailDocument(format === "markdown" ? markdownToHtml(body) : textToHtml(body));
   return {
     identityId: identity.id,
+    identityAccountId: identity.accountId,
     to,
     cc,
     bcc: emailList(args, "bcc"),
@@ -534,6 +535,7 @@ export const MAIL_TOOLS: Tool[] = [
       const cc = [...new Set([...prefill.cc.map((a) => a.email), ...emailList(args, "cc")])];
       return mailDestination(bool(args, "send"), {
         identityId: identity.id,
+        identityAccountId: identity.accountId,
         to: prefill.to.map((a) => a.email),
         cc,
         bcc: [],
@@ -578,6 +580,7 @@ export const MAIL_TOOLS: Tool[] = [
       const attachments = bool(args, "includeAttachments", true) ? prefill.attachments : [];
       const result = await mailDestination(bool(args, "send"), {
         identityId: identity.id,
+        identityAccountId: identity.accountId,
         to,
         cc: emailList(args, "cc"),
         bcc: emailList(args, "bcc"),

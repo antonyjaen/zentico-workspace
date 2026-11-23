@@ -5,8 +5,8 @@ import { actingAccountId, getSession } from "./auth";
 import { env } from "./env";
 import { suggestRecipients } from "./contacts";
 import { actAs, personalAccountId, type RawJmapSession } from "./delegation";
-import { actingAccount, CAP, jmap, JmapError, primaryAccount } from "./jmap";
-import { getMailboxes } from "./mail";
+import { actingAccount, CAP, jmap, JmapError, primaryAccount, sessionForAccount, tokenForAccount } from "./jmap";
+import { getMailAccounts, getMailboxes, resolveAccount } from "./mail";
 
 /* ------------------------------------------------------------------ types */
 
@@ -14,6 +14,8 @@ export type Address = { name: string | null; email: string };
 
 export type Identity = {
   id: string;
+  /** JMAP account the identity sends from (identity ids are only unique per account). */
+  accountId: string;
   name: string;
   email: string;
   textSignature: string;
@@ -35,6 +37,8 @@ export type QuotedOriginal = {
 
 export type ComposePrefill = {
   identityId: string | null;
+  /** Account of `identityId` (identity ids are only unique per account). */
+  identityAccountId: string | null;
   to: Address[];
   cc: Address[];
   bcc: Address[];
@@ -48,10 +52,16 @@ export type ComposePrefill = {
   quote: QuotedOriginal | null;
   /** Id of the draft being edited (draft mode). */
   draftId: string | null;
+  /** Account the draft being edited lives in. */
+  draftAccountId: string | null;
+  /** Sending account whose sign-in can use `attachments` (blobs are per account); null if none. */
+  attachmentsAccountId: string | null;
 };
 
 export type ComposeInput = {
   identityId: string;
+  /** Account of the identity (default: the first identity with that id). */
+  identityAccountId?: string | null;
   to: string[];
   cc: string[];
   bcc: string[];
@@ -131,8 +141,11 @@ export function validateInput(raw: unknown): ComposeInput {
   const r = raw as Record<string, unknown>;
   const identityId = cleanStr(r.identityId, 255, "identity");
   if (!ID.test(identityId)) fail("Invalid identity");
+  const identityAccountId = r.identityAccountId ?? null;
+  if (identityAccountId !== null && (typeof identityAccountId !== "string" || !ID.test(identityAccountId))) fail("Invalid identity");
   return {
     identityId,
+    identityAccountId,
     to: cleanEmails(r.to, "To"),
     cc: cleanEmails(r.cc, "Cc"),
     bcc: cleanEmails(r.bcc, "Bcc"),
@@ -187,9 +200,25 @@ const identitiesFor = cache(async (acting: string | null): Promise<Identity[]> =
   const delegated = acting ? await actingAccount() : null;
   if (delegated) {
     const { name } = (await getSession()) ?? { name: "" };
-    return [{ id: DELEGATED_IDENTITY, email: delegated.email, name, textSignature: "", htmlSignature: "" }];
+    return [{ id: DELEGATED_IDENTITY, accountId: delegated.id, email: delegated.email, name, textSignature: "", htmlSignature: "" }];
   }
-  const accountId = await primaryAccount(CAP.submission);
+  // Every account the browser can send from: the active one first, then the other signed-in ones.
+  const senders = (await getMailAccounts()).filter((a) => a.canSend);
+  if (!senders.length) return identitiesOf(await primaryAccount(CAP.submission));
+  const lists = await Promise.all(
+    senders.map((a) =>
+      identitiesOf(a.id).catch((e) => {
+        if (a.kind === "own") throw e;
+        console.error("[compose] identities unavailable:", e instanceof Error ? e.message : e);
+        return [] as Identity[];
+      }),
+    ),
+  );
+  return lists.flat();
+});
+
+/** Identity/get on one account (jmap() picks the signed-in account's token that reaches it). */
+async function identitiesOf(accountId: string): Promise<Identity[]> {
   const r = await jmap(
     [
       [
@@ -205,12 +234,13 @@ const identitiesFor = cache(async (acting: string | null): Promise<Identity[]> =
     .filter((i): i is Partial<Identity> & { id: string; email: string } => !!i.id && !!i.email)
     .map((i) => ({
       id: i.id,
+      accountId,
       email: i.email,
       name: i.name ?? "",
       textSignature: i.textSignature ?? "",
       htmlSignature: i.htmlSignature ?? "",
     }));
-});
+}
 
 /* ---------------------------------------------------------------- prefill */
 
@@ -235,9 +265,8 @@ type RawEmail = {
   attachments?: RawPart[];
 };
 
-async function getEmail(id: string): Promise<RawEmail> {
+async function getEmail(id: string, accountId: string): Promise<RawEmail> {
   if (!ID.test(id)) fail("Invalid message id");
-  const accountId = await primaryAccount(CAP.mail);
   const r = await jmap([
     [
       "Email/get",
@@ -299,24 +328,50 @@ function prefixed(prefix: "Re" | "Fwd", subject: string): string {
   return re.test(s) ? s : `${prefix}: ${s}`;
 }
 
-export async function getPrefill(mode: string, emailId?: string): Promise<ComposePrefill> {
-  const identities = await getIdentities();
-  const own = new Set(identities.map((i) => lower(i.email)));
+/**
+ * Prefill for a compose mode. `account` is the mailbox account the user is looking at (validated):
+ * the original message is read from it, and the default From is one of its identities (for a
+ * shared mailbox, the identity with the shared address if any, else the user's own).
+ */
+export async function getPrefill(mode: string, emailId?: string, account?: string | null): Promise<ComposePrefill> {
+  const [identities, accountId, accounts] = await Promise.all([
+    getIdentities(),
+    resolveAccount(account ?? null),
+    getMailAccounts(),
+  ]);
+  const box = accounts.find((a) => a.id === accountId);
+  const ownId = accounts.find((a) => a.kind === "own")?.id;
+  // Identities of the mailbox's account first, so address matching prefers them.
+  const ordered = [...identities.filter((i) => i.accountId === accountId), ...identities.filter((i) => i.accountId !== accountId)];
+  // Shared mailbox: its own address, else the address of the signed-in account that reaches it.
+  const via = box?.kind === "shared" ? await sessionForAccount(accountId) : null;
+  const preferred =
+    box?.kind === "shared"
+      ? (identities.find((i) => lower(i.email) === lower(box.email)) ??
+        identities.find((i) => !!via && lower(i.email) === lower(via.email)) ??
+        identities.find((i) => i.accountId === ownId))
+      : ordered[0];
+  const fallback = preferred ?? identities[0];
   const empty: ComposePrefill = {
-    identityId: identities[0]?.id ?? null,
+    identityId: fallback?.id ?? null,
+    identityAccountId: fallback?.accountId ?? null,
     to: [], cc: [], bcc: [], subject: "", html: null, text: null, attachments: [],
-    inReplyTo: null, references: null, quote: null, draftId: null,
+    inReplyTo: null, references: null, quote: null, draftId: null, draftAccountId: null,
+    attachmentsAccountId: accounts.find((a) => a.canSend && !!box && a.slot === box.slot)?.id ?? null,
   };
   if (mode === "new" || !emailId) return empty;
+  // Email ids are only unique per account: never read another account's message with this id.
+  if (account && accountId !== account) fail("Mailbox unavailable");
 
-  const e = await getEmail(emailId);
-  const matchIdentity = (addrs: Address[]) =>
-    identities.find((i) => addrs.some((a) => lower(a.email ?? "") === lower(i.email)))?.id ?? empty.identityId;
+  const e = await getEmail(emailId, accountId);
+  const matchIdentity = (addrs: Address[]): Identity | undefined =>
+    ordered.find((i) => addrs.some((a) => lower(a.email ?? "") === lower(i.email))) ?? fallback;
+  const pick = (i: Identity | undefined) => ({ identityId: i?.id ?? null, identityAccountId: i?.accountId ?? null });
 
   if (mode === "draft") {
     return {
       ...empty,
-      identityId: matchIdentity(e.from ?? []),
+      ...pick(matchIdentity(e.from ?? [])),
       to: e.to ?? [],
       cc: e.cc ?? [],
       bcc: e.bcc ?? [],
@@ -327,6 +382,7 @@ export async function getPrefill(mode: string, emailId?: string): Promise<Compos
       inReplyTo: e.inReplyTo ?? null,
       references: e.references ?? null,
       draftId: e.keywords?.$draft ? e.id : null,
+      draftAccountId: e.keywords?.$draft ? accountId : null,
     };
   }
 
@@ -339,13 +395,15 @@ export async function getPrefill(mode: string, emailId?: string): Promise<Compos
     html: bodyOf(e, "htmlBody"),
     text: bodyOf(e, "textBody"),
   };
-  const identityId = matchIdentity([...(e.to ?? []), ...(e.cc ?? []), ...(e.bcc ?? []), ...(e.from ?? [])]);
+  const sender = matchIdentity([...(e.to ?? []), ...(e.cc ?? []), ...(e.bcc ?? []), ...(e.from ?? [])]);
 
   if (mode === "forward") {
-    return { ...empty, identityId, subject: prefixed("Fwd", quote.subject), attachments: attachmentsOf(e), quote };
+    return { ...empty, ...pick(sender), subject: prefixed("Fwd", quote.subject), attachments: attachmentsOf(e), quote };
   }
 
-  // reply / replyAll
+  // reply / replyAll. "Me": the sending account's addresses, plus the shared mailbox replied from.
+  const own = new Set(identities.filter((i) => i.accountId === sender?.accountId).map((i) => lower(i.email)));
+  if (box?.kind === "shared" && box.email) own.add(lower(box.email));
   const fromMe = (e.from ?? []).some((a) => own.has(lower(a.email ?? "")));
   const primary = fromMe ? (e.to ?? []) : (e.replyTo?.length ? e.replyTo : (e.from ?? []));
   let to = dedupe(primary, fromMe ? new Set() : own);
@@ -357,7 +415,7 @@ export async function getPrefill(mode: string, emailId?: string): Promise<Compos
   const msgIds = e.messageId ?? [];
   return {
     ...empty,
-    identityId,
+    ...pick(sender),
     to,
     cc,
     subject: prefixed("Re", quote.subject),
@@ -369,16 +427,16 @@ export async function getPrefill(mode: string, emailId?: string): Promise<Compos
 
 /* --------------------------------------------------------- drafts & send */
 
-async function roleBoxes() {
-  const boxes = await getMailboxes();
+async function roleBoxes(accountId: string) {
+  const boxes = await getMailboxes(accountId);
   const drafts = boxes.find((b) => b.role === "drafts")?.id;
   const sent = boxes.find((b) => b.role === "sent")?.id;
   if (!drafts) fail("No Drafts mailbox");
   return { drafts, sent };
 }
 
-async function resolveIdentity(identityId: string): Promise<Identity> {
-  const identity = (await getIdentities()).find((i) => i.id === identityId);
+async function resolveIdentity(identityId: string, accountId?: string | null): Promise<Identity> {
+  const identity = (await getIdentities()).find((i) => i.id === identityId && (!accountId || i.accountId === accountId));
   if (!identity) fail("Identity does not belong to this account");
   return identity;
 }
@@ -418,13 +476,25 @@ function cleanDraftId(id: unknown): string | null {
   return id;
 }
 
-/** Saves a new draft version and destroys the previous one. Returns the new draft id. */
-export async function saveDraft(raw: unknown, previousId: unknown): Promise<string> {
+/** The (validated) account a previous draft lives in; `fallback` when not given. */
+async function draftAccount(account: unknown, fallback: string): Promise<string> {
+  if (typeof account !== "string" || !account) return fallback;
+  // No fallback: a draft id destroyed in the wrong account could delete an unrelated message.
+  const id = await resolveAccount(account);
+  if (id !== account) fail("Draft account unavailable");
+  return id;
+}
+
+/**
+ * Saves a new draft version in the identity's account and destroys the previous one (which may
+ * live in another account: `previousAccount`). Returns the new draft id.
+ */
+export async function saveDraft(raw: unknown, previousId: unknown, previousAccount?: unknown): Promise<string> {
   const input = validateInput(raw);
   const prev = cleanDraftId(previousId);
-  const identity = await resolveIdentity(input.identityId);
-  const { drafts } = await roleBoxes();
-  const accountId = await primaryAccount(CAP.mail);
+  const identity = await resolveIdentity(input.identityId, input.identityAccountId);
+  const accountId = identity.accountId;
+  const { drafts } = await roleBoxes(accountId);
   const r = await jmap([
     [
       "Email/set",
@@ -440,15 +510,17 @@ export async function saveDraft(raw: unknown, previousId: unknown): Promise<stri
     console.error("[compose] draft rejected:", JSON.stringify(r.s.notCreated));
     fail(`Draft not saved: ${describeSetError(r.s.notCreated)}`);
   }
-  await destroyQuietly(accountId, prev);
+  await destroyQuietly(await draftAccount(previousAccount, accountId), prev);
   return created.id;
 }
 
-/** Deletes a draft. */
-export async function discardDraft(draftId: unknown): Promise<void> {
+/** Deletes a draft (in `account`, validated; default the primary account). */
+export async function discardDraft(draftId: unknown, account?: unknown): Promise<void> {
   const id = cleanDraftId(draftId);
   if (!id) return;
-  const accountId = await primaryAccount(CAP.mail);
+  // Only an absent `account` means the primary one; a given one must still be reachable.
+  if (account != null && account !== "" && typeof account !== "string") fail("Invalid account");
+  const accountId = account ? await draftAccount(account, "") : await resolveAccount(null);
   await jmap([["Email/set", { accountId, destroy: [id] }, "d"]]);
 }
 
@@ -460,20 +532,22 @@ export async function discardDraft(draftId: unknown): Promise<void> {
 export async function sendMessage(
   raw: unknown,
   previousId: unknown,
+  previousAccount?: unknown,
 ): Promise<{ ok: true } | { ok: false; error: string; draftId: string | null }> {
   const input = validateInput(raw);
   const prev = cleanDraftId(previousId);
   const rcpt = [...input.to, ...input.cc, ...input.bcc];
   if (!rcpt.length) fail("Add at least one recipient");
-  const identity = await resolveIdentity(input.identityId);
+  const identity = await resolveIdentity(input.identityId, input.identityAccountId);
   if (identity.id === DELEGATED_IDENTITY) {
     // Stalwart only lets an account's owner (or a group member) submit mail from it; a delegated
     // share can read and write the mailbox but not send. Keep the message as a draft instead.
-    const draftId = await saveDraft(raw, prev);
+    const draftId = await saveDraft(raw, prev, previousAccount);
     return { ok: false, error: `Sending as ${identity.email} needs a sign-in to that account. The message was saved in its Drafts.`, draftId };
   }
-  const { drafts, sent } = await roleBoxes();
-  const accountId = await primaryAccount(CAP.mail);
+  // The identity's account sends (jmap() uses the token of the signed-in account that owns it).
+  const accountId = identity.accountId;
+  const { drafts, sent } = await roleBoxes(accountId);
 
   // Move Drafts -> Sent (if there is no Sent mailbox, the message stays where it is).
   const onSuccess: Record<string, unknown> = { "keywords/$draft": null };
@@ -489,7 +563,7 @@ export async function sendMessage(
     return { ok: false, error: describeSetError(r.e.notCreated), draftId: prev };
   }
   // The previous draft version is replaced only once the new message exists.
-  await destroyQuietly(accountId, prev);
+  await destroyQuietly(await draftAccount(previousAccount, accountId), prev);
   const s = await jmap(
     [
       [
@@ -534,20 +608,38 @@ function describeSetError(notCreated: unknown): string {
 
 /* ----------------------------------------------------------------- upload */
 
+/**
+ * Where a blob goes: the own account of the signed-in account that will send (`account`: the
+ * chosen identity's account), else the active one's. Stalwart only accepts uploads to the token
+ * owner's account; Email/set in a shared account can use the blob.
+ */
+async function uploadTarget(account?: string | null): Promise<{ url: string; token: string } | null> {
+  if (account && ID.test(account) && !(await actingAccountId())) {
+    const owner = await tokenForAccount(account);
+    if (owner) {
+      const id = personalAccountId(owner.session);
+      const url = owner.session.uploadUrl;
+      if (id && url) return { url: url.replace("{accountId}", encodeURIComponent(id)), token: owner.token };
+    }
+  }
+  const session = await getComposeSession();
+  if (!session) fail("Not signed in");
+  const accountId = session.uploadAccountId ?? session.primaryAccounts[CAP.mail];
+  if (!accountId || !session.uploadUrl) return null;
+  return { url: session.uploadUrl.replace("{accountId}", encodeURIComponent(accountId)), token: session.token };
+}
+
 /** Uploads a blob to the JMAP server with the user's token (server side only). */
 export async function uploadBlob(
   body: ArrayBuffer,
   type: string,
+  account?: string | null,
 ): Promise<{ blobId: string; type: string; size: number }> {
-  const session = await getComposeSession();
-  if (!session) fail("Not signed in");
-  // Own account: Stalwart only accepts uploads there; Email/set in a shared account can use the blob.
-  const accountId = session.uploadAccountId ?? session.primaryAccounts[CAP.mail];
-  if (!accountId || !session.uploadUrl) fail("Upload not available");
-  const url = session.uploadUrl.replace("{accountId}", encodeURIComponent(accountId));
-  const res = await fetch(url, {
+  const target = await uploadTarget(account);
+  if (!target) fail("Upload not available");
+  const res = await fetch(target.url, {
     method: "POST",
-    headers: { Authorization: `Bearer ${session.token}`, "Content-Type": MIME.test(type) ? type : "application/octet-stream" },
+    headers: { Authorization: `Bearer ${target.token}`, "Content-Type": MIME.test(type) ? type : "application/octet-stream" },
     body,
     cache: "no-store",
   });

@@ -74,10 +74,13 @@ export function blobHref(
   name: string | null,
   type: string | null,
   mode: boolean | "inline" | "text" = false,
+  account?: string,
 ): string {
   const q = new URLSearchParams({ name: cleanFileName(name), type: type && MIME.test(type) ? type : "application/octet-stream" });
   if (mode === true || mode === "inline") q.set("inline", "1");
   if (mode === "text") q.set("text", "1");
+  // Another mailbox (shared or another signed-in account): the route downloads with its token.
+  if (account) q.set("account", account);
   return `${BLOB_ROUTE}${encodeURIComponent(blobId)}?${q}`;
 }
 
@@ -228,7 +231,10 @@ export async function getThread(
 ): Promise<ReadMessage[] | null> {
   if (!ID.test(threadId)) return null;
   // `accountId` (validated by the caller) reads a thread from a shared mailbox.
-  const accountId = account ?? (await primaryAccount(CAP.mail));
+  const primary = await primaryAccount(CAP.mail);
+  const accountId = account ?? primary;
+  // Blob links name the account only when it isn't the active primary one.
+  const blobAccount = accountId === primary ? undefined : accountId;
   const load = (properties: string[]) =>
     jmap([
       ["Thread/get", { accountId, ids: [threadId] }, "t"],
@@ -260,15 +266,16 @@ export async function getThread(
   return thread.emailIds
     .map((id) => byId.get(id))
     .filter((e): e is RawEmail => !!e)
-    .map((e) => toReadMessage(e, { allowRemoteImages, origin }));
+    .map((e) => toReadMessage(e, { allowRemoteImages, origin, account: blobAccount }));
 }
 
-function toReadMessage(e: RawEmail, opts: { allowRemoteImages: boolean; origin: string }): ReadMessage {
+function toReadMessage(e: RawEmail, opts: { allowRemoteImages: boolean; origin: string; account?: string }): ReadMessage {
+  const a = opts.account;
   // Content-ID → inline blob URL, from every part that could be referenced by `cid:`.
   const cids = new Map<string, string>();
   for (const p of [...(e.attachments ?? []), ...(e.htmlBody ?? [])]) {
     if (p.cid && p.blobId && BLOB_ID.test(p.blobId)) {
-      cids.set(normalizeCid(p.cid), blobHref(p.blobId, p.name, p.type, true));
+      cids.set(normalizeCid(p.cid), blobHref(p.blobId, p.name, p.type, true, a));
     }
   }
 
@@ -296,7 +303,7 @@ function toReadMessage(e: RawEmail, opts: { allowRemoteImages: boolean; origin: 
         chunks.push(`<div style="white-space:pre-wrap">${escapeHtml(v.value)}</div>`);
       } else if (p.blobId && INLINE_IMAGE_TYPES.has(p.type.toLowerCase()) && BLOB_ID.test(p.blobId)) {
         inlinedBlobs.add(p.blobId);
-        chunks.push(`<img src="${escapeHtml(blobHref(p.blobId, p.name, p.type, true))}" alt="">`);
+        chunks.push(`<img src="${escapeHtml(blobHref(p.blobId, p.name, p.type, true, a))}" alt="">`);
       }
     }
     const body = chunks.join("\n");
@@ -323,8 +330,8 @@ function toReadMessage(e: RawEmail, opts: { allowRemoteImages: boolean; origin: 
       name,
       type: p.type,
       size: p.size,
-      href: blobHref(p.blobId, name, p.type),
-      inlineHref: isPreviewable(p.type) ? blobHref(p.blobId, name, p.type, "inline") : null,
+      href: blobHref(p.blobId, name, p.type, false, a),
+      inlineHref: isPreviewable(p.type) ? blobHref(p.blobId, name, p.type, "inline", a) : null,
     });
   }
 
@@ -351,8 +358,8 @@ function toReadMessage(e: RawEmail, opts: { allowRemoteImages: boolean; origin: 
     hasRemoteImages,
     truncated,
     attachments,
-    emlHref: emailBlob ? blobHref(emailBlob, emlName, "message/rfc822") : null,
-    sourceHref: emailBlob ? blobHref(emailBlob, emlName, "text/plain", "text") : null,
+    emlHref: emailBlob ? blobHref(emailBlob, emlName, "message/rfc822", false, a) : null,
+    sourceHref: emailBlob ? blobHref(emailBlob, emlName, "text/plain", "text", a) : null,
     delivery: deliveryOf(e),
   };
 }

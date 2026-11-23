@@ -17,7 +17,7 @@ export default async function MailboxPage({
   const t = await getTranslations("mail");
 
   try {
-    // `?account=` browses a mailbox shared with the user (another JMAP account).
+    // `?account=` browses another address: a signed-in one or a mailbox shared with the user.
     const accountId = await resolveAccount(sp.account);
     const accounts = await getMailAccounts();
     const shared = accounts.find((a) => a.id === accountId && !a.isPrimary);
@@ -40,7 +40,7 @@ export default async function MailboxPage({
         mailboxes={mailboxes}
         labels={labels}
         account={shared?.id}
-        title={shared ? `${shared.name} · ${folder}` : undefined}
+        title={shared ? `${shared.email || shared.name} · ${folder}` : undefined}
       />
     );
   } catch (e) {

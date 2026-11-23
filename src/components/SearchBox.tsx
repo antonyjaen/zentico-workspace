@@ -31,7 +31,20 @@ export function SearchBox({ placeholder, defaultValue }: { placeholder: string; 
 
   return (
     <div className="relative hidden max-w-[640px] flex-1 sm:block">
-      <form action="/mail/search" role="search">
+      <form
+        action="/mail/search"
+        role="search"
+        onSubmit={(e) => {
+          // Keep searching the mailbox being viewed (another address or a shared one).
+          const field = e.currentTarget.elements.namedItem("account") as HTMLInputElement | null;
+          const account = new URLSearchParams(window.location.search).get("account");
+          if (field) {
+            field.value = account ?? "";
+            field.disabled = !account;
+          }
+        }}
+      >
+        <input type="hidden" name="account" disabled />
         <label className="flex h-10 items-center gap-2.5 rounded-lg border border-line bg-sheet px-3 transition-colors duration-150 focus-within:border-line-strong hover:border-line-strong">
           <Search size={16} className="shrink-0 text-ink-mute" aria-hidden />
           <span className="sr-only">{placeholder}</span>
@@ -137,6 +150,8 @@ export function AdvancedSearchForm({
     for (const f of FIELDS) if (values[f].trim()) qs.set(f, values[f].trim());
     if (att) qs.set("att", "1");
     if (![...qs.keys()].length) return;
+    const account = new URLSearchParams(window.location.search).get("account");
+    if (account) qs.set("account", account);
     onDone();
     router.push(`/mail/search?${qs.toString()}`);
   };

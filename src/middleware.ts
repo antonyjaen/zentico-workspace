@@ -18,8 +18,9 @@ import {
 } from "@/lib/session";
 
 /**
- * Guards every app page: requires an active account and silently refreshes its expiring access
- * token. Only the active account is refreshed; others are refreshed when switched to.
+ * Guards every app page: requires an active account and silently refreshes the expiring access
+ * tokens of every signed-in account (the mail app reads the other accounts' mailboxes too). A slot
+ * whose refresh fails is marked signed out; when that is the active one, it signs in again.
  */
 export async function middleware(req: NextRequest) {
   // Cookie changes to forward to this request's server components and persist in the browser.
@@ -73,19 +74,24 @@ export async function middleware(req: NextRequest) {
     return toSignin();
   }
   if (session.stale) return toSignin(session.email);
-  if (!needsRefresh(session)) return pass();
 
-  const markStale = async () => {
-    const stale: Session = { ...session, stale: true };
-    change(slotCookie(slot), await sealSession(stale));
-    return toSignin(session.email);
-  };
-  try {
-    change(slotCookie(slot), await sealSession(await refreshSession(session)));
-    return pass();
-  } catch {
-    return markStale();
-  }
+  // Refresh every occupied slot whose token is about to expire, in parallel.
+  const results = await Promise.all(
+    accounts.order.map(async (s) => {
+      const current = accounts.sessions[s]!;
+      if (current.stale || !needsRefresh(current)) return true;
+      try {
+        change(slotCookie(s), await sealSession(await refreshSession(current)));
+        return true;
+      } catch {
+        const stale: Session = { ...current, stale: true };
+        change(slotCookie(s), await sealSession(stale));
+        return false;
+      }
+    }),
+  );
+  // order[0] is the active slot.
+  return results[0] ? pass() : toSignin(session.email);
 }
 
 export const config = {

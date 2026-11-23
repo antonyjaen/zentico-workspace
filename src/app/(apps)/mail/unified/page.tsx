@@ -4,7 +4,7 @@ import { EmailList, PAGE_SIZE } from "../EmailList";
 import { getMailboxes, getUnifiedInbox } from "@/lib/mail";
 import { getLabels } from "@/lib/mail-settings";
 
-/** Every inbox the user can read — their own plus shared ones — merged by date. */
+/** Every inbox the user can read — each signed-in address plus shared ones — merged by date. */
 export default async function UnifiedInboxPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
   const page = Math.min(20, Math.max(0, Number.parseInt((await searchParams).page ?? "0", 10) || 0));
   const t = await getTranslations("mail");
@@ -16,8 +16,8 @@ export default async function UnifiedInboxPage({ searchParams }: { searchParams:
       getMailboxes(),
       getLabels(),
     ]);
-    // Rows from shared accounts get a badge with the account name; the user's own rows don't.
-    const accountNames = Object.fromEntries(accounts.filter((a) => !a.isPrimary).map((a) => [a.id, a.name]));
+    // Rows from other addresses get a badge with that address; the active one's rows don't.
+    const accountNames = Object.fromEntries(accounts.filter((a) => a.kind !== "own").map((a) => [a.id, a.email || a.name]));
     return (
       <EmailList
         emails={emails}

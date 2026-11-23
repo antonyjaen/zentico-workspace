@@ -3,10 +3,12 @@ import { unstable_rethrow } from "next/navigation";
 import { Suspense } from "react";
 import { ComposeButton, ComposeButtonFallback } from "./compose/ComposeButton";
 import { Composer } from "./compose/Composer";
-import { MailboxNav, type SharedInbox } from "./MailboxNav";
+import { MailboxNav } from "./MailboxNav";
 import { MailNavDrawer } from "./MailNavDrawer";
-import { getMailboxes, getSharedMailboxes } from "@/lib/mail";
+import { listAccounts, type AccountSummary } from "@/lib/auth";
+import { getMailAccounts, getMailboxes, type Mailbox, type MailAccount } from "@/lib/mail";
 import { SETTINGS_CAP, accountFor, getLabels } from "@/lib/mail-settings";
+import { MAX_ACCOUNTS } from "@/lib/session";
 
 export default async function MailLayout({ children }: { children: React.ReactNode }) {
   const t = await getTranslations("mail");
@@ -15,12 +17,25 @@ export default async function MailLayout({ children }: { children: React.ReactNo
       unstable_rethrow(e);
       return fallback;
     });
-  const [mailboxes, labels, sieve, shared] = await Promise.all([
-    soft(getMailboxes(), []),
+  const [accounts, signedIn, ownMailboxes, labels, sieve] = await Promise.all([
+    soft(getMailAccounts(), [] as MailAccount[]),
+    soft(listAccounts(), [] as AccountSummary[]),
+    soft(getMailboxes(), [] as Mailbox[]),
     getLabels(),
     soft(accountFor(SETTINGS_CAP.sieve), null),
-    soft(getSharedMailboxes(), [] as SharedInbox[]),
   ]);
+  // Every other address (signed-in or shared), each with its own folders; one failing doesn't hide the rest.
+  const others = await Promise.all(
+    accounts
+      .filter((a) => a.kind !== "own")
+      .map(async (account) => ({ account, mailboxes: await soft(getMailboxes(account.id), [] as Mailbox[]) })),
+  );
+  const own = { account: accounts.find((a) => a.kind === "own") ?? null, mailboxes: ownMailboxes };
+  // Signed-in addresses whose sign-in ran out: shown with "Sign in again" instead of vanishing.
+  const listed = new Set(accounts.map((a) => a.email.toLowerCase()));
+  const stale = signedIn.filter((a) => a.expired && !a.active && !a.account && !listed.has(a.email.toLowerCase())).map((a) => a.email);
+  // A 6th sign-in would silently replace the least recently used one.
+  const canAdd = signedIn.length < MAX_ACCOUNTS;
 
   // One sidebar, two placements: the aside from lg up, a drawer (opened from the list header) below.
   const nav = (
@@ -29,7 +44,7 @@ export default async function MailLayout({ children }: { children: React.ReactNo
         <ComposeButton label={t("compose")} />
       </Suspense>
       <Suspense fallback={null}>
-        <MailboxNav mailboxes={mailboxes} labels={labels} labelsAvailable={!!sieve} shared={shared} />
+        <MailboxNav own={own} others={others} stale={stale} canAdd={canAdd} labels={labels} labelsAvailable={!!sieve} />
       </Suspense>
     </>
   );

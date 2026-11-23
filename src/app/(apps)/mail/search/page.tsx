@@ -1,7 +1,8 @@
 import { getTranslations } from "next-intl/server";
 import { redirect, unstable_rethrow } from "next/navigation";
 import { EmailList, PAGE_SIZE } from "../EmailList";
-import { getEmails, getMailboxes, type EmailFilter } from "@/lib/mail";
+import { CAP, primaryAccount } from "@/lib/jmap";
+import { getEmails, getMailboxes, resolveAccount, type EmailFilter } from "@/lib/mail";
 import { LABEL_ID, labelKeyword } from "@/lib/mail-labels";
 import { getLabels } from "@/lib/mail-settings";
 
@@ -16,6 +17,8 @@ type Params = {
   within?: string;
   in?: string;
   page?: string;
+  /** Mailbox account being searched (another signed-in or shared address); default the own one. */
+  account?: string;
 };
 
 const FIELDS = ["q", "from", "to", "subject", "not", "att", "within", "in"] as const;
@@ -56,14 +59,18 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
   for (const f of FIELDS) if (p[f]) qs.set(f, p[f]);
 
   try {
+    const accountId = await resolveAccount(raw.account);
+    const account = accountId === (await primaryAccount(CAP.mail)) ? undefined : accountId;
+    if (account) qs.set("account", account);
     const [{ emails, total }, mailboxes, labels] = await Promise.all([
       getEmails(filter, {
         limit: PAGE_SIZE,
         position: page * PAGE_SIZE,
+        accountId,
         // Searching inside one folder: actions apply to the messages in that folder.
         scope: p.in && !p.in.startsWith("label:") ? p.in : undefined,
       }),
-      getMailboxes(),
+      getMailboxes(accountId),
       getLabels(),
     ]);
     return (
@@ -77,6 +84,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
         mailboxes={mailboxes}
         labels={labels}
         view="search"
+        account={account}
       />
     );
   } catch (e) {

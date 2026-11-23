@@ -9,6 +9,7 @@ import {
   INLINE_IMAGE_TYPES,
   MIME,
 } from "@/lib/mail-read";
+import { tokenForAccount } from "@/lib/jmap";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ blob
   const asText = q.get("text") === "1";
 
   try {
-    const session = await getMailSession();
+    // `account`: a mailbox reached through another signed-in account (only if a live slot lists it).
+    const account = q.get("account");
+    let session: { downloadUrl: string; accountId: string; token: string };
+    if (account) {
+      const owner = await tokenForAccount(account);
+      if (!owner?.session.downloadUrl) return new Response("Not found", { status: 404 });
+      session = { downloadUrl: owner.session.downloadUrl, accountId: account, token: owner.token };
+    } else session = await getMailSession();
     const url = expandDownloadUrl(session.downloadUrl, { accountId: session.accountId, blobId, name, type });
     const upstream = await fetch(url, {
       headers: { Authorization: `Bearer ${session.token}` },

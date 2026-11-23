@@ -2,7 +2,6 @@
 
 import {
   Archive,
-  ChevronDown,
   ChevronRight,
   Ellipsis,
   File,
@@ -13,7 +12,6 @@ import {
   Plus,
   Send,
   Trash2,
-  Users,
   type LucideIcon,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -44,36 +42,76 @@ const MENU_ITEM =
 const FIELD =
   "h-10 lg:h-8 w-full rounded-md border border-line-strong bg-sheet px-2.5 text-[13.5px] text-ink outline-none placeholder:text-ink-mute focus:border-ink";
 
-export type SharedInbox = { account: MailAccount; mailboxes: Mailbox[] };
+/** Which account sections are expanded, by account id (per browser). */
+const OPEN_KEY = "zw_mail_nav_open";
+/** Adds another signed-in address without switching away from the current one. */
+const ADD_MAILBOX_HREF = "/api/auth/login?add=1&keep=1&returnTo=%2Fmail";
+
+export type AccountInbox = { account: MailAccount; mailboxes: Mailbox[] };
+
+/** Unread count shown on a folder row: drafts show their total, trash/junk nothing. */
+const folderCount = (m: Mailbox) => (m.role === "drafts" ? m.totalEmails : m.role === "trash" || m.role === "junk" ? 0 : m.unreadEmails);
 
 export function MailboxNav({
-  mailboxes,
+  own,
+  others,
+  stale,
+  canAdd,
   labels,
   labelsAvailable,
-  shared,
 }: {
-  mailboxes: Mailbox[];
+  /** The active address; `account` is null when the account list couldn't be read. */
+  own: { account: MailAccount | null; mailboxes: Mailbox[] };
+  /** Other signed-in addresses, then mailboxes shared with any of them. */
+  others: AccountInbox[];
+  /** Signed-in addresses whose sign-in expired (they need a fresh sign-in to show their mail). */
+  stale: string[];
+  /** False when the browser already holds the maximum number of sign-ins. */
+  canAdd: boolean;
   labels: Label[];
   /** False when the server has no Sieve (label definitions are stored in the filter script). */
   labelsAvailable: boolean;
-  shared: SharedInbox[];
 }) {
   const t = useTranslations("mail.folders");
   const tn = useTranslations("mailActions.nav");
   const pathname = usePathname();
-  const account = useSearchParams().get("account");
+  const param = useSearchParams().get("account");
+  // The account whose folder is open; null means the user's own (links without ?account).
+  const viewing = param && param !== own.account?.id ? param : null;
   const router = useRouter();
   const [pending, start] = useTransition();
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Inline editors: renaming a folder/label, or creating a folder (under a parent or at the top).
   const [editing, setEditing] = useState<{ kind: "rename" | "newFolder" | "renameLabel" | "newLabel"; id: string | null } | null>(null);
+  const [openMap, setOpenMap] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem(OPEN_KEY) ?? "{}");
+      if (saved && typeof saved === "object" && !Array.isArray(saved)) setOpenMap(saved as Record<string, boolean>);
+    } catch {
+      // Storage blocked or corrupt: keep the defaults.
+    }
+  }, []);
 
   useEffect(() => {
     if (!error) return;
     const id = setTimeout(() => setError(null), 6000);
     return () => clearTimeout(id);
   }, [error]);
+
+  const isOpen = (id: string, fallback: boolean) => (typeof openMap[id] === "boolean" ? openMap[id] : fallback);
+  const toggleOpen = (id: string, fallback: boolean) =>
+    setOpenMap((m) => {
+      const next = { ...m, [id]: !(typeof m[id] === "boolean" ? m[id] : fallback) };
+      try {
+        localStorage.setItem(OPEN_KEY, JSON.stringify(next));
+      } catch {
+        // Not persisted; the section still toggles.
+      }
+      return next;
+    });
 
   const folderLabel = (m: Mailbox) => (m.role && t.has(m.role) ? t(m.role) : m.name);
 
@@ -104,6 +142,7 @@ export function MailboxNav({
     if (e.kind === "newLabel") run(() => createLabel({ name, color: "blue" }), () => setEditing(null));
   };
 
+  const mailboxes = own.mailboxes;
   const tree = mailboxTree(mailboxes);
   const descendants = (id: string) => {
     const out = new Set<string>([id]);
@@ -114,25 +153,45 @@ export function MailboxNav({
     return out;
   };
 
-  return (
-    <nav className="flex min-h-0 flex-col gap-0.5 overflow-y-auto pr-2 pb-6" aria-label="Mailboxes">
-      {shared.length > 0 && (
-        <Link
-          href="/mail/unified"
-          aria-current={pathname === "/mail/unified" ? "page" : undefined}
-          style={{ paddingLeft: 12 }}
-          className={`${ROW} text-ink-soft aria-[current=page]:font-medium`}
-        >
-          <Mails size={16} aria-hidden className="shrink-0" />
-          <span className="flex-1 truncate">{tn("unified")}</span>
-        </Link>
-      )}
+  const isAt = (m: Mailbox) => pathname === `/mail/${m.id}` || pathname.startsWith(`/mail/${m.id}/`);
+  // Rows dragged from the open list can only move within that list's account, so a folder only
+  // accepts drops when it belongs to the account being viewed (never from the mixed unified list).
+  const dropProps = (m: Mailbox, enabled: boolean) =>
+    enabled && pathname !== "/mail/unified"
+      ? {
+          "data-drop": dropTarget === m.id || undefined,
+          onDragOver: (e: React.DragEvent) => {
+            if (!e.dataTransfer.types.includes(DRAG_MIME)) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            setDropTarget(m.id);
+          },
+          onDragLeave: () => setDropTarget((d) => (d === m.id ? null : d)),
+          onDrop: (e: React.DragEvent) => {
+            setDropTarget(null);
+            let keys: unknown;
+            try {
+              keys = JSON.parse(e.dataTransfer.getData(DRAG_MIME));
+            } catch {
+              return;
+            }
+            if (!Array.isArray(keys) || !keys.every((k) => typeof k === "string")) return;
+            e.preventDefault();
+            window.dispatchEvent(new CustomEvent<DropDetail>(DROP_EVENT, { detail: { keys, mailboxId: m.id } }));
+          },
+        }
+      : {};
+  const rowTone = (m: Mailbox) =>
+    m.unreadEmails > 0 && folderCount(m) > 0 ? "font-medium text-ink" : "text-ink-soft aria-[current=page]:font-medium";
+  const DROP_STYLE = "data-[drop]:bg-hover data-[drop]:text-ink data-[drop]:shadow-[inset_0_0_0_1px_var(--color-accent)]";
 
+  const ownFolders = (
+    <>
       {tree.map(({ mailbox: m, depth }) => {
         const Icon = (m.role && ROLE_ICON[m.role]) || Folder;
         const href = `/mail/${m.id}`;
-        const active = !account && (pathname === href || pathname.startsWith(`${href}/`));
-        const count = m.role === "drafts" ? m.totalEmails : m.role === "trash" || m.role === "junk" ? 0 : m.unreadEmails;
+        const active = !viewing && isAt(m);
+        const count = folderCount(m);
         const renaming = editing?.kind === "rename" && editing.id === m.id;
         return (
           <div key={m.id}>
@@ -150,30 +209,9 @@ export function MailboxNav({
                 <Link
                   href={href}
                   aria-current={active ? "page" : undefined}
-                  data-drop={dropTarget === m.id || undefined}
-                  onDragOver={(e) => {
-                    if (active || !e.dataTransfer.types.includes(DRAG_MIME)) return;
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = "move";
-                    setDropTarget(m.id);
-                  }}
-                  onDragLeave={() => setDropTarget((d) => (d === m.id ? null : d))}
-                  onDrop={(e) => {
-                    setDropTarget(null);
-                    let keys: unknown;
-                    try {
-                      keys = JSON.parse(e.dataTransfer.getData(DRAG_MIME));
-                    } catch {
-                      return;
-                    }
-                    if (!Array.isArray(keys) || !keys.every((k) => typeof k === "string")) return;
-                    e.preventDefault();
-                    window.dispatchEvent(new CustomEvent<DropDetail>(DROP_EVENT, { detail: { keys, mailboxId: m.id } }));
-                  }}
+                  {...dropProps(m, !viewing && !active)}
                   style={{ paddingLeft: 12 + depth * 16 }}
-                  className={`${ROW} max-lg:pr-11 data-[drop]:bg-hover data-[drop]:text-ink data-[drop]:shadow-[inset_0_0_0_1px_var(--color-accent)] ${
-                    m.unreadEmails > 0 && count > 0 ? "font-medium text-ink" : "text-ink-soft aria-[current=page]:font-medium"
-                  }`}
+                  className={`${ROW} max-lg:pr-11 ${DROP_STYLE} ${rowTone(m)}`}
                 >
                   <Icon size={16} aria-hidden className="shrink-0" />
                   <span className="flex-1 truncate">{folderLabel(m)}</span>
@@ -271,14 +309,107 @@ export function MailboxNav({
       {!labels.length && editing?.kind !== "newLabel" && (
         <p className="px-3 py-1 text-[12.5px] leading-snug text-ink-mute">{labelsAvailable ? tn("noLabels") : tn("labelsUnavailable")}</p>
       )}
+    </>
+  );
 
-      {/* Shared inboxes */}
-      <SectionHeader title={tn("shared")} />
-      {shared.length === 0 ? (
-        <p className="px-3 py-1 text-[12.5px] leading-snug text-ink-mute">{tn("noShared")}</p>
-      ) : (
-        shared.map((s) => <SharedAccount key={s.account.id} shared={s} activeAccount={account} pathname={pathname} folderLabel={folderLabel} />)
+  /** Folders of another address: plain links that keep `?account` so the list and reader stay in it. */
+  const otherFolders = ({ account, mailboxes: boxes }: AccountInbox) => {
+    if (!boxes.length) return <p className="px-3 py-1 text-[12.5px] leading-snug text-ink-mute">{tn("sharedEmpty")}</p>;
+    return mailboxTree(boxes).map(({ mailbox: m, depth }) => {
+      const Icon = (m.role && ROLE_ICON[m.role]) || Folder;
+      const active = viewing === account.id && isAt(m);
+      const count = folderCount(m);
+      return (
+        <Link
+          key={m.id}
+          href={`/mail/${m.id}?account=${encodeURIComponent(account.id)}`}
+          aria-current={active ? "page" : undefined}
+          {...dropProps(m, viewing === account.id && !active && !account.isReadOnly)}
+          style={{ paddingLeft: 12 + depth * 16 }}
+          className={`${ROW} ${DROP_STYLE} ${rowTone(m)}`}
+        >
+          <Icon size={16} aria-hidden className="shrink-0" />
+          <span className="flex-1 truncate">{folderLabel(m)}</span>
+          {count > 0 && <span className="font-mono text-[12px] font-normal tabular-nums text-ink-mute">{count}</span>}
+        </Link>
+      );
+    });
+  };
+
+  const inboxUnread = (boxes: Mailbox[]) => boxes.find((m) => m.role === "inbox")?.unreadEmails ?? 0;
+
+  return (
+    <nav className="flex min-h-0 flex-col gap-0.5 overflow-y-auto pr-2 pb-6" aria-label="Mailboxes">
+      {others.length > 0 && (
+        <Link
+          href="/mail/unified"
+          aria-current={pathname === "/mail/unified" ? "page" : undefined}
+          style={{ paddingLeft: 12 }}
+          className={`${ROW} mb-1.5 text-ink-soft aria-[current=page]:font-medium`}
+        >
+          <Mails size={16} aria-hidden className="shrink-0" />
+          <span className="flex-1 truncate">{tn("unified")}</span>
+        </Link>
       )}
+
+      {own.account ? (
+        <AccountSection
+          account={own.account}
+          unread={inboxUnread(own.mailboxes)}
+          open={isOpen(own.account.id, true)}
+          onToggle={() => toggleOpen(own.account!.id, true)}
+        >
+          {ownFolders}
+        </AccountSection>
+      ) : (
+        ownFolders
+      )}
+
+      {others.map((s) => (
+        <AccountSection
+          key={s.account.id}
+          account={s.account}
+          unread={inboxUnread(s.mailboxes)}
+          open={isOpen(s.account.id, viewing === s.account.id)}
+          onToggle={() => toggleOpen(s.account.id, viewing === s.account.id)}
+          separated
+        >
+          {otherFolders(s)}
+        </AccountSection>
+      ))}
+
+      {stale.map((email) => (
+        <section key={email} className="mt-2 border-t border-line pt-2">
+          <div title={email} className="flex h-10 items-center gap-2.5 pr-2 pl-2 text-[13.5px] text-ink-mute lg:h-8">
+            <span aria-hidden className="grid h-5 w-5 shrink-0 place-items-center rounded-full border border-dashed border-line-strong text-[10.5px] font-semibold uppercase leading-none">
+              {(email.match(/[\p{L}\p{N}]/u)?.[0] ?? "?").toUpperCase()}
+            </span>
+            <span className="min-w-0 flex-1 truncate">{email}</span>
+          </div>
+          <a
+            href={`/api/auth/login?add=1&keep=1&hint=${encodeURIComponent(email)}&returnTo=%2Fmail`}
+            style={{ paddingLeft: 40 }}
+            className={`${ROW} text-[12.5px] text-ink-soft underline-offset-2 hover:underline`}
+          >
+            {tn("signInAgain")}
+          </a>
+        </section>
+      ))}
+
+      <div className="mt-4 border-t border-line pt-3">
+        {canAdd ? (
+          <a href={ADD_MAILBOX_HREF} style={{ paddingLeft: 12 }} className={`${ROW} text-ink-mute`}>
+            <Plus size={16} aria-hidden className="shrink-0" />
+            <span className="truncate">{tn("addMailbox")}</span>
+          </a>
+        ) : (
+          <span aria-disabled="true" style={{ paddingLeft: 12 }} className={`${ROW} cursor-not-allowed text-ink-mute opacity-60`}>
+            <Plus size={16} aria-hidden className="shrink-0" />
+            <span className="truncate">{tn("addMailbox")}</span>
+          </span>
+        )}
+        <p className="pt-0.5 pr-3 pl-[40px] text-[12px] leading-snug text-ink-mute">{tn(canAdd ? "addMailboxHint" : "addMailboxLimit")}</p>
+      </div>
 
       {error && (
         <p role="alert" className="mx-1 mt-2 rounded-md border border-line px-3 py-2 text-[12.5px] leading-snug text-danger">
@@ -298,71 +429,57 @@ function SectionHeader({ title, action }: { title: string; action?: React.ReactN
   );
 }
 
-/** One shared account: collapsible, inbox first, with the same folder tree. */
-function SharedAccount({
-  shared: { account, mailboxes },
-  activeAccount,
-  pathname,
-  folderLabel,
+/** One address in the sidebar: avatar, address and inbox unread; folders when expanded. */
+function AccountSection({
+  account,
+  unread,
+  open,
+  onToggle,
+  separated,
+  children,
 }: {
-  shared: SharedInbox;
-  activeAccount: string | null;
-  pathname: string;
-  folderLabel: (m: Mailbox) => string;
+  account: MailAccount;
+  unread: number;
+  open: boolean;
+  onToggle: () => void;
+  separated?: boolean;
+  children: React.ReactNode;
 }) {
   const tn = useTranslations("mailActions.nav");
-  const [open, setOpen] = useState(activeAccount === account.id);
-  const inbox = mailboxes.find((m) => m.role === "inbox");
-  const hrefOf = (m: Mailbox) => `/mail/${m.id}?account=${encodeURIComponent(account.id)}`;
-  const isActive = (m: Mailbox) => activeAccount === account.id && (pathname === `/mail/${m.id}` || pathname.startsWith(`/mail/${m.id}/`));
-  const Chevron = open ? ChevronDown : ChevronRight;
-
+  const label = account.email || account.name;
+  const own = account.kind === "own";
   return (
-    <div>
-      <div className="flex items-center">
-        <button
-          type="button"
-          className="icon-btn h-10 w-8 shrink-0 lg:h-8 lg:w-6"
-          aria-expanded={open}
-          aria-label={open ? tn("collapse") : tn("expand")}
-          onClick={() => setOpen((o) => !o)}
+    <section className={separated ? "mt-2 border-t border-line pt-2" : undefined}>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={onToggle}
+        title={account.name && account.name !== label ? `${account.name} · ${label}` : label}
+        className="flex h-10 w-full items-center gap-2.5 rounded-md pr-2 pl-2 text-left text-[13.5px] transition-colors duration-150 hover:bg-hover lg:h-8"
+      >
+        <span
+          aria-hidden
+          className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10.5px] font-semibold uppercase leading-none ${
+            own ? "bg-ink text-sheet" : "border border-line-strong text-ink-soft"
+          }`}
         >
-          <Chevron size={14} aria-hidden />
-        </button>
-        <Link
-          href={inbox ? hrefOf(inbox) : "#"}
-          aria-current={inbox && isActive(inbox) ? "page" : undefined}
-          title={account.name}
-          className={`${ROW} min-w-0 flex-1 pl-1.5 ${inbox && inbox.unreadEmails > 0 ? "font-medium text-ink" : "text-ink-soft"}`}
-        >
-          <Users size={16} aria-hidden className="shrink-0" />
-          <span className="flex-1 truncate">{account.name}</span>
-          {inbox && inbox.unreadEmails > 0 && (
-            <span className="font-mono text-[12px] font-normal tabular-nums text-ink-mute">{inbox.unreadEmails}</span>
-          )}
-        </Link>
-      </div>
-      {open &&
-        mailboxTree(mailboxes).map(({ mailbox: m, depth }) => {
-          const Icon = (m.role && ROLE_ICON[m.role]) || Folder;
-          return (
-            <Link
-              key={m.id}
-              href={hrefOf(m)}
-              aria-current={isActive(m) ? "page" : undefined}
-              style={{ paddingLeft: 30 + depth * 14 }}
-              className={`${ROW.replace("lg:h-8", "lg:h-7")} text-[13.5px] text-ink-soft aria-[current=page]:font-medium`}
-            >
-              <Icon size={14} aria-hidden className="shrink-0" />
-              <span className="flex-1 truncate">{folderLabel(m)}</span>
-              {m.unreadEmails > 0 && m.role !== "trash" && m.role !== "junk" && (
-                <span className="font-mono text-[11.5px] tabular-nums text-ink-mute">{m.unreadEmails}</span>
-              )}
-            </Link>
-          );
-        })}
-      {open && !mailboxes.length && <p className="py-1 pl-8 text-[12.5px] text-ink-mute">{tn("sharedEmpty")}</p>}
-    </div>
+          {(label.match(/[\p{L}\p{N}]/u)?.[0] ?? "?").toUpperCase()}
+        </span>
+        <span className="min-w-0 flex-1 truncate font-medium text-ink">{label}</span>
+        {(account.kind === "shared" || account.isReadOnly) && (
+          <span className="shrink-0 rounded border border-line px-1 py-px font-mono text-[10px] uppercase tracking-[0.08em] text-ink-mute">
+            {tn(account.isReadOnly ? "readOnlyTag" : "sharedTag")}
+          </span>
+        )}
+        {unread > 0 && <span className="shrink-0 font-mono text-[12px] tabular-nums text-ink-mute">{unread}</span>}
+        <ChevronRight
+          size={14}
+          aria-hidden
+          className={`shrink-0 text-ink-mute transition-transform duration-200 ease-[var(--ease-out-soft)] ${open ? "rotate-90" : ""}`}
+        />
+      </button>
+      {open && <div className="mt-0.5 flex flex-col gap-0.5">{children}</div>}
+    </section>
   );
 }
 

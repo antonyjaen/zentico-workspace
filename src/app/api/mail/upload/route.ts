@@ -6,7 +6,7 @@ import { cleanFileName, MAX_ATTACHMENT_BYTES, uploadBlob } from "@/lib/mail-comp
 /**
  * Attachment upload proxy: the browser posts the raw file here and we forward it to the JMAP
  * upload endpoint with the user's token, so the token never reaches the browser.
- * Query: ?name=<file name>. Body: the file bytes. Header Content-Type: the file type.
+ * Query: ?name=<file name>&account=<identity account id>. Body: the file bytes. Header Content-Type: the file type.
  */
 export async function POST(req: NextRequest) {
   if (!(await getSession())) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -24,7 +24,8 @@ export async function POST(req: NextRequest) {
 
   const type = (req.headers.get("content-type") ?? "").split(";")[0].trim() || "application/octet-stream";
   try {
-    const blob = await uploadBlob(body, type);
+    // ?account=: the sending identity's account, so the blob lands where the message is created.
+    const blob = await uploadBlob(body, type, req.nextUrl.searchParams.get("account"));
     return NextResponse.json({ ...blob, name: cleanFileName(req.nextUrl.searchParams.get("name")) });
   } catch {
     return NextResponse.json({ error: "upload_failed" }, { status: 502 });

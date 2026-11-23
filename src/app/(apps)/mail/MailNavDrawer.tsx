@@ -15,7 +15,7 @@ const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:n
 
 /**
  * Below `lg` the mail sidebar is hidden; this renders the same sidebar content (compose button,
- * folders, labels, shared inboxes) in a left drawer that list headers open with `useOpenMailNav`.
+ * folders and labels of every address) in a left drawer that list headers open with `useOpenMailNav`.
  */
 export function MailNavDrawer({ nav, children }: { nav: React.ReactNode; children: React.ReactNode }) {
   const t = useTranslations("mailActions.mobile");
@@ -33,7 +33,7 @@ export function MailNavDrawer({ nav, children }: { nav: React.ReactNode; childre
     opener.current?.focus?.();
   }, []);
 
-  // Any navigation (folder, label, shared inbox, compose) closes the drawer.
+  // Any navigation (folder, label, another address, compose) closes the drawer.
   useEffect(() => setOpen(false), [pathname]);
 
   useEffect(() => {

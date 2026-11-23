@@ -7,6 +7,7 @@ import {
   ACTING_COOKIE,
   isSignedOut,
   LEGACY_SESSION_COOKIE,
+  needsRefresh,
   parseActing,
   readAccounts,
   unsealSession,
@@ -92,6 +93,20 @@ export async function requireSession(): Promise<Session> {
   const { sessions, order } = await cookieAccounts();
   const active = order.length ? sessions[order[0]] : null;
   redirect(active?.email ? `/signin?hint=${encodeURIComponent(active.email)}` : "/signin");
+}
+
+/**
+ * Every signed-in slot of this browser usable for data right now (fresh access token, not signed
+ * out, past the lifetime or held back by the 2FA policy), most recently used first. Empty inside
+ * runWithSession (MCP): an explicit session never borrows browser cookies.
+ */
+export async function usableSlotSessions(): Promise<{ slot: number; session: Session }[]> {
+  if (context.getStore()) return [];
+  const { sessions, order } = await cookieAccounts();
+  return order.flatMap((slot) => {
+    const s = sessions[slot];
+    return s && !isExpired(s) && !isGated(s.sub) && !needsRefresh(s) ? [{ slot, session: s }] : [];
+  });
 }
 
 /** Safe-to-render summary of a signed-in account (never includes tokens). */

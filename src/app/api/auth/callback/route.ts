@@ -143,6 +143,14 @@ export async function GET(req: NextRequest) {
     const accounts = await readAccounts(req.cookies);
     const existing = accounts.order.find((slot) => sameAccount(accounts.sessions[slot]!, session));
     const slot = existing ?? (tx.add || !accounts.order.length ? freeSlot(accounts) : accounts.order[0]);
+    // keep: the active account stays active; the added one goes right after it in the MRU order.
+    // Not while the workspace 2FA policy is on: a kept account would skip the fresh TOTP check
+    // below (and an unchecked one stays gated, i.e. invisible), so it takes the normal flow.
+    const keep =
+      !getPolicy().required && !!tx.add && !!tx.keep && accounts.order.length > 0 && slot !== accounts.order[0];
+    const order = keep
+      ? [accounts.order[0], slot, ...accounts.order.slice(1).filter((s) => s !== slot)]
+      : promote(accounts.order, slot);
     const sealed = await sealSession(session);
     if (sealed.length > 3800) console.warn(`[auth] session cookie is ${sealed.length} bytes (limit ~4096)`);
 
@@ -150,16 +158,16 @@ export async function GET(req: NextRequest) {
     // silent security grant on the provider's single sign-on session) before letting it in.
     const returnTo = safeReturnTo(tx.returnTo);
     const res = NextResponse.redirect(
-      getPolicy().required
+      getPolicy().required && !keep
         ? `${env.appUrl}/api/auth/login?security=check&returnTo=${encodeURIComponent(returnTo)}`
         : `${env.appUrl}${returnTo}`,
     );
     res.cookies.delete(TX_COOKIE);
-    res.cookies.delete(SECURITY_COOKIE);
+    if (!keep) res.cookies.delete(SECURITY_COOKIE);
     writeCookie(res, slotCookie(slot), sealed);
-    writeCookie(res, ACTIVE_COOKIE, serializeOrder(promote(accounts.order, slot)));
+    writeCookie(res, ACTIVE_COOKIE, serializeOrder(order));
     // A fresh sign-in lands on the account itself, not on a delegated account it can act as.
-    if (req.cookies.has(ACTING_COOKIE)) writeCookie(res, ACTING_COOKIE, null);
+    if (!keep && req.cookies.has(ACTING_COOKIE)) writeCookie(res, ACTING_COOKIE, null);
     if (req.cookies.has(LEGACY_SESSION_COOKIE)) writeCookie(res, LEGACY_SESSION_COOKIE, null);
     return res;
   } catch (error) {

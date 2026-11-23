@@ -63,7 +63,8 @@ export const redirectUri = () => `${env.appUrl}/api/auth/callback`;
 
 /**
  * Short-lived login transaction kept in an encrypted cookie between /login and /callback.
- * `add` = sign in an additional account instead of replacing the active one.
+ * `add` = sign in an additional account instead of replacing the active one; with `keep`, the
+ * active account stays active (the new one is only added, e.g. to read its mail alongside).
  * `mcp` = the one-off authorization for creating an MCP token's Stalwart API key (it doesn't
  * touch the account cookies).
  */
@@ -72,6 +73,7 @@ export type AuthTransaction = {
   verifier: string;
   returnTo: string;
   add?: boolean;
+  keep?: boolean;
   mcp?: boolean;
   /** The security grant for Settings → Security (doesn't touch the account cookies). */
   security?: SecurityMode;
@@ -81,13 +83,14 @@ export async function buildAuthorizeUrl(
   returnTo: string,
   {
     add = false,
+    keep = false,
     loginHint,
     mcp = false,
     security,
-  }: { add?: boolean; loginHint?: string; mcp?: boolean; security?: SecurityMode } = {},
+  }: { add?: boolean; keep?: boolean; loginHint?: string; mcp?: boolean; security?: SecurityMode } = {},
 ) {
   const { authorization_endpoint } = await getDiscovery();
-  const tx: AuthTransaction = { state: randomToken(), verifier: randomToken(48), returnTo, add, mcp, security };
+  const tx: AuthTransaction = { state: randomToken(), verifier: randomToken(48), returnTo, add, keep: add && keep, mcp, security };
   const params = new URLSearchParams({
     response_type: "code",
     client_id: env.clientId,

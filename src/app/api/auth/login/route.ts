@@ -6,7 +6,8 @@ import { appRoot, buildAuthorizeUrl, safeLoginHint, safeReturnTo } from "@/lib/o
 import { cookieOptions, TX_COOKIE } from "@/lib/session";
 
 /**
- * Starts an OIDC sign-in. `?add=1` signs in an additional account (kept alongside the others);
+ * Starts an OIDC sign-in. `?add=1` signs in an additional account (kept alongside the others),
+ * plus `&keep=1` to leave the current account active and return to `returnTo` (Mail → add account);
  * `?hint=<email>` re-authenticates a specific account; `?mcp=1` starts the one-off authorization
  * that lets Settings → Integrations create the Stalwart API key behind an MCP token;
  * `?security=check|manage` starts the security grant used by Settings → Security and the 2FA policy
@@ -36,10 +37,12 @@ export async function GET(req: NextRequest) {
     return res;
   }
   const add = params.get("add") === "1";
-  // An added account lands on the app root: deeper URLs hold the previous account's ids.
-  const returnTo = add ? appRoot(params.get("returnTo")) : safeReturnTo(params.get("returnTo"));
+  const keep = add && params.get("keep") === "1";
+  // An added account that becomes active lands on the app root: deeper URLs hold the previous
+  // account's ids. With keep the active account (and its ids) stays, so returnTo is kept.
+  const returnTo = add && !keep ? appRoot(params.get("returnTo")) : safeReturnTo(params.get("returnTo"));
   const loginHint = safeLoginHint(params.get("hint"));
-  const { url, tx } = await buildAuthorizeUrl(returnTo, { add, loginHint });
+  const { url, tx } = await buildAuthorizeUrl(returnTo, { add, keep, loginHint });
   const res = NextResponse.redirect(url);
   res.cookies.set(TX_COOKIE, await seal(tx), cookieOptions(60 * 30));
   return res;

@@ -23,6 +23,8 @@ export function Composer() {
   const pathname = usePathname();
   const router = useRouter();
   const value = params.get("compose");
+  // Mailbox account being viewed (shared or another signed-in account); validated server-side.
+  const account = params.get("account");
   const parsed = parseCompose(value);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -48,6 +50,7 @@ export function Composer() {
         <ComposerPanel
           key={value}
           value={value}
+          account={account}
           onClose={close}
           onDone={(msg) => {
             setToast(msg);
@@ -83,6 +86,8 @@ type Upload = {
   size: number;
   type: string;
   blobId?: string;
+  /** Sending account that can use the blob (blobs are per account). */
+  accountId?: string | null;
   progress: number;
   error?: string;
   xhr?: XMLHttpRequest;
@@ -91,6 +96,11 @@ type Upload = {
 type WindowMode = "normal" | "min" | "max";
 
 const formatAddress = (a: Address) => (a.name ? `${a.name} <${a.email}>` : a.email);
+
+/** Identity ids are only unique per account: the From picker keys on both. */
+const identityKey = (accountId: string | null | undefined, id: string | null | undefined) =>
+  id ? `${accountId ?? ""}/${id}` : "";
+const keyOf = (i: Identity) => identityKey(i.accountId, i.id);
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -107,10 +117,12 @@ function signatureHtml(identity: Identity | undefined): string {
 
 function ComposerPanel({
   value,
+  account,
   onClose,
   onDone,
 }: {
   value: string;
+  account: string | null;
   onClose: () => void;
   onDone: (message: string) => void;
 }) {
@@ -120,6 +132,7 @@ function ComposerPanel({
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [win, setWin] = useState<WindowMode>("normal");
   const [identities, setIdentities] = useState<Identity[]>([]);
+  /** Selected identity as `accountId/identityId` (see identityKey). */
   const [identityId, setIdentityId] = useState("");
   const [to, setTo] = useState<Recipient[]>([]);
   const [cc, setCc] = useState<Recipient[]>([]);
@@ -147,12 +160,14 @@ function ComposerPanel({
     references: null,
   });
   const draftId = useRef<string | null>(null);
+  /** Account the current draft version lives in (the identity's account when it was saved). */
+  const draftAccount = useRef<string | null>(null);
   const versionRef = useRef(0);
   const savedVersion = useRef(0);
   const queue = useRef<Promise<void>>(Promise.resolve());
   const finished = useRef(false);
-  const state = useRef({ identityId, to, cc, bcc, subject, uploads });
-  state.current = { identityId, to, cc, bcc, subject, uploads };
+  const state = useRef({ identityId, identities, to, cc, bcc, subject, uploads });
+  state.current = { identityId, identities, to, cc, bcc, subject, uploads };
 
   const touch = useCallback(() => {
     versionRef.current += 1;
@@ -164,7 +179,7 @@ function ComposerPanel({
 
   useEffect(() => {
     let cancelled = false;
-    loadCompose(value)
+    loadCompose(value, account)
       .then((r) => {
         if (cancelled) return;
         if (!r.ok) {
@@ -173,7 +188,9 @@ function ComposerPanel({
         }
         const { identities, prefill } = r.data;
         setIdentities(identities);
-        setIdentityId(prefill.identityId ?? identities[0]?.id ?? "");
+        const chosen =
+          identities.find((i) => keyOf(i) === identityKey(prefill.identityAccountId, prefill.identityId)) ?? identities[0];
+        setIdentityId(chosen ? keyOf(chosen) : "");
         // `?to=` prefills a new message (e.g. "Send email" from Contacts).
         const toParam = new URLSearchParams(window.location.search).get("to");
         setTo(
@@ -185,12 +202,12 @@ function ComposerPanel({
         setShowBcc(prefill.bcc.length > 0);
         setSubject(prefill.subject);
         setUploads(
-          prefill.attachments.map((a, i) => ({ ...a, key: `${a.blobId}-${i}`, progress: 1 })),
+          prefill.attachments.map((a, i) => ({ ...a, accountId: prefill.attachmentsAccountId, key: `${a.blobId}-${i}`, progress: 1 })),
         );
         threading.current = { inReplyTo: prefill.inReplyTo, references: prefill.references };
         draftId.current = prefill.draftId;
-        const identity = identities.find((i) => i.id === prefill.identityId);
-        setInitialHtml(initialBody(prefill, identity));
+        draftAccount.current = prefill.draftAccountId;
+        setInitialHtml(initialBody(prefill, chosen));
         setStatus("ready");
       })
       .catch(() => !cancelled && setStatus("error"));
@@ -257,8 +274,10 @@ function ComposerPanel({
     const attachments: ComposeAttachment[] = s.uploads
       .filter((u) => u.blobId && !u.error)
       .map((u) => ({ blobId: u.blobId!, name: u.name, type: u.type, size: u.size }));
+    const identity = s.identities.find((i) => keyOf(i) === s.identityId);
     return {
-      identityId: s.identityId,
+      identityId: identity?.id ?? "",
+      identityAccountId: identity?.accountId ?? null,
       to: emails(s.to),
       cc: emails(s.cc),
       bcc: emails(s.bcc),
@@ -289,9 +308,11 @@ function ComposerPanel({
       if (v === savedVersion.current) return;
       if (!state.current.identityId || (!draftId.current && isBlank())) return;
       setSaveState("saving");
-      const r = await saveDraftAction(payload(false), draftId.current, final).catch(() => null);
+      const body = payload(false);
+      const r = await saveDraftAction(body, draftId.current, final, draftAccount.current).catch(() => null);
       if (r?.ok) {
         draftId.current = r.data;
+        draftAccount.current = body.identityAccountId;
         savedVersion.current = v;
         setSaveState("saved");
       } else {
@@ -324,7 +345,7 @@ function ComposerPanel({
     finished.current = true;
     for (const u of state.current.uploads) u.xhr?.abort();
     await queue.current;
-    if (draftId.current) await discardDraftAction(draftId.current).catch(() => null);
+    if (draftId.current) await discardDraftAction(draftId.current, draftAccount.current).catch(() => null);
     onDone(t("discarded"));
   };
 
@@ -339,12 +360,16 @@ function ComposerPanel({
     setError(null);
     finished.current = true;
     await queue.current;
-    const r = await sendAction(payload(true), draftId.current).catch(() => null);
+    const body = payload(true);
+    const r = await sendAction(body, draftId.current, draftAccount.current).catch(() => null);
     if (r?.ok && r.data.ok) {
       onDone(t("sent"));
       return;
     }
-    if (r?.ok && !r.data.ok) draftId.current = r.data.draftId;
+    if (r?.ok && !r.data.ok && r.data.draftId !== draftId.current) {
+      draftId.current = r.data.draftId;
+      draftAccount.current = body.identityAccountId;
+    }
     finished.current = false;
     setSending(false);
     setError(t("errors.sendFailed", { reason: r ? (r.ok ? (r.data.ok ? "" : r.data.error) : r.error) : "network" }));
@@ -365,7 +390,9 @@ function ComposerPanel({
       }
       const xhr = new XMLHttpRequest();
       const patch = (p: Partial<Upload>) => setUploads((list) => list.map((u) => (u.key === key ? { ...u, ...p } : u)));
-      xhr.open("POST", `/api/mail/upload?name=${encodeURIComponent(file.name)}`);
+      // Upload into the sending identity's account (another signed-in account has its own store).
+      const from = state.current.identities.find((i) => keyOf(i) === state.current.identityId)?.accountId ?? "";
+      xhr.open("POST", `/api/mail/upload?name=${encodeURIComponent(file.name)}&account=${encodeURIComponent(from)}`);
       xhr.setRequestHeader("Content-Type", base.type);
       xhr.upload.onprogress = (e) => e.lengthComputable && patch({ progress: e.loaded / e.total });
       xhr.onload = () => {
@@ -382,7 +409,7 @@ function ComposerPanel({
         patch({ error: xhr.status === 413 ? t("errors.tooLarge") : t("errors.uploadFailed"), xhr: undefined });
       };
       xhr.onerror = () => patch({ error: t("errors.uploadFailed"), xhr: undefined });
-      setUploads((u) => [...u, { ...base, xhr }]);
+      setUploads((u) => [...u, { ...base, accountId: from || null, xhr }]);
       xhr.send(file);
     }
   };
@@ -397,11 +424,14 @@ function ComposerPanel({
 
   /* -------------------------------------------------------- identity */
 
+  // Attachments only exist in one account's store: while there are some, From stays in that account.
+  const lockedAccount = uploads.find((u) => !u.error && u.accountId)?.accountId ?? null;
   const changeIdentity = (id: string) => {
+    if (lockedAccount && identities.find((i) => keyOf(i) === id)?.accountId !== lockedAccount) return;
     setIdentityId(id);
     const sigEl = editorRef.current?.querySelector(`[${SIGNATURE_ATTR}]`);
     if (sigEl) {
-      const sig = signatureHtml(identities.find((i) => i.id === id));
+      const sig = signatureHtml(identities.find((i) => keyOf(i) === id));
       sigEl.innerHTML = sig ? `<br>-- <br>${sig}` : "";
     }
     touch();
@@ -517,7 +547,7 @@ function ComposerPanel({
                     className="min-w-0 flex-1 truncate bg-transparent text-[14px] text-ink outline-none"
                   >
                     {identities.map((i) => (
-                      <option key={i.id} value={i.id}>
+                      <option key={keyOf(i)} value={keyOf(i)} disabled={!!lockedAccount && i.accountId !== lockedAccount}>
                         {i.name ? `${i.name} <${i.email}>` : i.email}
                       </option>
                     ))}
