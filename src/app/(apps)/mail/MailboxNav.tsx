@@ -12,6 +12,7 @@ import {
   Plus,
   Send,
   Trash2,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -447,6 +448,7 @@ function AccountSection({
 }) {
   const tn = useTranslations("mailActions.nav");
   const label = account.email || account.name;
+  const at = label.indexOf("@");
   const own = account.kind === "own";
   return (
     <section className={separated ? "mt-2 border-t border-line pt-2" : undefined}>
@@ -465,10 +467,15 @@ function AccountSection({
         >
           {(label.match(/[\p{L}\p{N}]/u)?.[0] ?? "?").toUpperCase()}
         </span>
-        <span className="min-w-0 flex-1 truncate font-medium text-ink">{label}</span>
+        {/* Same-name addresses differ only by domain: shorten the local part, never the domain. */}
+        <span className="flex min-w-0 flex-1 font-medium text-ink">
+          <span className="truncate">{at > 0 ? label.slice(0, at) : label}</span>
+          {at > 0 && <span className="shrink-0">{label.slice(at)}</span>}
+        </span>
         {(account.kind === "shared" || account.isReadOnly) && (
-          <span className="shrink-0 rounded border border-line px-1 py-px font-mono text-[10px] uppercase tracking-[0.08em] text-ink-mute">
-            {tn(account.isReadOnly ? "readOnlyTag" : "sharedTag")}
+          <span title={tn(account.isReadOnly ? "readOnlyTag" : "sharedTag")} className="shrink-0 text-ink-mute">
+            <Users size={13} aria-hidden />
+            <span className="sr-only">{tn(account.isReadOnly ? "readOnlyTag" : "sharedTag")}</span>
           </span>
         )}
         {unread > 0 && <span className="shrink-0 font-mono text-[12px] tabular-nums text-ink-mute">{unread}</span>}
