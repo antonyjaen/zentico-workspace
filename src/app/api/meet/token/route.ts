@@ -1,5 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSession } from "@/lib/auth";
+import { VOICE_ROOM_PREFIX, voiceChannelOf } from "@/app/(apps)/chat/shared";
+import { chatUserOrNull } from "@/lib/chat/session";
+import { voiceChannel } from "@/lib/chat/store";
 import {
   isValidRoom,
   livekitConfig,
@@ -32,6 +35,24 @@ export async function POST(req: NextRequest) {
   }
   if (!isValidRoom(room)) return NextResponse.json({ error: "invalid_room" }, { status: 400, headers: NO_STORE });
 
+  // Voice channel rooms ("vc-<conversationId>") are reserved: only people who can read the channel
+  // get in. Checked again on every (re)join, so losing access keeps you out.
+  const voice = room.startsWith(VOICE_ROOM_PREFIX);
+  if (voice) {
+    const id = voiceChannelOf(room);
+    const me = await chatUserOrNull();
+    let allowed = false;
+    if (id && me) {
+      try {
+        voiceChannel(id, me.id);
+        allowed = true;
+      } catch {
+        // not readable, or not a voice channel
+      }
+    }
+    if (!allowed) return NextResponse.json({ error: "forbidden" }, { status: 403, headers: NO_STORE });
+  }
+
   const token = await mintAccessToken(config, {
     identity: session.email,
     name: session.name || session.email,
@@ -39,6 +60,8 @@ export async function POST(req: NextRequest) {
   });
 
   const res = NextResponse.json({ token, url: config.url }, { headers: NO_STORE });
+  // Voice channels aren't meetings: keep them out of "recent meetings".
+  if (voice) return res;
   const recent = [room, ...parseRecentRooms(req.cookies.get(RECENT_ROOMS_COOKIE)?.value).filter((r) => r !== room)];
   res.cookies.set(RECENT_ROOMS_COOKIE, JSON.stringify(recent.slice(0, RECENT_ROOMS_MAX)), {
     httpOnly: true,

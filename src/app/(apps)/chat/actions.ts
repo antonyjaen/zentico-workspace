@@ -311,6 +311,7 @@ export async function createChannel(
   description: string,
   isPrivate: boolean,
   memberIds: number[],
+  mode: unknown = "text",
 ): Promise<ActionResult<string>> {
   return act((me) =>
     store.createChannel(teamId(team), me.id, {
@@ -318,6 +319,7 @@ export async function createChannel(
       description: name(description, false, 500) ?? "",
       isPrivate: isPrivate === true,
       members: ids(memberIds, 1000),
+      mode: mode === "voice" ? "voice" : "text",
     }),
   );
 }

@@ -302,6 +302,8 @@ export const CHAT_TOOLS: Tool[] = [
                 id: c.id,
                 name: c.name,
                 private: c.isPrivate || undefined,
+                voice: c.mode === "voice" || undefined,
+                connected: c.mode === "voice" && c.voice?.length ? c.voice.map((p) => p.name) : undefined,
                 joined: c.joined ? undefined : false,
                 members: c.memberCount,
                 unread: c.unread || undefined,

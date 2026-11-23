@@ -5,6 +5,7 @@
 import { MessageSquare, UserPlus } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMeeting } from "../meet/MeetingProvider";
 import { DesktopPrompt } from "./DesktopPrompt";
 import { getOverview } from "./actions";
 import { Conversation } from "./Conversation";
@@ -13,6 +14,7 @@ import { AddressBookMenu, PeopleList, PeoplePane, usePeopleData, type PeopleView
 import { Sidebar, type SidebarTab } from "./Sidebar";
 import { isConversationId, OPEN_CONVERSATION_EVENT, UNREAD_EVENT, type ChatEvent, type ChatOverview, type ConversationSummary } from "./shared";
 import { MyTasks } from "./TasksPanel";
+import { VoiceControls } from "./VoicePanel";
 import { isTaskId, OPEN_TASK_EVENT, type OpenTaskDetail } from "./tasks-shared";
 
 export type Subscribe = (fn: (e: ChatEvent) => void) => () => void;
@@ -132,6 +134,8 @@ export function ChatApp({ initial, initialId, initialTask = null }: { initial: C
         refresh();
       } else if (event.type === "conversations") {
         refresh();
+      } else if (event.type === "voice") {
+        patch(event.conversationId, (c) => ({ ...c, voice: event.participants }));
       }
     };
     connect();
@@ -225,6 +229,11 @@ export function ChatApp({ initial, initialId, initialTask = null }: { initial: C
     openConversation(id);
   };
 
+  // Voice channels connect on click (the Meet provider keeps the call across apps).
+  const { joinVoice } = useMeeting();
+  // Joining always takes a click in the sidebar (never a link: it would open the mic unasked).
+  const joinVoiceChannel = useCallback((c: ConversationSummary) => void joinVoice(c.id, c.name), [joinVoice]);
+
   const showMain = !!activeId || !!person;
 
   return (
@@ -236,6 +245,7 @@ export function ChatApp({ initial, initialId, initialTask = null }: { initial: C
           activeId={activeId}
           connected={connected}
           onOpen={openConversation}
+          onJoinVoice={joinVoiceChannel}
           tab={tab}
           onTab={setTab}
           renderPeople={(query) => <PeopleList query={query} people={people} view={person} onSelect={selectPerson} />}
@@ -270,6 +280,10 @@ export function ChatApp({ initial, initialId, initialTask = null }: { initial: C
         />
       </div>
       <section className={`${showMain ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col`}>
+        {/* Phones hide the sidebar (and its voice panel) inside a conversation. */}
+        <div className="shrink-0 border-b border-line p-2 empty:hidden md:hidden">
+          <VoiceControls />
+        </div>
         {activeId ? (
           <Conversation
             key={activeId}
@@ -340,7 +354,17 @@ export function ChatApp({ initial, initialId, initialTask = null }: { initial: C
         />
       )}
       {dialog?.kind === "newChannel" && dialogTeam && (
-        <CreateChannelDialog team={dialogTeam} onClose={() => setDialog(null)} onCreated={created} />
+        <CreateChannelDialog
+          team={dialogTeam}
+          onClose={() => setDialog(null)}
+          onCreated={(id, mode) => {
+            // A new voice channel just shows up in the list (its text side starts empty).
+            if (mode === "voice") {
+              setDialog(null);
+              refresh();
+            } else created(id);
+          }}
+        />
       )}
     </main>
   );

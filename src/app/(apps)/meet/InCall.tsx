@@ -36,12 +36,12 @@ import {
   X,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePopover } from "@/components/usePopover";
 import { AddPeopleDialog } from "./AddPeopleDialog";
 import { ClaudeConfirmations, ClaudeListeningBanner, ClaudePanel, useToolLabel } from "./ClaudePanel";
-import { AudioView, Avatar, displayName, Tile, type TileSource } from "./media";
+import { AudioView, Avatar, displayName, Tile, useRoomVersion, type TileSource } from "./media";
 import { MiniCall } from "./MiniCall";
 import { SELECT, useDevices } from "./PreJoin";
 import { clock } from "./recording";
@@ -58,37 +58,6 @@ import {
   type RecordingMode,
   type RecordingNotice,
 } from "./useRecording";
-
-const ROOM_EVENTS = [
-  RoomEvent.ParticipantConnected,
-  RoomEvent.ParticipantDisconnected,
-  RoomEvent.ParticipantNameChanged,
-  RoomEvent.TrackPublished,
-  RoomEvent.TrackUnpublished,
-  RoomEvent.TrackSubscribed,
-  RoomEvent.TrackUnsubscribed,
-  RoomEvent.TrackMuted,
-  RoomEvent.TrackUnmuted,
-  RoomEvent.LocalTrackPublished,
-  RoomEvent.LocalTrackUnpublished,
-  RoomEvent.ActiveSpeakersChanged,
-  RoomEvent.ConnectionQualityChanged,
-  RoomEvent.ConnectionStateChanged,
-  RoomEvent.AudioPlaybackStatusChanged,
-  RoomEvent.ActiveDeviceChanged,
-] as const;
-
-/** Re-renders whenever anything visible about the room changes. */
-function useRoomVersion(room: Room) {
-  const [version, bump] = useReducer((n: number) => n + 1, 0);
-  useEffect(() => {
-    for (const ev of ROOM_EVENTS) room.on(ev, bump);
-    return () => {
-      for (const ev of ROOM_EVENTS) room.off(ev, bump);
-    };
-  }, [room]);
-  return version;
-}
 
 type TileInfo = { key: string; participant: Participant; source: TileSource; isLocal: boolean };
 type Panel = "chat" | "people" | "settings" | "claude" | null;

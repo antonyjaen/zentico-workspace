@@ -2,7 +2,7 @@
 
 // Small building blocks shared by the Chat views: avatars, the people picker, the modal shell,
 // the cached directory and date formatting.
-import { Hash, Lock, Sparkles, Users, X } from "lucide-react";
+import { Hash, Lock, Sparkles, Users, Volume2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { listPeople } from "./actions";
@@ -106,16 +106,26 @@ export function appsAsPeople(list: ChatUser[] | null, name: (u: ChatUser) => str
 }
 
 /** The icon/avatar used for a conversation in lists and headers. */
-export function ConversationIcon({ c, size = 32 }: { c: Pick<ConversationSummary, "kind" | "peer" | "isPrivate" | "name">; size?: number }) {
+export function ConversationIcon({
+  c,
+  size = 32,
+}: {
+  c: Pick<ConversationSummary, "kind" | "peer" | "isPrivate" | "name"> & Partial<Pick<ConversationSummary, "mode">>;
+  size?: number;
+}) {
   if (c.kind === "dm" && c.peer) return <Avatar name={c.peer.name} email={c.peer.email} bot={c.peer.bot} size={size} />;
-  const Icon = c.kind === "channel" ? (c.isPrivate ? Lock : Hash) : Users;
+  const voice = c.kind === "channel" && c.mode === "voice";
+  const Icon = voice ? Volume2 : c.kind === "channel" ? (c.isPrivate ? Lock : Hash) : Users;
   return (
     <span
       aria-hidden
-      className="grid shrink-0 place-items-center rounded-lg border border-line bg-sheet-muted text-ink-soft"
+      className="relative grid shrink-0 place-items-center rounded-lg border border-line bg-sheet-muted text-ink-soft"
       style={{ width: size, height: size }}
     >
       <Icon size={Math.round(size * 0.45)} />
+      {voice && c.isPrivate && (
+        <Lock size={Math.max(9, Math.round(size * 0.32))} className="absolute -right-1 -bottom-1 rounded-full bg-sheet p-px text-ink-mute" />
+      )}
     </span>
   );
 }

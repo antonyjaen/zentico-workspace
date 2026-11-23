@@ -2,6 +2,19 @@
 import type { AddressBook, Contact } from "@/lib/contacts";
 
 export type ConversationKind = "dm" | "group" | "channel";
+/** Channels are text (messages) or voice (an always-open audio room plus its own text chat). */
+export type ChannelMode = "text" | "voice";
+
+/** Someone connected to a voice channel right now. */
+export type VoiceParticipant = { userId: number; name: string; email: string; muted: boolean; deafened: boolean; since: number };
+
+/** LiveKit room of a voice channel: fixed per channel, reserved prefix (the token route checks access). */
+export const VOICE_ROOM_PREFIX = "vc-";
+export const voiceRoom = (id: string) => VOICE_ROOM_PREFIX + id;
+export const voiceChannelOf = (room: string): string | null =>
+  room.startsWith(VOICE_ROOM_PREFIX) && CONVERSATION_ID.test(room.slice(VOICE_ROOM_PREFIX.length)) ? room.slice(VOICE_ROOM_PREFIX.length) : null;
+/** Connected clients refresh their presence this often (the server drops it after ~2.5 beats). */
+export const VOICE_HEARTBEAT_MS = 30_000;
 export type MessageKind = "text" | "meeting" | "system" | "file";
 
 /**
@@ -192,6 +205,10 @@ export type ConversationSummary = {
   rawName: string | null;
   teamId: string | null;
   isPrivate: boolean;
+  /** Always "text" for DMs and groups. */
+  mode: ChannelMode;
+  /** Voice channels: who is connected right now. */
+  voice?: VoiceParticipant[];
   /** Other person in a DM (for the avatar). */
   peer: ChatUser | null;
   memberCount: number;
@@ -317,7 +334,9 @@ export type ChatEvent =
   /** Something changed about my Claude's commands in a conversation (e.g. a write awaits my approval). */
   | { type: "claude"; conversationId: string }
   /** Tasks of a conversation changed (created, edited, deleted…): views refetch them. */
-  | { type: "tasks"; conversationId: string };
+  | { type: "tasks"; conversationId: string }
+  /** Who is connected to a voice channel changed (joined, left, muted, deafened). */
+  | { type: "voice"; conversationId: string; participants: VoiceParticipant[] };
 
 /** GET /api/chat/claude?c=… : my Claude's running commands and approvals waiting in a conversation. */
 export type ClaudeChatState = {

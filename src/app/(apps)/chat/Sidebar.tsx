@@ -1,17 +1,21 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Contact, ListChecks, MessageSquare, MoreHorizontal, Pencil, Plus, Search, SquarePen, UserPlus, Users, WifiOff, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Contact, ListChecks, Loader2, MessageSquare, MoreHorizontal, Pencil, Plus, Search, SquarePen, UserPlus, Users, WifiOff, X } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePopover } from "@/components/usePopover";
-import type { ChatOverview, ConversationSummary, TeamSummary } from "./shared";
-import { ConversationIcon, fold, shortTime } from "./ui";
+import { useMeeting } from "../meet/MeetingProvider";
+import { voiceChannelOf, type ChatOverview, type ConversationSummary, type TeamSummary } from "./shared";
+import { BTN, BTN_PRIMARY, ConversationIcon, fold, shortTime } from "./ui";
+import { useVoiceRoom, VoiceControls, VoiceRoster, type VoiceLive } from "./VoicePanel";
 
 type Props = {
   data: ChatOverview;
   activeId: string | null;
   connected: boolean;
   onOpen: (id: string) => void;
+  /** Connect to a voice channel (moving out of any other call). */
+  onJoinVoice: (c: ConversationSummary) => void;
   onNewChat: () => void;
   onNewTeam: () => void;
   onTeamMembers: (teamId: string) => void;
@@ -44,6 +48,7 @@ export function Sidebar({
   activeId,
   connected,
   onOpen,
+  onJoinVoice,
   onNewChat,
   onNewTeam,
   onTeamMembers,
@@ -57,6 +62,14 @@ export function Sidebar({
 }: Props) {
   const t = useTranslations("chat");
   const tt = useTranslations("tasks");
+  const meeting = useMeeting();
+  const live = useVoiceRoom();
+  const voice = {
+    live,
+    inMeeting: meeting.call?.kind === "meeting",
+    joiningId: meeting.joiningRoom ? voiceChannelOf(meeting.joiningRoom) : null,
+    onJoin: onJoinVoice,
+  };
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   useEffect(() => setCollapsed(readCollapsed()), []);
@@ -162,6 +175,7 @@ export function Sidebar({
                 onMembers={() => onTeamMembers(team.id)}
                 onNewChannel={() => onNewChannel(team.id)}
                 onRename={() => onRenameTeam(team.id)}
+                voice={voice}
               />
             ))
           )}
@@ -180,7 +194,97 @@ export function Sidebar({
           )}
         </nav>
       )}
+      {/* Connected to a voice channel (or connecting): Discord's "Voice connected" panel. */}
+      <div className="shrink-0 border-t border-line p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] empty:hidden">
+        <VoiceControls />
+      </div>
     </div>
+  );
+}
+
+type VoiceProps = {
+  live: VoiceLive | null;
+  /** In a meeting or call: joining voice leaves it (asked first). */
+  inMeeting: boolean;
+  joiningId: string | null;
+  onJoin: (c: ConversationSummary) => void;
+};
+
+function VoiceRow({ c, active, onOpen, voice }: { c: ConversationSummary; active: boolean; onOpen: () => void; voice: VoiceProps }) {
+  const t = useTranslations("chat");
+  const [confirm, setConfirm] = useState(false);
+  const rowRef = useRef<HTMLButtonElement>(null);
+  const connected = voice.live?.conversationId === c.id;
+  const join = () => {
+    // Already in it: open its text side, as Discord opens the connected channel's view.
+    if (connected) return onOpen();
+    if (voice.inMeeting) setConfirm(true);
+    else voice.onJoin(c);
+  };
+  const closeConfirm = () => {
+    setConfirm(false);
+    rowRef.current?.focus();
+  };
+  const rowLabel = connected ? t("voiceConnectedTo", { name: c.name }) : t("joinVoice", { name: c.name });
+  return (
+    <>
+      <div className={`group relative flex items-center rounded-md transition-colors hover:bg-hover ${active ? "bg-primary-soft" : ""}`}>
+        <button
+          type="button"
+          ref={rowRef}
+          onClick={join}
+          aria-label={rowLabel}
+          title={c.voice?.length ? rowLabel : `${rowLabel} · ${t("voiceEmpty")}`}
+          className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md pr-1 pl-6 text-left"
+        >
+          <ConversationIcon c={c} size={20} />
+          <span className={`min-w-0 flex-1 truncate text-[13.5px] ${connected ? "font-medium text-ink" : c.joined ? "text-ink-soft" : "text-ink-mute"}`}>
+            {c.name}
+          </span>
+          {voice.joiningId === c.id && <Loader2 size={13} aria-hidden className="shrink-0 animate-spin text-ink-mute" />}
+          {c.joined && <UnreadBadge n={c.unread} />}
+        </button>
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-current={active ? "page" : undefined}
+          className={`icon-btn mr-1 h-7 w-7 shrink-0 ${connected || active || c.unread > 0 ? "" : "md:opacity-0"} md:group-hover:opacity-100 md:focus-visible:opacity-100`}
+          aria-label={t("openTextChat")}
+          title={t("openTextChat")}
+        >
+          <MessageSquare size={14} aria-hidden />
+        </button>
+      </div>
+      {confirm && (
+        <div
+          role="group"
+          aria-label={t("joinVoice", { name: c.name })}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") closeConfirm();
+          }}
+          className="my-1 mr-1 ml-6 rounded-md border border-line bg-sheet-muted p-2.5"
+        >
+          <p className="text-[12.5px] text-ink-soft">{t("voiceInMeeting")}</p>
+          <div className="mt-2 flex justify-end gap-1.5">
+            <button type="button" onClick={closeConfirm} className={BTN}>
+              {t("cancel")}
+            </button>
+            <button
+              type="button"
+              autoFocus
+              onClick={() => {
+                closeConfirm();
+                voice.onJoin(c);
+              }}
+              className={BTN_PRIMARY}
+            >
+              {t("join")}
+            </button>
+          </div>
+        </div>
+      )}
+      <VoiceRoster participants={c.voice ?? []} live={connected ? voice.live : null} />
+    </>
   );
 }
 
@@ -213,6 +317,7 @@ function TeamBlock({
   onMembers,
   onNewChannel,
   onRename,
+  voice,
 }: {
   team: TeamSummary;
   open: boolean;
@@ -222,6 +327,7 @@ function TeamBlock({
   onMembers: () => void;
   onNewChannel: () => void;
   onRename: () => void;
+  voice: VoiceProps;
 }) {
   const t = useTranslations("chat");
   const menu = usePopover();
@@ -266,7 +372,7 @@ function TeamBlock({
       </div>
       {open && (
         <ul className="space-y-px">
-          {team.channels.map((c) => (
+          {team.channels.filter((c) => c.mode !== "voice").map((c) => (
             <li key={c.id}>
               <button
                 type="button"
@@ -282,6 +388,14 @@ function TeamBlock({
               </button>
             </li>
           ))}
+          {/* Voice channels after the text ones (Discord-style): one click connects. */}
+          {team.channels
+            .filter((c) => c.mode === "voice")
+            .map((c) => (
+              <li key={c.id}>
+                <VoiceRow c={c} active={c.id === activeId} onOpen={() => onOpen(c.id)} voice={voice} />
+              </li>
+            ))}
         </ul>
       )}
     </div>

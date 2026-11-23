@@ -1,10 +1,10 @@
 "use client";
 
-import { CalendarCheck, Hash, Lock, Video } from "lucide-react";
+import { CalendarCheck, Hash, Lock, Video, Volume2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { addTeamPeople, createChannel, createTeam, getTeamMembers, renameTeam, scheduleMeeting, startChat } from "./actions";
-import { NAME_MAX, type ChatMessage, type ChatUser, type ConversationDetail, type Person, type TeamSummary } from "./shared";
+import { NAME_MAX, type ChannelMode, type ChatMessage, type ChatUser, type ConversationDetail, type Person, type TeamSummary } from "./shared";
 import { appsAsPeople, Avatar, BTN, BTN_MEET, BTN_PRIMARY, FIELD, Label, Modal, PeoplePicker, useApps, usePeople, useErrorText, useUserName } from "./ui";
 
 function useSubmit() {
@@ -263,11 +263,20 @@ export function TeamMembersDialog({ team, onClose, onChanged }: { team: TeamSumm
   );
 }
 
-export function CreateChannelDialog({ team, onClose, onCreated }: { team: TeamSummary; onClose: () => void; onCreated: (id: string) => void }) {
+export function CreateChannelDialog({
+  team,
+  onClose,
+  onCreated,
+}: {
+  team: TeamSummary;
+  onClose: () => void;
+  onCreated: (id: string, mode: ChannelMode) => void;
+}) {
   const t = useTranslations("chat");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [isPrivate, setPrivate] = useState(false);
+  const [mode, setMode] = useState<ChannelMode>("text");
   const [members, setMembers] = useState<ChatUser[] | null>(null);
   const [picked, setPicked] = useState<Person[]>([]);
   const { busy, error, submit } = useSubmit();
@@ -291,7 +300,12 @@ export function CreateChannelDialog({ team, onClose, onCreated }: { team: TeamSu
           <button
             type="button"
             disabled={busy || !name.trim()}
-            onClick={() => submit(() => createChannel(team.id, name, description, isPrivate, isPrivate ? ids : []), onCreated)}
+            onClick={() =>
+              submit(
+                () => createChannel(team.id, name, description, isPrivate, isPrivate ? ids : [], mode),
+                (id) => onCreated(id, mode),
+              )
+            }
             className={BTN_PRIMARY}
           >
             {t("createChannel")}
@@ -300,6 +314,28 @@ export function CreateChannelDialog({ team, onClose, onCreated }: { team: TeamSu
       }
     >
       <div className="space-y-4">
+        <fieldset>
+          <legend className="mb-1.5 block text-[12.5px] font-medium text-ink-soft">{t("channelType")}</legend>
+          <div className="grid grid-cols-2 gap-2">
+            {(["text", "voice"] as const).map((m) => (
+              <label
+                key={m}
+                className={`flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 transition-colors has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent ${mode === m ? "border-ink-mute bg-hover" : "border-line hover:border-line-strong"}`}
+              >
+                <input type="radio" name="channel-mode" checked={mode === m} onChange={() => setMode(m)} className="sr-only" />
+                {m === "voice" ? (
+                  <Volume2 size={16} className="mt-0.5 shrink-0 text-ink-soft" aria-hidden />
+                ) : (
+                  <Hash size={16} className="mt-0.5 shrink-0 text-ink-soft" aria-hidden />
+                )}
+                <span>
+                  <span className="block text-[13px] font-medium text-ink">{m === "voice" ? t("voice") : t("text")}</span>
+                  <span className="block text-[11.5px] leading-snug text-ink-mute">{m === "voice" ? t("voiceHint") : t("textHint")}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
         <div>
           <Label htmlFor="channel-name">{t("channelName")}</Label>
           <input id="channel-name" autoFocus value={name} maxLength={NAME_MAX} onChange={(e) => setName(e.target.value)} className={FIELD} placeholder={t("channelNamePlaceholder")} />

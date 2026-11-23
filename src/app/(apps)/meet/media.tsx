@@ -2,17 +2,50 @@
 
 import {
   ConnectionQuality,
+  RoomEvent,
   Track,
   type AudioTrack,
   type Participant,
+  type Room,
   type VideoTrack,
 } from "livekit-client";
 import { MicOff, MonitorUp, SignalLow } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useEffect, useRef } from "react";
+import { useEffect, useReducer, useRef } from "react";
 import { avatarGradient, initials } from "../contacts/hrefs";
 
 export const displayName = (p: Participant) => p.name || p.identity;
+
+const ROOM_EVENTS = [
+  RoomEvent.ParticipantConnected,
+  RoomEvent.ParticipantDisconnected,
+  RoomEvent.ParticipantNameChanged,
+  RoomEvent.TrackPublished,
+  RoomEvent.TrackUnpublished,
+  RoomEvent.TrackSubscribed,
+  RoomEvent.TrackUnsubscribed,
+  RoomEvent.TrackMuted,
+  RoomEvent.TrackUnmuted,
+  RoomEvent.LocalTrackPublished,
+  RoomEvent.LocalTrackUnpublished,
+  RoomEvent.ActiveSpeakersChanged,
+  RoomEvent.ConnectionQualityChanged,
+  RoomEvent.ConnectionStateChanged,
+  RoomEvent.AudioPlaybackStatusChanged,
+  RoomEvent.ActiveDeviceChanged,
+] as const;
+
+/** Re-renders whenever anything visible about the room changes. */
+export function useRoomVersion(room: Room) {
+  const [version, bump] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => {
+    for (const ev of ROOM_EVENTS) room.on(ev, bump);
+    return () => {
+      for (const ev of ROOM_EVENTS) room.off(ev, bump);
+    };
+  }, [room]);
+  return version;
+}
 
 /** Attaches a LiveKit video track to a <video> element for as long as it is rendered. */
 export function VideoView({ track, mirror, fit = "cover" }: { track: VideoTrack; mirror?: boolean; fit?: "cover" | "contain" }) {
@@ -36,8 +69,8 @@ export function VideoView({ track, mirror, fit = "cover" }: { track: VideoTrack;
   );
 }
 
-/** Plays a remote audio track through a hidden <audio> element. */
-export function AudioView({ track }: { track: AudioTrack }) {
+/** Plays a remote audio track through a hidden <audio> element (`muted`: deafened). */
+export function AudioView({ track, muted }: { track: AudioTrack; muted?: boolean }) {
   const ref = useRef<HTMLAudioElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -47,6 +80,9 @@ export function AudioView({ track }: { track: AudioTrack }) {
       track.detach(el);
     };
   }, [track]);
+  useEffect(() => {
+    if (ref.current) ref.current.muted = !!muted;
+  }, [muted, track]);
   return <audio ref={ref} autoPlay className="hidden" />;
 }
 

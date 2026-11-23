@@ -8,6 +8,7 @@ import {
   PAGE_SIZE,
   type BotCard,
   type CallMeta,
+  type ChannelMode,
   type ChatMessage,
   type ChatOverview,
   type ChatUser,
@@ -30,6 +31,7 @@ import { botByUserId, botInfoOf, canUseBot, isBotUser } from "./bots";
 import { all, get, run, tx } from "./db";
 import { publish } from "./events";
 import { onAddedToConversation, onChatMessage, onConversationRead } from "../notifications/chat";
+import { voicePresence } from "./voice";
 
 /** A failed check whose message is safe to show the user (as an error code). */
 export class ChatError extends Error {}
@@ -109,6 +111,7 @@ type ConvRow = {
   description: string;
   team_id: string | null;
   is_private: number;
+  mode: ChannelMode;
   created_by: number;
   last_activity: number;
 };
@@ -120,6 +123,7 @@ const convRow = (r: Row): ConvRow => ({
   description: strv(r.description),
   team_id: typeof r.team_id === "string" ? r.team_id : null,
   is_private: num(r.is_private),
+  mode: strv(r.mode) === "voice" ? "voice" : "text",
   created_by: num(r.created_by),
   last_activity: num(r.last_activity),
 });
@@ -647,6 +651,8 @@ function summarize(conv: ConvRow, userId: number): ConversationSummary {
     rawName: conv.kind === "dm" ? null : conv.name,
     teamId: conv.team_id,
     isPrivate: !!conv.is_private,
+    mode: conv.mode,
+    ...(conv.mode === "voice" ? { voice: voicePresence(conv.id) } : {}),
     peer,
     memberCount,
     joined: !!mine,
@@ -875,17 +881,26 @@ export function renameConversation(convId: string, userId: number, name: string 
 
 // ---------- Teams & channels ----------
 
-function insertChannel(teamId: string, userId: number, name: string, description: string, isPrivate: boolean, members: number[]): string {
+function insertChannel(
+  teamId: string,
+  userId: number,
+  name: string,
+  description: string,
+  isPrivate: boolean,
+  members: number[],
+  mode: ChannelMode = "text",
+): string {
   const id = newId();
   const now = Date.now();
   run(
-    `INSERT INTO conversations (id, kind, name, description, team_id, is_private, created_by, created, last_activity)
-     VALUES (?, 'channel', ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO conversations (id, kind, name, description, team_id, is_private, mode, created_by, created, last_activity)
+     VALUES (?, 'channel', ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     name,
     description,
     teamId,
     isPrivate ? 1 : 0,
+    mode,
     userId,
     now,
     now,
@@ -933,7 +948,7 @@ export function addTeamMembers(teamId: string, userId: number, ids: number[]): v
     return out;
   });
   if (!added.length) return;
-  const general = get("SELECT * FROM conversations WHERE team_id = ? AND is_private = 0 ORDER BY created LIMIT 1", teamId);
+  const general = get("SELECT * FROM conversations WHERE team_id = ? AND is_private = 0 AND mode = 'text' ORDER BY created LIMIT 1", teamId);
   if (general) systemMessage(convRow(general), userId, { action: "added", names: nameList(added) });
   publish(all("SELECT user_id FROM team_members WHERE team_id = ?", teamId).map((r) => num(r.user_id)), { type: "conversations" });
 }
@@ -944,7 +959,10 @@ export function renameTeam(teamId: string, userId: number, name: string, descrip
   const team = get("SELECT name, description FROM teams WHERE id = ?", teamId)!;
   run("UPDATE teams SET name = ?, description = ? WHERE id = ?", name, description ?? strv(team.description), teamId);
   if (name !== strv(team.name)) {
-    const general = get("SELECT * FROM conversations WHERE team_id = ? AND kind = 'channel' AND is_private = 0 ORDER BY created LIMIT 1", teamId);
+    const general = get(
+      "SELECT * FROM conversations WHERE team_id = ? AND kind = 'channel' AND is_private = 0 AND mode = 'text' ORDER BY created LIMIT 1",
+      teamId,
+    );
     if (general) systemMessage(convRow(general), userId, { action: "teamRenamed", name });
   }
   publish(all("SELECT user_id FROM team_members WHERE team_id = ?", teamId).map((r) => num(r.user_id)), { type: "conversations" });
@@ -961,18 +979,46 @@ export function teamMembers(teamId: string, userId: number): (ChatUser & { role:
 export function createChannel(
   teamId: string,
   userId: number,
-  { name, description, isPrivate, members }: { name: string; description: string; isPrivate: boolean; members: number[] },
+  {
+    name,
+    description,
+    isPrivate,
+    members,
+    mode = "text",
+  }: { name: string; description: string; isPrivate: boolean; members: number[]; mode?: ChannelMode },
 ): string {
   if (!teamRole(teamId, userId)) throw new ChatError("notFound");
   const teamIds = all("SELECT user_id FROM team_members WHERE team_id = ?", teamId).map((r) => num(r.user_id));
   const allowed = new Set(teamIds);
   if (members.some((id) => !allowed.has(id))) throw new ChatError("notTeamMember");
   const memberList = isPrivate ? [...new Set([userId, ...members])] : teamIds;
-  const id = tx(() => insertChannel(teamId, userId, name, description, isPrivate, memberList));
+  const id = tx(() => insertChannel(teamId, userId, name, description, isPrivate, memberList, mode));
   systemMessage(convById(id), userId, { action: "created", name });
   publish(isPrivate ? memberList : teamIds, { type: "conversations" });
   if (isPrivate) onAddedToConversation(id, userId, memberList);
   return id;
+}
+
+// ---------- Voice channels ----------
+
+/**
+ * A voice channel the user may join (anyone who can read it, like Discord). A team member opening a
+ * public voice channel they aren't in joins it quietly, so its text side works for them too.
+ */
+export function voiceChannel(convId: string, userId: number): { id: string; name: string } {
+  const { conv, member } = readable(convId, userId);
+  if (conv.kind !== "channel" || conv.mode !== "voice") throw new ChatError("notFound");
+  if (!member && !isBotUser(userId)) {
+    addMembersRaw(convId, [userId]);
+    publish([userId], { type: "conversations" });
+  }
+  return { id: conv.id, name: conv.name ?? "" };
+}
+
+/** Who gets live presence of a voice channel (same audience as its messages). */
+export function voiceAudience(convId: string): number[] {
+  const r = get("SELECT * FROM conversations WHERE id = ?", convId);
+  return r ? audience(convRow(r)) : [];
 }
 
 // ---------- Meetings ----------

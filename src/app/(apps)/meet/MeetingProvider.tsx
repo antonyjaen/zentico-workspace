@@ -7,24 +7,43 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { voiceChannelOf, voiceRoom } from "../chat/shared";
 import { resetLocalStt } from "./localWhisper";
 import type { JoinSettings } from "./PreJoin";
 import { meetHref } from "./shared";
 
 // The call UI (and livekit-client) only loads once a call starts, not on every app page.
 const InCall = dynamic(() => import("./InCall").then((m) => m.InCall), { ssr: false });
+// Voice channels get a light session instead (audio, presence, a small floating bar).
+const VoiceSession = dynamic(() => import("./VoiceSession").then((m) => m.VoiceSession), { ssr: false });
 
 export type LeftReason = "self" | "duplicate" | "ended" | "lost";
-type ActiveCall = { roomName: string; room: Room; videoRecording: boolean };
+/** "voice" = a chat voice channel (room "vc-<conversationId>"), "meeting" = everything else. */
+export type CallKind = "meeting" | "voice";
+type ActiveCall = { roomName: string; room: Room; videoRecording: boolean; kind: CallKind; label?: string };
+type JoinOptions = { kind?: CallKind; label?: string };
+
+/** Voice-channel state shared by the chat sidebar panel and the floating voice bar. */
+export type VoiceState = {
+  deafened: boolean;
+  /** Deafening also mutes the mic (restored on undeafen), as in Discord. */
+  setDeafened: (on: boolean) => void;
+  /** The mic couldn't be opened: connected listen-only. */
+  micBlocked: boolean;
+  setMicBlocked: (on: boolean) => void;
+};
 
 type MeetingContext = {
   call: ActiveCall | null;
   /** The last call that ended, until the user moves on (shown as "You left the meeting" etc.). */
-  ended: { roomName: string; reason: LeftReason } | null;
+  ended: { roomName: string; reason: LeftReason; label?: string } | null;
   joiningRoom: string | null;
   error: { roomName: string; message: string } | null;
   /** Resolves true once connected (false: failed, or another call/join is in progress). */
-  join: (roomName: string, settings: JoinSettings, videoRecording: boolean) => Promise<boolean>;
+  join: (roomName: string, settings: JoinSettings, videoRecording: boolean, opts?: JoinOptions) => Promise<boolean>;
+  /** Joins a voice channel (leaving any other call first); a no-op when already in it. */
+  joinVoice: (conversationId: string, label: string) => Promise<boolean>;
+  voice: VoiceState;
   /** Hangs up; resolves once disconnected. */
   leave: () => Promise<void>;
   dismissEnded: () => void;
@@ -57,7 +76,11 @@ export function MeetingProvider({ children }: { children: React.ReactNode }) {
   const [joiningRoom, setJoiningRoom] = useState<string | null>(null);
   const [error, setError] = useState<MeetingContext["error"]>(null);
   const roomRef = useRef<Room | null>(null);
+  const roomNameRef = useRef<string | null>(null);
   const joiningRef = useRef(false);
+  const [deafened, setDeafenedState] = useState(false);
+  const [micBlocked, setMicBlocked] = useState(false);
+  const micBeforeDeafen = useRef(false);
 
   // The full call view's node. Created on the client only (no call exists during SSR).
   const [host] = useState(() => {
@@ -113,7 +136,7 @@ export function MeetingProvider({ children }: { children: React.ReactNode }) {
   );
 
   const join = useCallback(
-    async (roomName: string, settings: JoinSettings, videoRecording: boolean): Promise<boolean> => {
+    async (roomName: string, settings: JoinSettings, videoRecording: boolean, opts?: JoinOptions): Promise<boolean> => {
       // One Room at a time: double clicks and a second join while connected are ignored.
       if (joiningRef.current || roomRef.current) return false;
       joiningRef.current = true;
@@ -132,7 +155,7 @@ export function MeetingProvider({ children }: { children: React.ReactNode }) {
           window.location.assign(`/signin?returnTo=${encodeURIComponent(window.location.pathname)}`);
           return false;
         }
-        if (!res.ok) throw new Error(res.status === 503 ? "not_configured" : "token");
+        if (!res.ok) throw new Error(res.status === 503 ? "not_configured" : res.status === 403 ? "forbidden" : "token");
         const { token, url } = (await res.json()) as { token: string; url: string };
 
         const { Room, RoomEvent, DisconnectReason } = await import("livekit-client");
@@ -145,8 +168,14 @@ export function MeetingProvider({ children }: { children: React.ReactNode }) {
         await room.connect(url, token);
         const connected = room;
         roomRef.current = connected;
+        roomNameRef.current = roomName;
+        // The reserved prefix always means a voice channel (even when opened from a /meet link).
+        const kind: CallKind = opts?.kind ?? (voiceChannelOf(roomName) ? "voice" : "meeting");
         connected.once(RoomEvent.Disconnected, (reason) => {
-          if (roomRef.current === connected) roomRef.current = null;
+          if (roomRef.current === connected) {
+            roomRef.current = null;
+            roomNameRef.current = null;
+          }
           const why: LeftReason =
             reason === DisconnectReason.CLIENT_INITIATED
               ? "self"
@@ -157,26 +186,34 @@ export function MeetingProvider({ children }: { children: React.ReactNode }) {
                   : "lost";
           // Hanging up from the mini window elsewhere in the app needs no "you left" screen.
           const onPage = pathRef.current === meetHref(roomName);
-          setEnded(why === "self" && !onPage ? null : { roomName, reason: why });
+          setEnded(why === "self" && !onPage ? null : { roomName, reason: why, label: opts?.label });
           setCall((c) => (c?.room === connected ? null : c));
           // Frees the on-device speech model (GPU memory) with the call.
           resetLocalStt();
         });
-        setCall({ roomName, room: connected, videoRecording });
+        setCall({ roomName, room: connected, videoRecording, kind, label: opts?.label });
 
         // Publish after the call UI is up; failures surface as MediaDevicesError toasts in the call.
+        // Voice channels are audio-only (nothing in the voice UI could show or stop a camera).
         const lp = connected.localParticipant;
-        await Promise.allSettled([
+        const [mic] = await Promise.allSettled([
           settings.audio ? lp.setMicrophoneEnabled(true) : Promise.resolve(),
-          settings.video ? lp.setCameraEnabled(true) : Promise.resolve(),
+          settings.video && kind !== "voice" ? lp.setCameraEnabled(true) : Promise.resolve(),
         ]);
+        // The voice session's MediaDevicesError listener may not be subscribed yet.
+        if (kind === "voice" && settings.audio && mic.status === "rejected") setMicBlocked(true);
         return true;
       } catch (e) {
         // Only the token fetch or connect() can throw (publishing is allSettled).
         void room?.disconnect(true);
         setError({
           roomName,
-          message: e instanceof Error && e.message === "not_configured" ? t("notConfigured") : t("connectFailed"),
+          message:
+            e instanceof Error && e.message === "not_configured"
+              ? t("notConfigured")
+              : e instanceof Error && e.message === "forbidden"
+                ? t("forbidden")
+                : t("connectFailed"),
         });
         return false;
       } finally {
@@ -199,22 +236,58 @@ export function MeetingProvider({ children }: { children: React.ReactNode }) {
     const room = roomRef.current;
     if (!room) return;
     await room.disconnect(true).catch(() => {});
-    if (roomRef.current === room) roomRef.current = null;
+    if (roomRef.current === room) {
+      roomRef.current = null;
+      roomNameRef.current = null;
+    }
   }, []);
   const dismissEnded = useCallback(() => setEnded(null), []);
 
+  const joinVoice = useCallback(
+    async (conversationId: string, label: string): Promise<boolean> => {
+      const roomName = voiceRoom(conversationId);
+      if (roomRef.current && roomNameRef.current === roomName) return true;
+      if (joiningRef.current) return false;
+      // Moving between voice channels (or out of a meeting) is a leave + join, like CallsProvider.
+      if (roomRef.current) await leave();
+      return join(roomName, { audio: true, video: false }, false, { kind: "voice", label });
+    },
+    [join, leave],
+  );
+
+  const setDeafened = useCallback((on: boolean) => {
+    setDeafenedState(on);
+    const lp = roomRef.current?.localParticipant;
+    if (!lp) return;
+    if (on) {
+      micBeforeDeafen.current = lp.isMicrophoneEnabled;
+      if (lp.isMicrophoneEnabled) void lp.setMicrophoneEnabled(false).catch(() => {});
+    } else if (micBeforeDeafen.current) {
+      void lp.setMicrophoneEnabled(true).catch(() => setMicBlocked(true));
+    }
+  }, []);
+  // Each connection starts undeafened.
+  useEffect(() => {
+    if (call) return;
+    setDeafenedState(false);
+    setMicBlocked(false);
+  }, [call]);
+  const voice = useMemo<VoiceState>(() => ({ deafened, setDeafened, micBlocked, setMicBlocked }), [deafened, setDeafened, micBlocked]);
+
   const value = useMemo<MeetingContext>(
-    () => ({ call, ended, joiningRoom, error, join, leave, dismissEnded, attachSlot }),
-    [call, ended, joiningRoom, error, join, leave, dismissEnded, attachSlot],
+    () => ({ call, ended, joiningRoom, error, join, joinVoice, voice, leave, dismissEnded, attachSlot }),
+    [call, ended, joiningRoom, error, join, joinVoice, voice, leave, dismissEnded, attachSlot],
   );
 
   const endedElsewhere = ended && pathname !== meetHref(ended.roomName);
+  const endedVoice = ended ? voiceChannelOf(ended.roomName) : null;
 
   return (
     <Ctx.Provider value={value}>
       {children}
       <div ref={parkRef} hidden />
-      {call && host && (
+      {call?.kind === "voice" && <VoiceSession room={call.room} roomName={call.roomName} label={call.label ?? ""} />}
+      {call && call.kind !== "voice" && host && (
         <InCall
           room={call.room}
           roomName={call.roomName}
@@ -230,15 +303,36 @@ export function MeetingProvider({ children }: { children: React.ReactNode }) {
         >
           <PhoneOff size={15} aria-hidden className="shrink-0 text-ink-soft" />
           <span className="min-w-0 text-ink">
-            {{ self: t("leftSelf"), duplicate: t("leftDuplicate"), ended: t("leftEnded"), lost: t("leftLost") }[ended.reason]}
+            {endedVoice
+              ? {
+                  self: t("voiceLeftSelf", { name: ended.label ?? "" }),
+                  duplicate: t("voiceLeftDuplicate", { name: ended.label ?? "" }),
+                  ended: t("voiceLeftEnded", { name: ended.label ?? "" }),
+                  lost: t("voiceLeftLost", { name: ended.label ?? "" }),
+                }[ended.reason]
+              : { self: t("leftSelf"), duplicate: t("leftDuplicate"), ended: t("leftEnded"), lost: t("leftLost") }[ended.reason]}
           </span>
-          <Link
-            href={meetHref(ended.roomName)}
-            onClick={dismissEnded}
-            className="shrink-0 font-medium text-ink underline underline-offset-2"
-          >
-            {t("rejoin")}
-          </Link>
+          {endedVoice ? (
+            // A click (user gesture) so the rejoined channel's audio may play right away.
+            <button
+              type="button"
+              onClick={() => {
+                dismissEnded();
+                void joinVoice(endedVoice, ended.label ?? "");
+              }}
+              className="shrink-0 font-medium text-ink underline underline-offset-2"
+            >
+              {t("rejoin")}
+            </button>
+          ) : (
+            <Link
+              href={meetHref(ended.roomName)}
+              onClick={dismissEnded}
+              className="shrink-0 font-medium text-ink underline underline-offset-2"
+            >
+              {t("rejoin")}
+            </Link>
+          )}
           <button type="button" className="icon-btn shrink-0" onClick={dismissEnded} aria-label={t("closePanel")}>
             <X size={15} aria-hidden />
           </button>

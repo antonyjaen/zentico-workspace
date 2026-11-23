@@ -271,6 +271,11 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX task_assignees_user ON task_assignees(user_id);
   `,
+  // Voice channels (lib/chat/voice.ts): still kind 'channel' (same membership and visibility rules),
+  // with an always-open LiveKit room "vc-<id>". Their text side works like any channel.
+  `
+  ALTER TABLE conversations ADD COLUMN mode TEXT NOT NULL DEFAULT 'text' CHECK (mode IN ('text', 'voice'));
+  `,
 ];
 
 function open(): Database {

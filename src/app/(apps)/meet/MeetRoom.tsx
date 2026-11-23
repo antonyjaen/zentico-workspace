@@ -3,9 +3,11 @@
 import { PhoneOff, Video } from "lucide-react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
-import { useLayoutEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { useMeeting } from "./MeetingProvider";
 import { PreJoin } from "./PreJoin";
+import { voiceChannelOf } from "../chat/shared";
 import { meetHref } from "./shared";
 
 const BTN_PRIMARY =
@@ -29,13 +31,20 @@ export function MeetRoom({
   const t = useTranslations("meet");
   const meeting = useMeeting();
   const { call, ended } = meeting;
+  const router = useRouter();
+  // A voice channel's room ("vc-<id>") lives in Chat, not here: open the channel there.
+  const vc = voiceChannelOf(roomName);
+  useEffect(() => {
+    if (vc) router.replace(`/chat?c=${encodeURIComponent(vc)}`);
+  }, [vc, router]);
+  if (vc) return null;
 
   if (call?.roomName === roomName) return <CallSlot />;
 
   if (call) {
     return (
       <Centered icon={<Video size={24} aria-hidden />} message={t("inOtherCall", { room: call.roomName })}>
-        <Link href={meetHref(call.roomName)} className={BTN_PRIMARY}>
+        <Link href={call.kind === "voice" ? `/chat?c=${voiceChannelOf(call.roomName)}` : meetHref(call.roomName)} className={BTN_PRIMARY}>
           {t("returnToCall")}
         </Link>
         <button type="button" onClick={meeting.leave} className={BTN_SECONDARY}>
