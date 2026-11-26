@@ -18,7 +18,9 @@ import {
 import { useLocale, useTranslations } from "next-intl";
 import Link from "next/link";
 import { memo, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { usePopover } from "@/components/usePopover";
+import { Lightbox } from "../mail/[mailboxId]/t/[threadId]/Attachments";
 import { meetHref } from "../meet/shared";
 import { deleteMessage, editMessage, endMeeting, react } from "./actions";
 import { DriveCards } from "./DriveCard";
@@ -606,18 +608,42 @@ function Attachments({ files }: { files: FileMeta[] }) {
   const t = useTranslations("chat");
   const images = files.filter((f) => isPreviewableImage(f.mime));
   const others = files.filter((f) => !isPreviewableImage(f.mime));
+  const [open, setOpen] = useState<number | null>(null);
   return (
     <div className="mt-1.5 space-y-1.5">
       {images.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {images.map((f) => (
-            <a key={f.id} href={fileHref(f.id)} target="_blank" rel="noopener" className="block overflow-hidden rounded-lg border border-line bg-sheet-muted" title={f.name}>
+          {images.map((f, i) => (
+            <a
+              key={f.id}
+              href={fileHref(f.id)}
+              onClick={(e) => {
+                // Modified clicks keep the browser's own behaviour (new tab, save…).
+                if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                e.preventDefault();
+                setOpen(i);
+              }}
+              className="block overflow-hidden rounded-lg border border-line bg-sheet-muted"
+              title={f.name}
+            >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={fileHref(f.id)} alt={f.name} loading="lazy" className="max-h-64 max-w-[min(100%,360px)] object-contain" />
             </a>
           ))}
         </div>
       )}
+      {open !== null &&
+        images[open] &&
+        // Portal: the message's entry animation leaves a transform that would trap a fixed overlay.
+        createPortal(
+          <Lightbox
+          items={images.map((f) => ({ blobId: f.id, name: f.name, type: f.mime, size: f.size, href: fileHref(f.id, true), inlineHref: fileHref(f.id) }))}
+          index={open}
+          onIndex={setOpen}
+          onClose={() => setOpen(null)}
+          />,
+          document.body,
+        )}
       {others.map((f) => (
         <a
           key={f.id}
