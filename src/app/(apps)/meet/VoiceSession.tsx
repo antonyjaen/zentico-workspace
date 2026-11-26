@@ -7,6 +7,7 @@ import { DisconnectReason, RoomEvent, type AudioTrack, type Room } from "livekit
 import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { playVoiceCue } from "@/components/notifications/sound";
 import { VoiceControls } from "../chat/VoicePanel";
 import { VOICE_HEARTBEAT_MS, voiceChannelOf } from "../chat/shared";
 import { useMeeting } from "./MeetingProvider";
@@ -63,6 +64,18 @@ export function VoiceSession({ room, roomName, label }: { room: Room; roomName: 
       if (!replaced) report(id, "leave", flags.current);
     };
   }, [id, room]);
+
+  // Join / leave cues (also for yourself, so you hear that you're in or out).
+  useEffect(() => {
+    playVoiceCue("join");
+    const joined = () => playVoiceCue("join");
+    const left = () => playVoiceCue("leave");
+    room.on(RoomEvent.ParticipantConnected, joined).on(RoomEvent.ParticipantDisconnected, left);
+    return () => {
+      room.off(RoomEvent.ParticipantConnected, joined).off(RoomEvent.ParticipantDisconnected, left);
+      playVoiceCue("leave");
+    };
+  }, [room]);
 
   // One voice channel per person: joining one in another tab disconnects this tab.
   useEffect(() => {

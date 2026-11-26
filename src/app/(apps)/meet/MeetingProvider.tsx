@@ -9,6 +9,7 @@ import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { voiceChannelOf, voiceRoom } from "../chat/shared";
 import { resetLocalStt } from "./localWhisper";
+import { suppressNoise } from "./noise";
 import type { JoinSettings } from "./PreJoin";
 import { meetHref } from "./shared";
 
@@ -158,7 +159,7 @@ export function MeetingProvider({ children }: { children: React.ReactNode }) {
         if (!res.ok) throw new Error(res.status === 503 ? "not_configured" : res.status === 403 ? "forbidden" : "token");
         const { token, url } = (await res.json()) as { token: string; url: string };
 
-        const { Room, RoomEvent, DisconnectReason } = await import("livekit-client");
+        const { Room, RoomEvent, DisconnectReason, Track } = await import("livekit-client");
         room = new Room({
           adaptiveStream: true,
           dynacast: true,
@@ -167,6 +168,10 @@ export function MeetingProvider({ children }: { children: React.ReactNode }) {
         });
         await room.connect(url, token);
         const connected = room;
+        // Noise suppression on every microphone track this call publishes (first mic, re-enables).
+        connected.on(RoomEvent.LocalTrackPublished, (pub) => {
+          if (pub.source === Track.Source.Microphone && pub.audioTrack) void suppressNoise(pub.audioTrack);
+        });
         roomRef.current = connected;
         roomNameRef.current = roomName;
         // The reserved prefix always means a voice channel (even when opened from a /meet link).

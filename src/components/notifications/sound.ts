@@ -47,6 +47,19 @@ function play(c: AudioContext, kind: "message" | "meeting") {
   });
 }
 
+/** Voice channels: two rising notes when someone joins, two falling ones when someone leaves. */
+export function playVoiceCue(kind: "join" | "leave") {
+  const c = context();
+  if (!c) return;
+  const go = () => {
+    const notes = kind === "join" ? [523.25, 783.99] : [783.99, 523.25];
+    const t0 = c.currentTime + 0.01;
+    notes.forEach((freq, i) => tone(c, c.destination, freq, t0 + i * 0.09, 0.14, 0.06));
+  };
+  if (c.state === "running") go();
+  else void c.resume().then(() => c.state === "running" && go()).catch(() => {});
+}
+
 /**
  * Loops a pattern every `period` seconds through its own gain node until the returned stop()
  * runs. The context may still be locked (no gesture yet in this tab): it then starts once resumed.
